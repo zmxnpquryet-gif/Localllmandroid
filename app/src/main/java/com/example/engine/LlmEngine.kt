@@ -25,8 +25,11 @@ import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.SamplerConfig
 import org.nehuatl.llamacpp.LlamaAndroid
+import org.nehuatl.llamacpp.LlamaContext
+import android.os.ParcelFileDescriptor
 import java.io.File
 import java.io.FileInputStream
+import java.util.concurrent.ConcurrentHashMap
 
 data class GenerationChunk(
     val token: String,
@@ -61,10 +64,43 @@ class LlmEngine(private val context: Context) {
 
     init {
         try {
-            llamaAndroid = LlamaAndroid(context.contentResolver)
+            llamaAndroid = LlamaAndroid(context.contentResolver).apply {
+                try { setContextLimit(16) } catch (_: Throwable) {}
+            }
         } catch (e: Throwable) {
             Log.e(tag, "Failed to initialize LlamaAndroid", e)
         }
+    }
+
+    private fun getOrCreateLlamaAndroid(): LlamaAndroid {
+        return (llamaAndroid ?: LlamaAndroid(context.contentResolver)).also {
+            try {
+                it.setContextLimit(16)
+            } catch (_: Throwable) {}
+            llamaAndroid = it
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun getLlamaContextsMap(llama: LlamaAndroid): ConcurrentHashMap<Int, LlamaContext>? {
+        return try {
+            val field = LlamaAndroid::class.java.getDeclaredField("contexts").apply {
+                isAccessible = true
+            }
+            field.get(llama) as? ConcurrentHashMap<Int, LlamaContext>
+        } catch (e: Throwable) {
+            Log.w(tag, "LlamaAndroid.contexts reflection failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun openPfd(file: File): ParcelFileDescriptor {
+        return try {
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        } catch (e: Throwable) {
+            Log.d(tag, "ParcelFileDescriptor.open direct failed (${e.message}), trying ContentResolver...")
+            context.contentResolver.openFileDescriptor(Uri.fromFile(file), "r")
+        } ?: throw IllegalStateException("모델 파일 디스크립터를 열 수 없습니다: ${file.path}")
     }
 
     /**
@@ -303,100 +339,159 @@ class LlmEngine(private val context: Context) {
         val contextWindow = settings.contextWindow.coerceIn(512, 16384)
         val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
 
-        onStageUpdate?.invoke("네이티브 메모리 매핑(mmap) 및 가중치 로드 중...", 0.65f)
+        val llama = getOrCreateLlamaAndroid()
 
-        val llama = (llamaAndroid ?: LlamaAndroid(context.contentResolver)).also {
-            llamaAndroid = it
+        val tokenCallback: (String) -> Unit = { token ->
+            onTokenGenerated?.invoke(token)
         }
 
-        val modelUri = Uri.fromFile(modelFile)
+        // Multi-stage fallback candidate list:
+        // Stage 1: Kernel mmap + vision tower (if mmproj exists)
+        // Stage 2: Direct memory load + vision tower (if mmproj exists)
+        // Stage 3: Kernel mmap, standard text decoder (contextWindow)
+        // Stage 4: Direct memory load, standard text decoder (contextWindow)
+        // Stage 5: Kernel mmap, reduced context (2048ctx)
+        // Stage 6: Direct memory load, minimal context (1024ctx)
+        data class GgufInitCandidate(
+            val desc: String,
+            val useMmap: Boolean,
+            val useMmproj: Boolean,
+            val ctxLength: Int
+        )
 
-        try {
-            val pfd = context.contentResolver.openFileDescriptor(modelUri, "r")
-                ?: throw IllegalStateException("모델 파일 디스크립터를 열 수 없습니다.")
-            val modelFd = pfd.detachFd()
+        val candidates = mutableListOf<GgufInitCandidate>()
+        if (mmprojPath != null) {
+            candidates.add(GgufInitCandidate("네이티브 mmap + mmproj 비전타워", useMmap = true, useMmproj = true, ctxLength = contextWindow))
+            candidates.add(GgufInitCandidate("직접 메모리 로드 + mmproj 비전타워", useMmap = false, useMmproj = true, ctxLength = contextWindow))
+        }
+        candidates.add(GgufInitCandidate("네이티브 mmap (${contextWindow} ctx)", useMmap = true, useMmproj = false, ctxLength = contextWindow))
+        candidates.add(GgufInitCandidate("직접 메모리 로드 (${contextWindow} ctx)", useMmap = false, useMmproj = false, ctxLength = contextWindow))
+        if (contextWindow > 2048) {
+            candidates.add(GgufInitCandidate("안정화 mmap 모드 (2048 ctx)", useMmap = true, useMmproj = false, ctxLength = 2048))
+            candidates.add(GgufInitCandidate("절전 직접 메모리 모드 (1024 ctx)", useMmap = false, useMmproj = false, ctxLength = 1024))
+        }
 
-            val params = mutableMapOf<String, Any>(
-                "model" to modelUri.toString(),
-                "model_fd" to modelFd,
-                "use_mmap" to true, // CRITICAL FIX: True kernel mmap, zero heap RAM allocation!
-                "use_mlock" to false,
-                "n_ctx" to contextWindow,
-                "embedding" to false,
-                "n_batch" to 512,
-                "n_threads" to threadCount, // CRITICAL FIX: True CPU thread count
-                "n_gpu_layers" to 0,
-                "vocab_only" to false,
-                "lora" to "",
-                "lora_scaled" to 1.0,
-                "rope_freq_base" to 0.0,
-                "rope_freq_scale" to 0.0
-            )
+        var activeContextId: Int? = null
+        var loadedWithMmproj = false
+        var successfulDesc = ""
+        var lastError: Throwable? = null
 
-            var usedMmproj = false
-            if (mmprojPath != null) {
-                try {
-                    val mmprojUri = Uri.fromFile(File(mmprojPath))
-                    val mmprojPfd = context.contentResolver.openFileDescriptor(mmprojUri, "r")
-                    if (mmprojPfd != null) {
+        for ((idx, cand) in candidates.withIndex()) {
+            val progressFraction = 0.40f + (idx.toFloat() / candidates.size.toFloat()) * 0.45f
+            onStageUpdate?.invoke("${cand.desc} 로드 시도 중...", progressFraction)
+            Log.d(tag, "GGUF 로드 시도 (${idx + 1}/${candidates.size}): ${cand.desc}")
+
+            var modelPfd: ParcelFileDescriptor? = null
+            var mmprojPfd: ParcelFileDescriptor? = null
+
+            try {
+                modelPfd = openPfd(modelFile)
+                val modelFd = modelPfd.detachFd()
+
+                val modelUriString = Uri.fromFile(modelFile).toString()
+                val params = mutableMapOf<String, Any>(
+                    "model" to modelUriString,
+                    "model_fd" to modelFd,
+                    "use_mmap" to cand.useMmap,
+                    "use_mlock" to false,
+                    "n_ctx" to cand.ctxLength,
+                    "embedding" to false,
+                    "n_batch" to 512,
+                    "n_threads" to threadCount,
+                    "n_gpu_layers" to 0,
+                    "vocab_only" to false,
+                    "lora" to "",
+                    "lora_scaled" to 1.0,
+                    "rope_freq_base" to 0.0,
+                    "rope_freq_scale" to 0.0
+                )
+
+                if (cand.useMmproj && mmprojPath != null) {
+                    try {
+                        mmprojPfd = openPfd(File(mmprojPath))
                         params["mmproj_fd"] = mmprojPfd.detachFd()
-                        usedMmproj = true
+                    } catch (me: Throwable) {
+                        Log.w(tag, "mmproj 파일 디스크립터 생성 실패 (${me.message}), 텍스트 단독 모드로 진행")
                     }
-                } catch (me: Throwable) {
-                    Log.w(tag, "mmproj 파일 디스크립터 열기 실패: ${me.message}")
                 }
-            }
 
-            val tokenCallback: (String) -> Unit = { token ->
-                onTokenGenerated?.invoke(token)
-            }
+                // Generate random positive context ID
+                val newContextId = kotlin.math.abs(java.util.Random().nextInt()).coerceAtLeast(1)
 
-            val result = try {
-                llama.startEngine(params, tokenCallback)
-            } catch (initEx: Throwable) {
-                if (usedMmproj) {
-                    Log.w(tag, "비전타워 초기화 실패 (${initEx.message}), 텍스트 전용 모드로 재시도합니다.")
-                    params.remove("mmproj_fd")
-                    val retryPfd = context.contentResolver.openFileDescriptor(modelUri, "r")
-                        ?: throw initEx
-                    params["model_fd"] = retryPfd.detachFd()
-                    usedMmproj = false
-                    llama.startEngine(params, tokenCallback)
+                // Instantiate LlamaContext directly - throws real native exception with full cause if failed!
+                val newContext = LlamaContext(newContextId, params)
+                if (newContext.context == 0L) {
+                    throw IllegalStateException("llama.cpp 네이티브 컨텍스트 핸들(0) 반환 실패")
+                }
+
+                newContext.setTokenCallback(tokenCallback)
+
+                // Register into LlamaAndroid.contexts map
+                val contextsMap = getLlamaContextsMap(llama)
+                if (contextsMap != null) {
+                    contextsMap[newContextId] = newContext
                 } else {
-                    throw initEx
+                    Log.w(tag, "contexts 맵 리플렉션 등록 불가")
                 }
+
+                activeContextId = newContextId
+                loadedWithMmproj = cand.useMmproj && params.containsKey("mmproj_fd")
+                successfulDesc = cand.desc
+                Log.i(tag, "GGUF 로드 성공: contextId=$newContextId, 옵션=${cand.desc}")
+                break
+            } catch (e: Throwable) {
+                Log.w(tag, "GGUF 로드 시도 실패 (${cand.desc}): ${e.localizedMessage ?: e.message}")
+                lastError = e
+            } finally {
+                try { modelPfd?.close() } catch (_: Throwable) {}
+                try { mmprojPfd?.close() } catch (_: Throwable) {}
             }
+        }
 
-            val contextId = (result?.get("contextId") as? Number)?.toInt()
-                ?: throw IllegalStateException("llama.cpp contextId 반환 실패: $result")
-
-            llamaContextId = contextId
-            activeModel = model
-            isModelLoaded = true
-            isVisionTowerLoaded = usedMmproj
-
-            val visionText = if (isVisionTowerLoaded) " + mmproj 비전타워" else ""
-            val resultMsg = "[llama.cpp GGUF] ${model.name} 온디바이스 로드 완료 (Context: $contextWindow, ${threadCount}T$visionText)"
-            Log.i(tag, resultMsg)
-            onStageUpdate?.invoke("로드 완료", 1.0f)
-            return@withContext resultMsg
-        } catch (e: Throwable) {
+        if (activeContextId == null) {
             unloadCurrentModel()
-            val errorMsg = e.localizedMessage ?: e.message ?: "알 수 없는 오류"
-            Log.e(tag, "GGUF 로드 실패: $errorMsg", e)
+            val errorMsg = lastError?.localizedMessage ?: lastError?.message ?: "llama.cpp 네이티브 컨텍스트 생성 실패"
+            Log.e(tag, "모든 GGUF 로드 전략 실패: $errorMsg", lastError)
             onStageUpdate?.invoke("로드 실패", 0f)
             return@withContext "모델 로드 실패: $errorMsg"
         }
+
+        llamaContextId = activeContextId
+        activeModel = model
+        isModelLoaded = true
+        isVisionTowerLoaded = loadedWithMmproj
+
+        val visionText = if (isVisionTowerLoaded) " + mmproj 비전타워" else ""
+        val resultMsg = "[llama.cpp GGUF] ${model.name} 온디바이스 로드 완료 ($successfulDesc, ${threadCount}T$visionText)"
+        Log.i(tag, resultMsg)
+        onStageUpdate?.invoke("로드 완료", 1.0f)
+        return@withContext resultMsg
     }
 
     private fun unloadCurrentModel() {
         val llama = llamaAndroid
         val ctxId = llamaContextId
-        if (llama != null && ctxId != null) {
+        if (llama != null) {
+            if (ctxId != null) {
+                try {
+                    llama.releaseContext(ctxId)
+                } catch (e: Throwable) {
+                    Log.w(tag, "Error releasing llama context $ctxId: ${e.message}")
+                }
+            }
+            // Ensure no contexts remain leaked in LlamaAndroid
             try {
-                llama.releaseContext(ctxId)
+                val map = getLlamaContextsMap(llama)
+                map?.forEach { (id, ctx) ->
+                    try {
+                        ctx.release()
+                    } catch (re: Throwable) {
+                        Log.w(tag, "Error releasing leftover context $id: ${re.message}")
+                    }
+                }
+                map?.clear()
             } catch (e: Throwable) {
-                Log.w(tag, "Error releasing llama context: ${e.message}")
+                Log.w(tag, "Error clearing contexts map: ${e.message}")
             }
         }
         llamaContextId = null
