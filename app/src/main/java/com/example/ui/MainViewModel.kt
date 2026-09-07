@@ -162,13 +162,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 enableMtp = if (restoredModel.supportsMtp) true else _settings.value.enableMtp
             )
             viewModelScope.launch {
-                val initStatus = llmEngine.loadModel(restoredModel, _settings.value)
-                _engineStatusMessage.value = initStatus
-                if (llmEngine.isModelReady()) {
-                    _activeModel.value = restoredModel
-                    modelStorageManager.saveActiveModelId(restoredModel.id)
-                } else {
+                try {
+                    val initStatus = llmEngine.loadModel(restoredModel, _settings.value)
+                    _engineStatusMessage.value = initStatus
+                    if (llmEngine.isModelReady()) {
+                        _activeModel.value = restoredModel
+                        modelStorageManager.saveActiveModelId(restoredModel.id)
+                    } else {
+                        _activeModel.value = null
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.e("MainViewModel", "Initial model load failed", t)
                     _activeModel.value = null
+                    _engineStatusMessage.value = "초기 모델 로드 오류: ${t.localizedMessage ?: t.message}"
                 }
             }
         } else {
@@ -309,30 +315,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 enableMtp = if (model.supportsMtp) true else _settings.value.enableMtp
             )
 
-            val status = llmEngine.loadModel(model, _settings.value) { stage, progress ->
-                _modelLoadingStage.value = stage
-                _modelLoadingProgress.value = progress
-            }
+            try {
+                val status = llmEngine.loadModel(model, _settings.value) { stage, progress ->
+                    _modelLoadingStage.value = stage
+                    _modelLoadingProgress.value = progress
+                }
 
-            if (llmEngine.isModelReady()) {
-                _activeModel.value = model
-                _modelLoadingProgress.value = 1.0f
-                _modelLoadingStage.value = "로드 완료"
-                _engineStatusMessage.value = status
-                modelStorageManager.saveActiveModelId(model.id)
-                delay(400)
-            } else {
+                if (llmEngine.isModelReady()) {
+                    _activeModel.value = model
+                    _modelLoadingProgress.value = 1.0f
+                    _modelLoadingStage.value = "로드 완료"
+                    _engineStatusMessage.value = status
+                    modelStorageManager.saveActiveModelId(model.id)
+                    delay(400)
+                } else {
+                    _activeModel.value = null
+                    _modelLoadingProgress.value = 0f
+                    _modelLoadingStage.value = "로드 실패"
+                    _engineStatusMessage.value = status
+                    delay(2000)
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("MainViewModel", "Model loading error", t)
                 _activeModel.value = null
                 _modelLoadingProgress.value = 0f
                 _modelLoadingStage.value = "로드 실패"
-                _engineStatusMessage.value = status
-                delay(1500)
+                _engineStatusMessage.value = "모델 로드 예외: ${t.localizedMessage ?: t.message}"
+                delay(2000)
+            } finally {
+                // Loading completes -> hide loading bar
+                _isModelLoading.value = false
+                _modelLoadingProgress.value = 0f
+                _modelLoadingStage.value = ""
             }
-
-            // Loading completes -> hide loading bar
-            _isModelLoading.value = false
-            _modelLoadingProgress.value = 0f
-            _modelLoadingStage.value = ""
         }
     }
 
@@ -344,7 +359,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             _activeModel.value = null
             viewModelScope.launch {
-                llmEngine.loadModel(null, _settings.value)
+                try {
+                    llmEngine.loadModel(null, _settings.value)
+                } catch (t: Throwable) {
+                    android.util.Log.w("MainViewModel", "Model unload error", t)
+                }
             }
             _engineStatusMessage.value = "${if (runtime == ModelRuntimeType.LLAMA_CPP) "llama.cpp" else "LiteRT LM"} 형식의 다운로드된 모델이 없습니다. 모델 관리자에서 다운로드하세요."
         }
@@ -376,8 +395,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             apply()
         }
         viewModelScope.launch {
-            val status = llmEngine.loadModel(_activeModel.value, newSettings)
-            _engineStatusMessage.value = status
+            try {
+                val status = llmEngine.loadModel(_activeModel.value, newSettings)
+                _engineStatusMessage.value = status
+            } catch (t: Throwable) {
+                android.util.Log.e("MainViewModel", "Model reload error with new settings", t)
+                _engineStatusMessage.value = "설정 적용 오류: ${t.localizedMessage ?: t.message}"
+            }
         }
     }
 

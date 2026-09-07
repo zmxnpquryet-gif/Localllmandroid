@@ -995,8 +995,8 @@ private fun FdmAddBundleDialog(
                         onClick = {
                             modelNameInput = "Gemma 3 1B (LiteRT 통합 비전)"
                             runtimeChoice = ModelRuntimeType.LITE_RT
-                            mainUrlInput = "https://huggingface.co/litert-community/gemma-3-1b-it-litert-lm/resolve/main/gemma-3-1b-it.litertlm"
-                            customFileNameInput = "gemma-3-1b-it.litertlm"
+                            mainUrlInput = "https://huggingface.co/lotapa/gemma3-1b-it-int4.litertlm/resolve/main/gemma3-1b-it-int4.litertlm"
+                            customFileNameInput = "gemma3-1b-it-int4.litertlm"
                             visionUrlInput = ""
                             mtpUrlInput = ""
                             templateUrlInput = ""

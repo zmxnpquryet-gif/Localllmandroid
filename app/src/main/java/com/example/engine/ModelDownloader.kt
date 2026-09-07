@@ -215,7 +215,11 @@ class ModelDownloader {
             // If already fully downloaded and valid
             if (targetFile.exists() && targetFile.length() > 0 && targetFile.length() >= task.fallbackEstimatedSize * 0.95) {
                 val isGguf = targetFile.name.endsWith(".gguf", ignoreCase = true)
-                val isValid = if (isGguf) isGgufFile(targetFile) else true
+                val isLiteRt = GgufMetadataDetector.isLiteRtModel(targetFile.name)
+                val isValid = if (isGguf) isGgufFile(targetFile)
+                else if (isLiteRt) isLitertModelFile(targetFile)
+                else true
+
                 if (isValid) {
                     val existingSize = targetFile.length()
                     bundleDownloadedBytes += existingSize
@@ -228,7 +232,7 @@ class ModelDownloader {
                     )
                     continue
                 } else {
-                    Log.w(tag, "[$componentType] Existing file is not valid GGUF, deleting and re-downloading: ${targetFile.name}")
+                    Log.w(tag, "[$componentType] Existing file is invalid, deleting and re-downloading: ${targetFile.name}")
                     targetFile.delete()
                 }
             }
@@ -293,8 +297,11 @@ class ModelDownloader {
                 return@channelFlow
             }
 
-            // Verify GGUF format if target is a GGUF file
-            if (targetFile.name.endsWith(".gguf", ignoreCase = true)) {
+            // Verify format if target is GGUF or LiteRT
+            val isGguf = targetFile.name.endsWith(".gguf", ignoreCase = true)
+            val isLiteRt = GgufMetadataDetector.isLiteRtModel(targetFile.name)
+
+            if (isGguf) {
                 if (!isGgufFile(targetFile)) {
                     val preview = readTextPreview(targetFile)
                     val errorReason = when {
@@ -306,6 +313,34 @@ class ModelDownloader {
                             "다운로드 완료 후 파일 검증 실패: 유효한 GGUF 파일 형식이 아닙니다."
                     }
                     Log.e(tag, "[$componentType] Validation failed for ${targetFile.name}: $errorReason")
+                    targetFile.delete()
+                    send(
+                        DownloadStatus(
+                            modelId = model.id,
+                            progress = 0f,
+                            downloadedBytes = bundleDownloadedBytes,
+                            totalBytes = totalBundleBytes,
+                            speedText = "오류",
+                            errorMessage = errorReason,
+                            isCompleted = false
+                        )
+                    )
+                    return@channelFlow
+                }
+            } else if (isLiteRt) {
+                if (!isLitertModelFile(targetFile)) {
+                    val preview = readTextPreview(targetFile)
+                    val errorReason = when {
+                        preview.contains("Unauthorized", ignoreCase = true) || preview.contains("401", ignoreCase = true) ->
+                            "다운로드 실패: Hugging Face 인증 필요 (401 Unauthorized). 설정에서 유효한 HF 토큰을 입력해 주세요."
+                        preview.startsWith("<!DOCTYPE", ignoreCase = true) || preview.startsWith("<html", ignoreCase = true) ->
+                            "다운로드 실패: 모델 파일 대신 HTML 웹페이지가 다운로드되었습니다. 링크 및 권한을 확인하세요."
+                        targetFile.length() < 1024 * 1024L ->
+                            "다운로드 실패: 파일 크기가 너무 작습니다 (${targetFile.length()} bytes). 다운로드 링크를 확인하세요."
+                        else ->
+                            "다운로드 완료 후 파일 검증 실패: 유효한 LiteRT 모델 바이너리가 아닙니다."
+                    }
+                    Log.e(tag, "[$componentType] LiteRT validation failed for ${targetFile.name}: $errorReason")
                     targetFile.delete()
                     send(
                         DownloadStatus(
@@ -361,13 +396,17 @@ class ModelDownloader {
     private data class ProbeResult(
         val finalUrl: String,
         val totalBytes: Long,
-        val supportsRange: Boolean
+        val supportsRange: Boolean,
+        val authError: Boolean = false,
+        val errorMsg: String? = null
     )
 
     private fun probeUrl(initialUrl: String, fallbackSize: Long, token: String? = null): ProbeResult {
         var resolvedUrl = initialUrl
         var totalBytes = fallbackSize
         var supportsRange = false
+        var isAuthError = false
+        var errorReason: String? = null
 
         // 1. Probe with Range: bytes=0-0 to resolve redirects and test Range in 1 request
         try {
@@ -382,7 +421,12 @@ class ModelDownloader {
 
             httpClient.newCall(rangeReq).execute().use { resp ->
                 resolvedUrl = resp.request.url.toString()
-                if (resp.code == 206) {
+                if (resp.code == 401 || resp.code == 403) {
+                    isAuthError = true
+                    errorReason = "Hugging Face 인증 필요 (${resp.code}). 설정에서 유효한 HF 토큰을 입력해 주세요."
+                } else if (resp.code == 404) {
+                    errorReason = "모델 파일을 찾을 수 없습니다 (404 Not Found). 다운로드 링크를 확인하세요."
+                } else if (resp.code == 206) {
                     supportsRange = true
                     val cr = resp.header("Content-Range")
                     if (cr != null && cr.contains("/")) {
@@ -400,8 +444,8 @@ class ModelDownloader {
             Log.w(tag, "Range probe check failed: ${e.message}")
         }
 
-        // 2. Fallback HEAD probe if Range didn't confirm
-        if (!supportsRange) {
+        // 2. Fallback HEAD probe if Range didn't confirm and no auth error
+        if (!supportsRange && !isAuthError && errorReason == null) {
             try {
                 val headReq = withHfAuth(
                     Request.Builder()
@@ -414,7 +458,10 @@ class ModelDownloader {
 
                 httpClient.newCall(headReq).execute().use { resp ->
                     resolvedUrl = resp.request.url.toString()
-                    if (resp.isSuccessful) {
+                    if (resp.code == 401 || resp.code == 403) {
+                        isAuthError = true
+                        errorReason = "Hugging Face 인증 필요 (${resp.code}). 설정에서 유효한 HF 토큰을 입력해 주세요."
+                    } else if (resp.isSuccessful) {
                         val cl = resp.header("Content-Length")?.toLongOrNull()
                         if (cl != null && cl > 1000L) totalBytes = cl
                         val ar = resp.header("Accept-Ranges")
@@ -426,7 +473,7 @@ class ModelDownloader {
             }
         }
 
-        return ProbeResult(resolvedUrl, totalBytes, supportsRange)
+        return ProbeResult(resolvedUrl, totalBytes, supportsRange, isAuthError, errorReason)
     }
 
     private suspend fun downloadComponent(
@@ -440,6 +487,13 @@ class ModelDownloader {
         onError: suspend (String) -> Unit
     ): Boolean {
         val probe = probeUrl(url, fallbackSize, token)
+        if (probe.authError || probe.errorMsg != null) {
+            val err = probe.errorMsg ?: "다운로드 인증 실패"
+            Log.e(tag, "[$taskTitle] Probe failed: $err")
+            onError(err)
+            return false
+        }
+
         val finalUrl = probe.finalUrl
         val totalSize = probe.totalBytes
         val supportsRange = probe.supportsRange
@@ -740,6 +794,20 @@ class ModelDownloader {
                     h[3] == 'F'.code.toByte()
             }
         } catch (_: Exception) { false }
+    }
+
+    private fun isLitertModelFile(file: File): Boolean {
+        if (!file.exists() || file.length() < 1024 * 1024L) return false
+        val preview = readTextPreview(file)
+        if (preview.contains("Unauthorized", ignoreCase = true) ||
+            preview.contains("401", ignoreCase = true) ||
+            preview.startsWith("<!DOCTYPE", ignoreCase = true) ||
+            preview.startsWith("<html", ignoreCase = true) ||
+            preview.contains("{\"error\"", ignoreCase = true)
+        ) {
+            return false
+        }
+        return true
     }
 
     private fun readTextPreview(file: File): String {

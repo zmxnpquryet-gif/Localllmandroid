@@ -13,8 +13,12 @@ android {
     applicationId = "com.aistudio.localllm.kqzp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 8
-    versionName = "1.1.7"
+    versionCode = 9
+    versionName = "1.1.8"
+
+    ndk {
+      abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
+    }
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

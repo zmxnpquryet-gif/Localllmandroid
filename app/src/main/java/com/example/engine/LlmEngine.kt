@@ -21,6 +21,8 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Conversation
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.SamplerConfig
 import org.nehuatl.llamacpp.LlamaHelper
 import android.net.Uri
 import java.io.File
@@ -101,7 +103,7 @@ class LlmEngine(private val context: Context) {
 
         // Branch by runtime type
         if (model.runtimeType == ModelRuntimeType.LITE_RT) {
-            onStageUpdate?.invoke("LiteRT 모델 파일 검증 중...", 0.15f)
+            onStageUpdate?.invoke("LiteRT 모델 파일 검증 중...", 0.10f)
 
             val preview = try {
                 FileInputStream(modelFile).use { fis ->
@@ -121,39 +123,108 @@ class LlmEngine(private val context: Context) {
                 onStageUpdate?.invoke("HTML 오류 페이지", 0f)
                 return@withContext "모델 파일 오류: 다운로드된 파일이 모델 바이너리가 아닌 HTML 웹페이지입니다."
             }
+            if (modelFile.length() < 1024 * 1024L) {
+                unloadCurrentModel()
+                onStageUpdate?.invoke("파일 크기 오류", 0f)
+                return@withContext "모델 파일 오류: 파일 크기가 비정상적으로 작습니다 (${modelFile.length()} bytes). 올바른 모델 바이너리가 아닙니다."
+            }
+
+            onStageUpdate?.invoke("LiteRT JNI 네이티브 라이브러리 검증 중...", 0.20f)
+            try {
+                System.loadLibrary("litertlm_jni")
+            } catch (t: Throwable) {
+                Log.w(tag, "System.loadLibrary(litertlm_jni) check: ${t.message}")
+            }
 
             unloadCurrentModel()
-            onStageUpdate?.invoke("LiteRT LM 네이티브 엔진 초기화 중...", 0.40f)
 
-            return@withContext try {
-                val config = EngineConfig(
+            val cacheDir = context.cacheDir.absolutePath
+            val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+            val maxTokens = settings.contextWindow.coerceIn(512, 8192)
+
+            val configsToTry = listOf(
+                "CPU 멀티스레드(${threadCount}T)" to EngineConfig(
                     modelPath = modelFile.absolutePath,
-                    backend = Backend.CPU()
+                    backend = Backend.CPU(threadCount = threadCount, numOfThreads = threadCount),
+                    visionBackend = if (model.hasMmproj) Backend.CPU(threadCount = threadCount, numOfThreads = threadCount) else null,
+                    maxNumTokens = maxTokens,
+                    cacheDir = cacheDir
+                ),
+                "CPU 기본 백엔드" to EngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = Backend.CPU(),
+                    visionBackend = if (model.hasMmproj) Backend.CPU() else null,
+                    maxNumTokens = maxTokens,
+                    cacheDir = cacheDir
+                ),
+                "GPU 가속 백엔드" to EngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = Backend.GPU(),
+                    visionBackend = if (model.hasMmproj) Backend.GPU() else null,
+                    maxNumTokens = maxTokens,
+                    cacheDir = cacheDir
                 )
-                val engine = Engine(config)
-                onStageUpdate?.invoke("LiteRT 가중치 로드 및 대화 세션 생성 중...", 0.70f)
-                engine.initialize()
-                val conv = engine.createConversation()
+            )
 
-                litertEngine = engine
-                litertConversation = conv
-                activeModel = model
-                isModelLoaded = true
-                isVisionTowerLoaded = model.hasMmproj
+            var lastError: Throwable? = null
+            var successEngine: Engine? = null
+            var successConv: Conversation? = null
+            var usedBackendName = ""
 
-                val visionMsg = if (model.hasMmproj) " + 통합 올인원 비전타워" else ""
-                val drafterMsg = if (model.supportsMtp) " + 통합 드래프터" else ""
-                val templateMsg = if (model.localTemplatePath != null) " (Jinja 템플릿 적용)" else ""
-                val resultMsg = "[LiteRT LM] ${model.name} 온디바이스 로드 완료$visionMsg$drafterMsg$templateMsg"
-                Log.i(tag, resultMsg)
-                onStageUpdate?.invoke("로드 완료", 1.0f)
-                resultMsg
-            } catch (e: Throwable) {
-                Log.e(tag, "LiteRT load error", e)
+            for ((backendName, config) in configsToTry) {
+                try {
+                    onStageUpdate?.invoke("LiteRT $backendName 초기화 중...", 0.45f)
+                    val engine = Engine(config)
+                    onStageUpdate?.invoke("LiteRT 가중치 매핑 및 모델 초기화...", 0.70f)
+                    engine.initialize()
+
+                    val conv = try {
+                        val sampler = SamplerConfig(
+                            topK = settings.topK.coerceAtLeast(1),
+                            topP = settings.topP.toDouble().coerceIn(0.01, 1.0),
+                            temperature = settings.temperature.toDouble().coerceAtLeast(0.01),
+                            seed = 0
+                        )
+                        val convConfig = ConversationConfig(
+                            systemInstruction = if (settings.systemPrompt.isNotBlank()) Contents.of(Content.Text(settings.systemPrompt)) else null,
+                            samplerConfig = sampler
+                        )
+                        engine.createConversation(convConfig)
+                    } catch (ce: Throwable) {
+                        Log.w(tag, "LiteRT createConversation with SamplerConfig failed, fallback to default: ${ce.message}")
+                        engine.createConversation()
+                    }
+
+                    successEngine = engine
+                    successConv = conv
+                    usedBackendName = backendName
+                    break
+                } catch (t: Throwable) {
+                    Log.w(tag, "LiteRT init failed with $backendName: ${t.message}", t)
+                    lastError = t
+                }
+            }
+
+            if (successEngine == null || successConv == null) {
                 unloadCurrentModel()
                 onStageUpdate?.invoke("LiteRT 초기화 실패", 0f)
-                "LiteRT LM 엔진 초기화 오류: ${e.localizedMessage ?: e.message}"
+                val errMsg = lastError?.localizedMessage ?: lastError?.message ?: "알 수 없는 오류"
+                return@withContext "LiteRT LM 엔진 초기화 오류: $errMsg"
             }
+
+            litertEngine = successEngine
+            litertConversation = successConv
+            activeModel = model
+            isModelLoaded = true
+            isVisionTowerLoaded = model.hasMmproj
+
+            val visionMsg = if (model.hasMmproj) " + 통합 올인원 비전타워" else ""
+            val drafterMsg = if (model.supportsMtp) " + 통합 드래프터" else ""
+            val templateMsg = if (model.localTemplatePath != null) " (Jinja 템플릿 적용)" else ""
+            val resultMsg = "[LiteRT LM] ${model.name} 온디바이스 로드 완료 [$usedBackendName]$visionMsg$drafterMsg$templateMsg"
+            Log.i(tag, resultMsg)
+            onStageUpdate?.invoke("로드 완료", 1.0f)
+            return@withContext resultMsg
         }
 
         // Pre-flight check: Verify GGUF magic bytes (0x47, 0x47, 0x55, 0x46 -> "GGUF")

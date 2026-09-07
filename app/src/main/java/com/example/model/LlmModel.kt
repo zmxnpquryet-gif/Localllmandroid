@@ -238,19 +238,36 @@ object ModelCatalog {
         LlmModel(
             id = "gemma-3-1b-it-litert",
             name = "Gemma 3 1B IT (LiteRT 통합 비전 모델)",
-            repoId = "litert-community/gemma-3-1b-it-litert-lm",
-            fileName = "gemma-3-1b-it.litertlm",
+            repoId = "lotapa/gemma3-1b-it-int4.litertlm",
+            fileName = "gemma3-1b-it-int4.litertlm",
             runtimeType = ModelRuntimeType.LITE_RT,
             promptTemplateType = PromptTemplateType.GEMMA,
-            sizeBytes = 1_280_000_000L,
+            sizeBytes = 584_417_280L,
             supportsMtp = false,
             supportsReasoning = false,
             hasMmproj = true,
             isBundledModel = true,
             isDownloaded = false,
-            mainModelUrl = "https://huggingface.co/litert-community/gemma-3-1b-it-litert-lm/resolve/main/gemma-3-1b-it.litertlm",
-            description = "Google 공식 LiteRT-LM 올인원 통합 모델. 텍스트 디코더와 비전 멀티모달, 토크나이저가 단일 바이너리에 통합 내장.",
+            mainModelUrl = "https://huggingface.co/lotapa/gemma3-1b-it-int4.litertlm/resolve/main/gemma3-1b-it-int4.litertlm",
+            description = "Google 공식 LiteRT-LM 규격 Gemma 3 1B IT 온디바이스 올인원 통합 모델. 텍스트 디코더와 비전 멀티모달, 토크나이저가 단일 바이너리에 통합 내장.",
             quantization = "INT4"
+        ),
+        LlmModel(
+            id = "functiongemma-mobile-actions-litert",
+            name = "FunctionGemma Mobile (LiteRT)",
+            repoId = "litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm",
+            fileName = "mobile-actions_q8_ekv1024.litertlm",
+            runtimeType = ModelRuntimeType.LITE_RT,
+            promptTemplateType = PromptTemplateType.GEMMA,
+            sizeBytes = 284_426_240L,
+            supportsMtp = false,
+            supportsReasoning = false,
+            hasMmproj = false,
+            isBundledModel = true,
+            isDownloaded = false,
+            mainModelUrl = "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm/resolve/main/mobile-actions_q8_ekv1024.litertlm",
+            description = "Google 공식 LiteRT Community 모바일 액션 및 함수 호출 초경량 284MB 모델.",
+            quantization = "Q8"
         )
     )
 }
