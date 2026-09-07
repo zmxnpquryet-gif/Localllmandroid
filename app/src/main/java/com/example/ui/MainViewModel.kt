@@ -156,7 +156,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ?: _models.value.firstOrNull { it.isDownloaded }
 
         if (restoredModel != null) {
-            _activeModel.value = restoredModel
             _settings.value = _settings.value.copy(
                 runtime = restoredModel.runtimeType,
                 enableMtp = if (restoredModel.supportsMtp) true else _settings.value.enableMtp
@@ -164,8 +163,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch {
                 val initStatus = llmEngine.loadModel(restoredModel, _settings.value)
                 _engineStatusMessage.value = initStatus
+                if (llmEngine.isModelReady()) {
+                    _activeModel.value = restoredModel
+                    modelStorageManager.saveActiveModelId(restoredModel.id)
+                } else {
+                    _activeModel.value = null
+                }
             }
-            modelStorageManager.saveActiveModelId(restoredModel.id)
         } else {
             _activeModel.value = null
             _engineStatusMessage.value = "기본 모델 미탑재: 모델 관리자에서 최신 모델을 다운로드하세요."
@@ -296,34 +300,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         modelLoadingJob = viewModelScope.launch {
             _isModelLoading.value = true
             _modelLoadingProgress.value = 0.05f
-            _modelLoadingStage.value = "가중치 파일 무결성 검증 중..."
-            delay(120)
+            _modelLoadingStage.value = "로딩 준비 중..."
 
-            _modelLoadingProgress.value = 0.25f
-            _modelLoadingStage.value = "텐서 버퍼 매핑 및 메모리 할당 중..."
-            delay(180)
-
-            _modelLoadingProgress.value = 0.55f
-            _modelLoadingStage.value = "GPU/NPU 가속 레이어 오프로딩..."
-            delay(200)
-
-            _activeModel.value = model
-            // Sync runtime type and auto-apply MTP if model supports it (per user requirement)
+            // Sync runtime type and auto-apply MTP if model supports it
             _settings.value = _settings.value.copy(
                 runtime = model.runtimeType,
                 enableMtp = if (model.supportsMtp) true else _settings.value.enableMtp
             )
 
-            _modelLoadingProgress.value = 0.85f
-            _modelLoadingStage.value = "컨텍스트 윈도우 및 캐시 초기화 중..."
-            val status = llmEngine.loadModel(model, _settings.value)
-            delay(150)
+            val status = llmEngine.loadModel(model, _settings.value) { stage, progress ->
+                _modelLoadingStage.value = stage
+                _modelLoadingProgress.value = progress
+            }
 
-            _modelLoadingProgress.value = 1.0f
-            _modelLoadingStage.value = "로드 완료"
-            _engineStatusMessage.value = status
-            modelStorageManager.saveActiveModelId(model.id)
-            delay(200)
+            if (llmEngine.isModelReady()) {
+                _activeModel.value = model
+                _modelLoadingProgress.value = 1.0f
+                _modelLoadingStage.value = "로드 완료"
+                _engineStatusMessage.value = status
+                modelStorageManager.saveActiveModelId(model.id)
+                delay(400)
+            } else {
+                _activeModel.value = null
+                _modelLoadingProgress.value = 0f
+                _modelLoadingStage.value = "로드 실패"
+                _engineStatusMessage.value = status
+                delay(1500)
+            }
 
             // Loading completes -> hide loading bar
             _isModelLoading.value = false
@@ -677,6 +680,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     conversationId = convId,
                     role = MessageRole.ASSISTANT,
                     content = "다운로드된 모델이 없습니다. 상단 메뉴 또는 모델 관리에서 모델을 먼저 다운로드해 주세요.",
+                    isStreaming = false
+                )
+                repository.saveMessage(noticeMessage)
+                return@launch
+            }
+
+            if (!llmEngine.isModelReady()) {
+                val noticeMessage = ChatMessage(
+                    conversationId = convId,
+                    role = MessageRole.ASSISTANT,
+                    content = "모델이 아직 메모리에 로드되지 않았습니다 (${_engineStatusMessage.value}). 모델 관리자에서 모델을 다시 선택해 로드해 주세요.",
                     isStreaming = false
                 )
                 repository.saveMessage(noticeMessage)

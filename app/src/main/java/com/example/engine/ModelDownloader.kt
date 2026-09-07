@@ -213,16 +213,23 @@ class ModelDownloader {
 
             // If already fully downloaded and valid
             if (targetFile.exists() && targetFile.length() > 0 && targetFile.length() >= task.fallbackEstimatedSize * 0.95) {
-                val existingSize = targetFile.length()
-                bundleDownloadedBytes += existingSize
-                componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
-                    progress = 1.0f,
-                    downloadedBytes = existingSize,
-                    totalBytes = existingSize,
-                    speedText = "완료",
-                    isCompleted = true
-                )
-                continue
+                val isGguf = targetFile.name.endsWith(".gguf", ignoreCase = true)
+                val isValid = if (isGguf) isGgufFile(targetFile) else true
+                if (isValid) {
+                    val existingSize = targetFile.length()
+                    bundleDownloadedBytes += existingSize
+                    componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
+                        progress = 1.0f,
+                        downloadedBytes = existingSize,
+                        totalBytes = existingSize,
+                        speedText = "완료",
+                        isCompleted = true
+                    )
+                    continue
+                } else {
+                    Log.w(tag, "[$componentType] Existing file is not valid GGUF, deleting and re-downloading: ${targetFile.name}")
+                    targetFile.delete()
+                }
             }
 
             // Download component
@@ -283,6 +290,35 @@ class ModelDownloader {
 
             if (!success) {
                 return@channelFlow
+            }
+
+            // Verify GGUF format if target is a GGUF file
+            if (targetFile.name.endsWith(".gguf", ignoreCase = true)) {
+                if (!isGgufFile(targetFile)) {
+                    val preview = readTextPreview(targetFile)
+                    val errorReason = when {
+                        preview.contains("Unauthorized", ignoreCase = true) || preview.contains("401", ignoreCase = true) ->
+                            "다운로드 실패: Hugging Face 인증 필요 (401 Unauthorized). 설정에서 유효한 HF 토큰을 입력해 주세요."
+                        preview.startsWith("<!DOCTYPE", ignoreCase = true) || preview.startsWith("<html", ignoreCase = true) ->
+                            "다운로드 실패: 모델 파일 대신 HTML 웹페이지가 다운로드되었습니다. 링크 및 권한을 확인하세요."
+                        else ->
+                            "다운로드 완료 후 파일 검증 실패: 유효한 GGUF 파일 형식이 아닙니다."
+                    }
+                    Log.e(tag, "[$componentType] Validation failed for ${targetFile.name}: $errorReason")
+                    targetFile.delete()
+                    send(
+                        DownloadStatus(
+                            modelId = model.id,
+                            progress = 0f,
+                            downloadedBytes = bundleDownloadedBytes,
+                            totalBytes = totalBundleBytes,
+                            speedText = "오류",
+                            errorMessage = errorReason,
+                            isCompleted = false
+                        )
+                    )
+                    return@channelFlow
+                }
             }
 
             val finalTaskSize = targetFile.length()
@@ -689,5 +725,30 @@ class ModelDownloader {
             onError(err)
             return false
         }
+    }
+
+    private fun isGgufFile(file: File): Boolean {
+        if (!file.exists() || file.length() < 4) return false
+        return try {
+            FileInputStream(file).use { fis ->
+                val h = ByteArray(4)
+                fis.read(h) == 4 &&
+                    h[0] == 'G'.code.toByte() &&
+                    h[1] == 'G'.code.toByte() &&
+                    h[2] == 'U'.code.toByte() &&
+                    h[3] == 'F'.code.toByte()
+            }
+        } catch (_: Exception) { false }
+    }
+
+    private fun readTextPreview(file: File): String {
+        if (!file.exists() || file.length() == 0L) return ""
+        return try {
+            FileInputStream(file).use { fis ->
+                val buf = ByteArray(256)
+                val len = fis.read(buf)
+                if (len > 0) String(buf, 0, len, Charsets.UTF_8).trim() else ""
+            }
+        } catch (_: Exception) { "" }
     }
 }
