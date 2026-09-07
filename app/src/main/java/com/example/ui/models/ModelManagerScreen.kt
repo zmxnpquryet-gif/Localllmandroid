@@ -2,6 +2,10 @@ package com.example.ui.models
 
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -89,6 +93,15 @@ fun ModelManagerScreen(
     var showFdmDialog by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf("ALL") } // "ALL", "DOWNLOADED", "LLAMA_CPP", "LITE_RT"
 
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val fileName = queryFileName(context, uri) ?: "imported_model.gguf"
+            viewModel.importLocalModel(uri, fileName)
+        }
+    }
+
     val filteredModels = remember(models, selectedFilter) {
         when (selectedFilter) {
             "DOWNLOADED" -> models.filter { it.isDownloaded }
@@ -120,6 +133,21 @@ fun ModelManagerScreen(
                     }
                 },
                 actions = {
+                    OutlinedButton(
+                        onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(end = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SdCard,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("기기 GGUF 가져오기", fontSize = 12.sp)
+                    }
+
                     Button(
                         onClick = { showFdmDialog = true },
                         shape = RoundedCornerShape(8.dp),
@@ -1084,4 +1112,25 @@ private fun FdmAddBundleDialog(
             }
         }
     )
+}
+
+private fun queryFileName(context: Context, uri: Uri): String? {
+    var result: String? = null
+    if (uri.scheme == "content") {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0) {
+                    result = cursor.getString(index)
+                }
+            }
+        }
+    }
+    if (result == null) {
+        result = uri.path?.let { p ->
+            val cut = p.lastIndexOf('/')
+            if (cut != -1) p.substring(cut + 1) else p
+        }
+    }
+    return result
 }

@@ -56,17 +56,18 @@ data class DownloadStatus(
 
 class ModelDownloader {
 
+    private val tag = "ModelDownloader"
+
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
 
     /**
-     * Performs a REAL byte-by-byte streaming download using OkHttp.
-     * Writes actual network bytes directly to local storage files, ensuring
-     * app storage realistically increases and models are physically downloaded.
+     * Downloads genuine GGUF models directly from Hugging Face or direct HTTP URLs.
+     * Streams actual binary bytes to local storage without fake placeholders.
      */
     fun downloadUnifiedBundle(
         model: LlmModel,
@@ -85,7 +86,6 @@ class ModelDownloader {
             File(modelsDir, model.templateFileName ?: "${model.fileName.substringBeforeLast('.')}-template.json")
         } else null
 
-        // Prepare component tasks
         data class DownloadTask(
             val type: FdmComponentType,
             val title: String,
@@ -103,53 +103,46 @@ class ModelDownloader {
                 url = model.mainModelUrl.ifBlank {
                     if (model.repoId.isNotBlank()) "https://huggingface.co/${model.repoId}/resolve/main/${model.fileName}" else ""
                 },
-                fallbackEstimatedSize = if (model.sizeBytes > 0) model.sizeBytes else 1_850_000_000L
+                fallbackEstimatedSize = if (model.sizeBytes > 0) model.sizeBytes else 800_000_000L
             )
         )
 
-        if (visionFile != null) {
+        if (visionFile != null && model.visionTowerUrl.isNotBlank()) {
             tasks.add(
                 DownloadTask(
                     type = FdmComponentType.VISION_TOWER,
                     title = "비전 타워 (mmproj)",
                     targetFile = visionFile,
-                    url = model.visionTowerUrl.ifBlank {
-                        if (model.repoId.isNotBlank()) "https://huggingface.co/${model.repoId}/resolve/main/${visionFile.name}" else ""
-                    },
-                    fallbackEstimatedSize = 380_000_000L
+                    url = model.visionTowerUrl,
+                    fallbackEstimatedSize = 350_000_000L
                 )
             )
         }
 
-        if (mtpFile != null) {
+        if (mtpFile != null && model.mtpDrafterUrl.isNotBlank()) {
             tasks.add(
                 DownloadTask(
                     type = FdmComponentType.MTP_DRAFTER,
                     title = "MTP 2x 투기적 드래프터",
                     targetFile = mtpFile,
-                    url = model.mtpDrafterUrl.ifBlank {
-                        if (model.repoId.isNotBlank()) "https://huggingface.co/${model.repoId}/resolve/main/${mtpFile.name}" else ""
-                    },
-                    fallbackEstimatedSize = 420_000_000L
+                    url = model.mtpDrafterUrl,
+                    fallbackEstimatedSize = 400_000_000L
                 )
             )
         }
 
-        if (templateFile != null) {
+        if (templateFile != null && model.templateFileUrl.isNotBlank()) {
             tasks.add(
                 DownloadTask(
                     type = FdmComponentType.TEMPLATE,
-                    title = "LiteRT 프롬프트 템플릿",
+                    title = "프롬프트 템플릿",
                     targetFile = templateFile,
-                    url = model.templateFileUrl.ifBlank {
-                        if (model.repoId.isNotBlank()) "https://huggingface.co/${model.repoId}/resolve/main/${templateFile.name}" else ""
-                    },
+                    url = model.templateFileUrl,
                     fallbackEstimatedSize = 50_000L
                 )
             )
         }
 
-        // Initialize component status representations
         val componentStatusMap = tasks.associate { task ->
             task.type to FdmComponentStatus(
                 type = task.type,
@@ -167,140 +160,137 @@ class ModelDownloader {
         var lastDownloadedForSpeed = 0L
         var currentSpeedText = "0.0 MB/s"
 
-        // Execute download sequentially for each component file
         for (task in tasks) {
             val componentType = task.type
             val targetFile = task.targetFile
             val url = task.url
 
+            if (url.isBlank()) {
+                continue
+            }
+
             var taskTotalBytes = task.fallbackEstimatedSize
             var taskDownloaded = 0L
 
-            var isRealDownloadSuccessful = false
+            val tempFile = File(modelsDir, "${targetFile.name}.downloading")
 
-            if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
-                try {
-                    val request = Request.Builder()
-                        .url(url)
-                        .header("User-Agent", "Mozilla/5.0 (Android; Mobile; rv:128.0) OnDeviceLLM/1.0")
-                        .build()
+            try {
+                Log.i(tag, "Starting real download of ${task.title} from: $url")
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Android; Mobile) OnDeviceLLM/1.0")
+                    .build()
 
-                    val response = httpClient.newCall(request).execute()
-                    if (response.isSuccessful && response.body != null) {
-                        val body = response.body!!
-                        val contentLength = body.contentLength()
-                        if (contentLength > 0) {
-                            taskTotalBytes = contentLength
-                            // Update total bundle bytes calculation with real header value
-                            totalBundleBytes = totalBundleBytes - task.fallbackEstimatedSize + taskTotalBytes
-                        }
-
-                        val tempFile = File(modelsDir, "${targetFile.name}.downloading")
-                        val inputStream: InputStream = body.byteStream()
-                        val outputStream = FileOutputStream(tempFile)
-
-                        val buffer = ByteArray(64 * 1024) // 64KB buffer
-                        var bytesRead: Int
-
-                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                            outputStream.write(buffer, 0, bytesRead)
-                            taskDownloaded += bytesRead
-                            totalBytesDownloadedSoFar += bytesRead
-
-                            val now = System.currentTimeMillis()
-                            val timeDelta = now - lastEmitTime
-                            if (timeDelta >= 250L) { // Emit UI updates every 250ms
-                                val bytesDelta = totalBytesDownloadedSoFar - lastDownloadedForSpeed
-                                val speedMbps = (bytesDelta.toDouble() / (timeDelta.toDouble() / 1000.0)) / (1024.0 * 1024.0)
-                                currentSpeedText = String.format("%.2f MB/s", speedMbps.coerceAtLeast(0.0))
-
-                                lastEmitTime = now
-                                lastDownloadedForSpeed = totalBytesDownloadedSoFar
-
-                                val taskProg = (taskDownloaded.toFloat() / taskTotalBytes).coerceIn(0f, 0.99f)
-                                val bundleProg = (totalBytesDownloadedSoFar.toFloat() / totalBundleBytes).coerceIn(0f, 0.99f)
-
-                                // 8-segment FDM progress representation
-                                val segments = List(8) { i ->
-                                    ((bundleProg * 8f) - i).coerceIn(0f, 1f)
-                                }
-
-                                val remainingBytes = (totalBundleBytes - totalBytesDownloadedSoFar).coerceAtLeast(0L)
-                                val bytesPerSec = (speedMbps * 1024.0 * 1024.0).toLong()
-                                val etaSeconds = if (bytesPerSec > 0) (remainingBytes / bytesPerSec).toInt() else 0
-
-                                componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
-                                    progress = taskProg,
-                                    downloadedBytes = taskDownloaded,
-                                    totalBytes = taskTotalBytes,
-                                    speedText = currentSpeedText,
-                                    isCompleted = false
-                                )
-
-                                emit(
-                                    DownloadStatus(
-                                        modelId = model.id,
-                                        progress = bundleProg,
-                                        downloadedBytes = totalBytesDownloadedSoFar,
-                                        totalBytes = totalBundleBytes,
-                                        speedText = currentSpeedText,
-                                        etaSeconds = etaSeconds,
-                                        activeComponentName = "${task.title} 다운로드 중 (${targetFile.name})",
-                                        mainProgress = componentStatusMap[FdmComponentType.MAIN_MODEL]?.progress ?: 0f,
-                                        visionProgress = componentStatusMap[FdmComponentType.VISION_TOWER]?.progress ?: 0f,
-                                        mtpProgress = componentStatusMap[FdmComponentType.MTP_DRAFTER]?.progress ?: 0f,
-                                        templateProgress = componentStatusMap[FdmComponentType.TEMPLATE]?.progress ?: 0f,
-                                        segments = segments,
-                                        components = componentStatusMap.values.toList(),
-                                        isCompleted = false
-                                    )
-                                )
-                            }
-                        }
-
-                        outputStream.flush()
-                        outputStream.close()
-                        inputStream.close()
-
-                        // Rename downloaded file to destination target
-                        if (targetFile.exists()) targetFile.delete()
-                        tempFile.renameTo(targetFile)
-                        isRealDownloadSuccessful = true
-                    }
-                } catch (e: Exception) {
-                    Log.w("ModelDownloader", "Real network stream error for ${task.title}: ${e.message}. Writing model binary placeholder.")
+                val response = httpClient.newCall(request).execute()
+                if (!response.isSuccessful || response.body == null) {
+                    val errorMsg = "다운로드 서버 응답 오류 (HTTP ${response.code}): ${task.title}"
+                    Log.e(tag, errorMsg)
+                    emit(
+                        DownloadStatus(
+                            modelId = model.id,
+                            progress = 0f,
+                            downloadedBytes = totalBytesDownloadedSoFar,
+                            totalBytes = totalBundleBytes,
+                            speedText = "오류",
+                            errorMessage = errorMsg,
+                            isCompleted = false
+                        )
+                    )
+                    return@flow
                 }
-            }
 
-            // If network request failed or wasn't a live url, generate a valid binary payload
-            // on disk matching actual file size requirements so disk storage is genuinely allocated!
-            if (!isRealDownloadSuccessful) {
-                if (!targetFile.exists() || targetFile.length() == 0L) {
-                    // Write substantial bytes or realistic binary structure to storage
-                    FileOutputStream(targetFile).use { fos ->
-                        if (task.type == FdmComponentType.TEMPLATE) {
-                            fos.write("""
-                            {
-                              "model_type": "litert_lm",
-                              "prompt_template": "<start_of_turn>user\n{{prompt}}<end_of_turn>\n<start_of_turn>model\n",
-                              "system_template": "<start_of_turn>system\n{{system_prompt}}<end_of_turn>\n",
-                              "bos_token": "<start_of_turn>",
-                              "eos_token": "<end_of_turn>"
-                            }
-                            """.trimIndent().toByteArray())
-                        } else {
-                            // Write GGUF/binary magic header followed by realistic chunk
-                            val header = "GGUF\u0003\u0000\u0000\u0000".toByteArray(Charsets.ISO_8859_1)
-                            fos.write(header)
-                            // Allocate 10MB physical chunk on storage per component so storage increases
-                            val chunk = ByteArray(64 * 1024)
-                            for (c in 0 until 160) {
-                                fos.write(chunk)
-                            }
+                val body = response.body!!
+                val contentLength = body.contentLength()
+                if (contentLength > 0) {
+                    taskTotalBytes = contentLength
+                    totalBundleBytes = totalBundleBytes - task.fallbackEstimatedSize + taskTotalBytes
+                }
+
+                val inputStream: InputStream = body.byteStream()
+                val outputStream = FileOutputStream(tempFile)
+
+                val buffer = ByteArray(64 * 1024)
+                var bytesRead: Int
+
+                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                    outputStream.write(buffer, 0, bytesRead)
+                    taskDownloaded += bytesRead
+                    totalBytesDownloadedSoFar += bytesRead
+
+                    val now = System.currentTimeMillis()
+                    val timeDelta = now - lastEmitTime
+                    if (timeDelta >= 250L) {
+                        val bytesDelta = totalBytesDownloadedSoFar - lastDownloadedForSpeed
+                        val speedMbps = (bytesDelta.toDouble() / (timeDelta.toDouble() / 1000.0)) / (1024.0 * 1024.0)
+                        currentSpeedText = String.format("%.2f MB/s", speedMbps.coerceAtLeast(0.0))
+
+                        lastEmitTime = now
+                        lastDownloadedForSpeed = totalBytesDownloadedSoFar
+
+                        val taskProg = (taskDownloaded.toFloat() / taskTotalBytes).coerceIn(0f, 0.99f)
+                        val bundleProg = (totalBytesDownloadedSoFar.toFloat() / totalBundleBytes).coerceIn(0f, 0.99f)
+
+                        val segments = List(8) { i ->
+                            ((bundleProg * 8f) - i).coerceIn(0f, 1f)
                         }
+
+                        val remainingBytes = (totalBundleBytes - totalBytesDownloadedSoFar).coerceAtLeast(0L)
+                        val bytesPerSec = (speedMbps * 1024.0 * 1024.0).toLong()
+                        val etaSeconds = if (bytesPerSec > 0) (remainingBytes / bytesPerSec).toInt() else 0
+
+                        componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
+                            progress = taskProg,
+                            downloadedBytes = taskDownloaded,
+                            totalBytes = taskTotalBytes,
+                            speedText = currentSpeedText,
+                            isCompleted = false
+                        )
+
+                        emit(
+                            DownloadStatus(
+                                modelId = model.id,
+                                progress = bundleProg,
+                                downloadedBytes = totalBytesDownloadedSoFar,
+                                totalBytes = totalBundleBytes,
+                                speedText = currentSpeedText,
+                                etaSeconds = etaSeconds,
+                                activeComponentName = "${task.title} 다운로드 중 (${targetFile.name})",
+                                mainProgress = componentStatusMap[FdmComponentType.MAIN_MODEL]?.progress ?: 0f,
+                                visionProgress = componentStatusMap[FdmComponentType.VISION_TOWER]?.progress ?: 0f,
+                                mtpProgress = componentStatusMap[FdmComponentType.MTP_DRAFTER]?.progress ?: 0f,
+                                templateProgress = componentStatusMap[FdmComponentType.TEMPLATE]?.progress ?: 0f,
+                                segments = segments,
+                                components = componentStatusMap.values.toList(),
+                                isCompleted = false
+                            )
+                        )
                     }
                 }
-                totalBytesDownloadedSoFar += taskTotalBytes
+
+                outputStream.flush()
+                outputStream.close()
+                inputStream.close()
+
+                if (targetFile.exists()) targetFile.delete()
+                tempFile.renameTo(targetFile)
+                Log.i(tag, "Successfully saved real file: ${targetFile.absolutePath} (${targetFile.length()} bytes)")
+
+            } catch (e: Exception) {
+                if (tempFile.exists()) tempFile.delete()
+                val errorMsg = "${task.title} 다운로드 중 네트워크 오류: ${e.localizedMessage ?: e.message}"
+                Log.e(tag, errorMsg, e)
+                emit(
+                    DownloadStatus(
+                        modelId = model.id,
+                        progress = 0f,
+                        downloadedBytes = totalBytesDownloadedSoFar,
+                        totalBytes = totalBundleBytes,
+                        speedText = "오류",
+                        errorMessage = errorMsg,
+                        isCompleted = false
+                    )
+                )
+                return@flow
             }
 
             componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
@@ -311,16 +301,15 @@ class ModelDownloader {
             )
         }
 
-        // Emit final completed status with verified local paths
         emit(
             DownloadStatus(
                 modelId = model.id,
                 progress = 1.0f,
-                downloadedBytes = totalBundleBytes,
-                totalBytes = totalBundleBytes,
-                speedText = "다운로드 완료",
+                downloadedBytes = totalBytesDownloadedSoFar,
+                totalBytes = totalBytesDownloadedSoFar,
+                speedText = "완료",
                 etaSeconds = 0,
-                activeComponentName = "통합 번들 저장 완료 (메인 + 템플릿/비전/MTP)",
+                activeComponentName = "다운로드 완료",
                 mainProgress = 1.0f,
                 visionProgress = if (visionFile != null) 1.0f else 0f,
                 mtpProgress = if (mtpFile != null) 1.0f else 0f,

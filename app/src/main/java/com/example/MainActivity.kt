@@ -12,7 +12,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.example.ui.MainViewModel
-import com.example.ui.api.ApiServerScreen
 import com.example.ui.chat.ChatScreen
 import com.example.ui.models.ModelManagerScreen
 import com.example.ui.settings.SettingsScreen
@@ -40,7 +39,6 @@ class MainActivity : ComponentActivity() {
                         "models" -> ModelManagerScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
                         "settings" -> SettingsScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
                         "voice_mode" -> VoiceModeScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                        "api_mode" -> ApiServerScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
                         else -> ChatScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
                     }
                 }

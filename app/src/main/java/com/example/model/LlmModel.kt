@@ -10,16 +10,16 @@ data class LlmModel(
     val name: String,
     val repoId: String,
     val fileName: String,
-    val runtimeType: ModelRuntimeType,
+    val runtimeType: ModelRuntimeType = ModelRuntimeType.LLAMA_CPP,
     val sizeBytes: Long,
-    val supportsMtp: Boolean = false, // Multi-Token Prediction / Speculative Decoding
-    val supportsReasoning: Boolean = false, // DeepSeek-R1 / Qwen-R1 reasoning
-    val hasMmproj: Boolean = false, // Vision support (mmproj)
+    val supportsMtp: Boolean = false,
+    val supportsReasoning: Boolean = false,
+    val hasMmproj: Boolean = false,
     val mmprojFileName: String? = null,
-    val isDownloaded: Boolean = false, // Default: NOT downloaded per user request
+    val isDownloaded: Boolean = false,
     val isVisionDownloaded: Boolean = false,
     val isMtpDownloaded: Boolean = false,
-    val downloadProgress: Float = 0f, // 0.0 to 1.0
+    val downloadProgress: Float = 0f,
     val isDownloading: Boolean = false,
     val downloadSpeedText: String = "",
     val description: String = "",
@@ -28,7 +28,7 @@ data class LlmModel(
     val localMmprojPath: String? = null,
     val localMtpDrafterPath: String? = null,
     
-    // FDM (Free Download Manager) Direct Download Links & 3-in-1 Bundling
+    // Direct Download Links
     val mainModelUrl: String = "",
     val visionTowerUrl: String = "",
     val mtpDrafterUrl: String = "",
@@ -38,7 +38,7 @@ data class LlmModel(
     val localTemplatePath: String? = null,
     val isTemplateDownloaded: Boolean = false,
     val isBundledModel: Boolean = false,
-    val downloadStatus: String = "IDLE", // IDLE, DOWNLOADING, PAUSED, COMPLETED, FAILED
+    val downloadStatus: String = "IDLE", // IDLE, DOWNLOADING, COMPLETED, FAILED
     val mainDownloadProgress: Float = 0f,
     val visionDownloadProgress: Float = 0f,
     val mtpDownloadProgress: Float = 0f,
@@ -60,190 +60,108 @@ data class LlmModel(
             ModelRuntimeType.LLAMA_CPP -> "llama.cpp (GGUF)"
             ModelRuntimeType.LITE_RT -> "LiteRT"
         }
-
-    /**
-     * Labels for bundled components currently mounted together
-     */
-    val bundleDescriptionBadge: String
-        get() {
-            val list = mutableListOf<String>()
-            list.add("Main: ${fileName.take(16)}")
-            if (hasMmproj) list.add("Vision: mmproj")
-            if (supportsMtp) list.add("MTP Drafter: 2x")
-            return list.joinToString(" + ")
-        }
 }
 
 /**
- * Curated catalog of latest mobile-optimized models supporting llama.cpp (GGUF) and LiteRT.
- * Configured with Hugging Face direct download links for Main Model, Vision Tower, and MTP Drafter.
- * All models must be explicitly downloaded via the FDM bundle downloader.
+ * Curated catalog of real, verified, public Hugging Face GGUF models.
+ * Accessible without login or gated tokens.
  */
 object ModelCatalog {
     val defaultModels = listOf(
         LlmModel(
-            id = "qwen2.5-3b-bundle-gguf",
-            name = "Qwen 2.5 3B (Vision + Drafter)",
-            repoId = "Qwen/Qwen2.5-3B-Instruct-GGUF",
-            fileName = "qwen2.5-3b-instruct-q4_k_m.gguf",
+            id = "smollm2-360m-instruct-gguf",
+            name = "SmolLM2 360M Instruct",
+            repoId = "HuggingFaceTB/SmolLM2-360M-Instruct-GGUF",
+            fileName = "smollm2-360m-instruct-q4_k_m.gguf",
             runtimeType = ModelRuntimeType.LLAMA_CPP,
-            sizeBytes = 2_150_000_000L,
-            supportsMtp = true,
+            sizeBytes = 229_000_000L,
+            supportsMtp = false,
             supportsReasoning = false,
-            hasMmproj = true,
-            mmprojFileName = "mmproj-qwen2.5-3b-f16.gguf",
-            mtpDrafterFileName = "qwen2.5-0.5b-instruct-draft-q4_k_m.gguf",
-            mainModelUrl = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
-            visionTowerUrl = "https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-qwen2.5-3b-f16.gguf",
-            mtpDrafterUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-            isBundledModel = true,
+            hasMmproj = false,
+            mainModelUrl = "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q4_k_m.gguf",
+            isBundledModel = false,
             isDownloaded = false,
-            description = "Qwen 2.5 모델. 비전 타워와 드래프터를 포함하여 이미지 입력 및 가속을 지원합니다.",
+            description = "초경량 360M 모델. 다운로드가 빠르고 저사양 스마트폰에서도 쾌적하게 구동됩니다.",
             quantization = "Q4_K_M"
         ),
         LlmModel(
-            id = "deepseek-r1-distill-qwen-1.5b",
-            name = "DeepSeek-R1 Distill 1.5B (CoT + Drafter)",
-            repoId = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
+            id = "qwen2.5-0.5b-instruct-gguf",
+            name = "Qwen 2.5 0.5B Instruct",
+            repoId = "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+            fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            runtimeType = ModelRuntimeType.LLAMA_CPP,
+            sizeBytes = 398_000_000L,
+            supportsMtp = false,
+            supportsReasoning = false,
+            hasMmproj = false,
+            mainModelUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            isBundledModel = false,
+            isDownloaded = false,
+            description = "한국어 및 다국어 지원 0.5B 모델. 가볍고 빠른 응답 속도를 자랑합니다.",
+            quantization = "Q4_K_M"
+        ),
+        LlmModel(
+            id = "deepseek-r1-distill-qwen-1.5b-gguf",
+            name = "DeepSeek-R1 Distill 1.5B (사고 추론)",
+            repoId = "bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
             fileName = "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
             runtimeType = ModelRuntimeType.LLAMA_CPP,
             sizeBytes = 1_120_000_000L,
-            supportsMtp = true,
-            supportsReasoning = true,
-            hasMmproj = false,
-            mtpDrafterFileName = "DeepSeek-R1-DRAFT-0.5B-Q4_K_M.gguf",
-            mainModelUrl = "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
-            visionTowerUrl = "",
-            mtpDrafterUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-            isBundledModel = true,
-            isDownloaded = false,
-            description = "사고 과정(<think>)을 출력하는 추론 모델. 드래프터와 함께 구성됩니다.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "llama-3.2-3b-vision-bundle-gguf",
-            name = "Llama 3.2 3B Vision (Multimodal + Drafter)",
-            repoId = "meta-llama/Llama-3.2-3B-Instruct-GGUF",
-            fileName = "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            sizeBytes = 2_050_000_000L,
-            supportsMtp = true,
-            supportsReasoning = false,
-            hasMmproj = true,
-            mmprojFileName = "mmproj-llama-3.2-3b-f16.gguf",
-            mtpDrafterFileName = "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-            mainModelUrl = "https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-            visionTowerUrl = "https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct-GGUF/resolve/main/mmproj-llama-3.2-3b-f16.gguf",
-            mtpDrafterUrl = "https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-            isBundledModel = true,
-            isDownloaded = false,
-            description = "Llama 3.2 3B 모델. 본체와 비전 타워, 1B 드래프터가 함께 구성되어 이미지 분석을 지원합니다.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "exaone-3.5-2.4b-gguf",
-            name = "EXAONE 3.5 2.4B Instruct",
-            repoId = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct-GGUF",
-            fileName = "exaone-3.5-2.4b-instruct-q4_k_m.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            sizeBytes = 1_580_000_000L,
-            supportsMtp = true,
-            supportsReasoning = false,
-            hasMmproj = false,
-            mtpDrafterFileName = "exaone-3.5-draft-q4_k_m.gguf",
-            mainModelUrl = "https://huggingface.co/LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct-GGUF/resolve/main/exaone-3.5-2.4b-instruct-q4_k_m.gguf",
-            visionTowerUrl = "",
-            mtpDrafterUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-            isBundledModel = true,
-            isDownloaded = false,
-            description = "한국어 지원 2.4B 모델. 드래프터와 함께 구성됩니다.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "phi-4-mini-litert",
-            name = "Phi-4 Mini 3.8B (LiteRT)",
-            repoId = "microsoft/Phi-4-mini-instruct-litert",
-            fileName = "phi-4-mini-instruct-gpu-int4.bin",
-            runtimeType = ModelRuntimeType.LITE_RT,
-            sizeBytes = 2_250_000_000L,
             supportsMtp = false,
             supportsReasoning = true,
             hasMmproj = false,
-            mainModelUrl = "https://huggingface.co/microsoft/Phi-4-mini-instruct-litert/resolve/main/phi-4-mini-instruct-gpu-int4.bin",
-            templateFileName = "phi-4-mini-prompt-template.json",
-            templateFileUrl = "https://huggingface.co/microsoft/Phi-4-mini-instruct-litert/resolve/main/tokenizer_config.json",
+            mainModelUrl = "https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
             isBundledModel = false,
             isDownloaded = false,
-            description = "LiteRT 런타임 기반 3.8B 모델 (사고 과정 추론 및 템플릿 지원).",
-            quantization = "INT4"
+            description = "사고 과정(<think>)을 온디바이스에서 생성하는 심층 추론(CoT) 특화 모델.",
+            quantization = "Q4_K_M"
         ),
         LlmModel(
-            id = "gemma-2-2b-litert",
-            name = "Gemma 2 2B IT (LiteRT)",
-            repoId = "google/gemma-2-2b-it-litert",
-            fileName = "gemma-2-2b-it-gpu-int4.bin",
-            runtimeType = ModelRuntimeType.LITE_RT,
-            sizeBytes = 1_450_000_000L,
-            supportsMtp = true,
+            id = "qwen2.5-1.5b-instruct-gguf",
+            name = "Qwen 2.5 1.5B Instruct",
+            repoId = "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+            fileName = "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+            runtimeType = ModelRuntimeType.LLAMA_CPP,
+            sizeBytes = 986_000_000L,
+            supportsMtp = false,
             supportsReasoning = false,
             hasMmproj = false,
-            mainModelUrl = "https://huggingface.co/google/gemma-2-2b-it-litert/resolve/main/gemma-2-2b-it-gpu-int4.bin",
-            templateFileName = "gemma-2-prompt-template.json",
-            templateFileUrl = "https://huggingface.co/google/gemma-2-2b-it-litert/resolve/main/tokenizer_config.json",
+            mainModelUrl = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
             isBundledModel = false,
             isDownloaded = false,
-            description = "LiteRT 런타임 기반 2B 소형 모델 (LiteRT 템플릿 규격 내장).",
-            quantization = "INT4"
+            description = "고품질 한국어 대화 및 코딩, 요약 능력을 갖춘 1.5B 모델.",
+            quantization = "Q4_K_M"
         ),
         LlmModel(
-            id = "smollm2-1.7b-gguf",
-            name = "SmolLM2 1.7B",
+            id = "llama-3.2-1b-instruct-gguf",
+            name = "Llama 3.2 1B Instruct",
+            repoId = "bartowski/Llama-3.2-1B-Instruct-GGUF",
+            fileName = "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+            runtimeType = ModelRuntimeType.LLAMA_CPP,
+            sizeBytes = 800_000_000L,
+            supportsMtp = false,
+            supportsReasoning = false,
+            hasMmproj = false,
+            mainModelUrl = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+            isBundledModel = false,
+            isDownloaded = false,
+            description = "Meta Llama 3.2 1B 경량 고성능 온디바이스 어시스턴트 모델.",
+            quantization = "Q4_K_M"
+        ),
+        LlmModel(
+            id = "smollm2-1.7b-instruct-gguf",
+            name = "SmolLM2 1.7B Instruct",
             repoId = "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
             fileName = "smollm2-1.7b-instruct-q4_k_m.gguf",
             runtimeType = ModelRuntimeType.LLAMA_CPP,
-            sizeBytes = 1_040_000_000L,
-            supportsMtp = true,
-            supportsReasoning = false,
-            hasMmproj = false,
-            mtpDrafterFileName = "smollm2-360m-draft-q4_k_m.gguf",
-            mainModelUrl = "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf",
-            visionTowerUrl = "",
-            mtpDrafterUrl = "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q4_k_m.gguf",
-            isBundledModel = true,
-            isDownloaded = false,
-            description = "경량 소형 모델. 360M 드래프터와 함께 구성됩니다.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "deepseek-r1-distill-qwen-7b",
-            name = "DeepSeek-R1 Distill 7B",
-            repoId = "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B-GGUF",
-            fileName = "DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            sizeBytes = 4_400_000_000L,
+            sizeBytes = 1_060_000_000L,
             supportsMtp = false,
-            supportsReasoning = true,
-            hasMmproj = false,
-            mainModelUrl = "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf",
-            isBundledModel = false,
-            isDownloaded = false,
-            description = "7B 추론 모델.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "llama-3.2-1b-gguf",
-            name = "Llama 3.2 1B Instruct",
-            repoId = "meta-llama/Llama-3.2-1B-Instruct-GGUF",
-            fileName = "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            sizeBytes = 780_000_000L,
-            supportsMtp = true,
             supportsReasoning = false,
             hasMmproj = false,
-            mainModelUrl = "https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+            mainModelUrl = "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf",
             isBundledModel = false,
             isDownloaded = false,
-            description = "1B 경량 모델.",
+            description = "추론 및 지시어 준수 능력이 균형 잡힌 1.7B 모바일 최적화 모델.",
             quantization = "Q4_K_M"
         )
     )
@@ -307,3 +225,4 @@ object VoiceTemplates {
         )
     )
 }
+

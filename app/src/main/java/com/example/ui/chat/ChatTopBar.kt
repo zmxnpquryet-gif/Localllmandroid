@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
@@ -58,7 +57,6 @@ fun ChatTopBar(
     onOpenSettings: () -> Unit,
     onSwitchRuntime: (ModelRuntimeType) -> Unit,
     onOpenModelManager: () -> Unit = {},
-    onOpenApiMode: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isModelMenuExpanded by remember { mutableStateOf(false) }
@@ -312,18 +310,6 @@ fun ChatTopBar(
                     }
                 )
 
-                DropdownMenuItem(
-                    text = {
-                        Text("API 모드 (포트 11434)")
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    },
-                    onClick = {
-                        onOpenApiMode()
-                        isMoreMenuExpanded = false
-                    }
-                )
 
                 DropdownMenuItem(
                     text = { Text("설정") },

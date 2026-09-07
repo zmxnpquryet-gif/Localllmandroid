@@ -18,9 +18,9 @@ import com.example.model.LlmModel
 import com.example.model.MessageRole
 import com.example.model.ModelCatalog
 import com.example.model.ModelRuntimeType
-import com.example.server.OllamaApiServer
 import com.example.voice.InteractiveVoiceState
 import com.example.voice.VoiceManager
+import android.net.Uri
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,8 +30,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
-import java.net.NetworkInterface
-import java.util.Collections
 import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -96,23 +94,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _modelLoadingStage = MutableStateFlow("")
     val modelLoadingStage: StateFlow<String> = _modelLoadingStage.asStateFlow()
 
-    // API Mode (Port 11434 Server)
-    private val _isApiModeEnabled = MutableStateFlow(false)
-    val isApiModeEnabled: StateFlow<Boolean> = _isApiModeEnabled.asStateFlow()
-
-    private val _apiServerPort = MutableStateFlow(OllamaApiServer.DEFAULT_PORT)
-    val apiServerPort: StateFlow<Int> = _apiServerPort.asStateFlow()
-
-    private val _apiServerStatusMessage = MutableStateFlow<String?>("대기 중")
-    val apiServerStatusMessage: StateFlow<String?> = _apiServerStatusMessage.asStateFlow()
-
-    private val _apiRequestCount = MutableStateFlow(0)
-    val apiRequestCount: StateFlow<Int> = _apiRequestCount.asStateFlow()
-
-    private val _localIpAddress = MutableStateFlow("127.0.0.1")
-    val localIpAddress: StateFlow<String> = _localIpAddress.asStateFlow()
-
-    private var apiServer: OllamaApiServer? = null
     private var modelLoadingJob: Job? = null
 
     // FDM Active Download Status
@@ -139,8 +120,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 runtime = restoredModel.runtimeType,
                 enableMtp = if (restoredModel.supportsMtp) true else _settings.value.enableMtp
             )
-            val initStatus = llmEngine.loadModel(restoredModel, _settings.value)
-            _engineStatusMessage.value = initStatus
+            viewModelScope.launch {
+                val initStatus = llmEngine.loadModel(restoredModel, _settings.value)
+                _engineStatusMessage.value = initStatus
+            }
             modelStorageManager.saveActiveModelId(restoredModel.id)
         } else {
             _activeModel.value = null
@@ -273,15 +256,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             selectModel(downloadedMatch)
         } else {
             _activeModel.value = null
-            llmEngine.loadModel(null, _settings.value)
+            viewModelScope.launch {
+                llmEngine.loadModel(null, _settings.value)
+            }
             _engineStatusMessage.value = "${if (runtime == ModelRuntimeType.LLAMA_CPP) "llama.cpp" else "LiteRT LM"} 형식의 다운로드된 모델이 없습니다. 모델 관리자에서 다운로드하세요."
         }
     }
 
     fun updateSettings(newSettings: GenerationSettings) {
         _settings.value = newSettings
-        val status = llmEngine.loadModel(_activeModel.value, newSettings)
-        _engineStatusMessage.value = status
+        viewModelScope.launch {
+            val status = llmEngine.loadModel(_activeModel.value, newSettings)
+            _engineStatusMessage.value = status
+        }
     }
 
     fun setReasoningEffort(effort: Float) {
@@ -408,7 +395,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 _activeModel.value = null
                 modelStorageManager.saveActiveModelId(null)
-                llmEngine.loadModel(null, _settings.value)
+                viewModelScope.launch {
+                    llmEngine.loadModel(null, _settings.value)
+                }
                 _engineStatusMessage.value = "다운로드된 모델이 없습니다. 모델 관리자에서 다운로드해 주세요."
             }
         }
@@ -674,66 +663,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    // ==========================================
-    // API Server Mode Controls (Port 11434)
-    // ==========================================
-    fun setApiModeEnabled(enabled: Boolean) {
-        _isApiModeEnabled.value = enabled
-        if (enabled) {
-            startApiServer()
-        } else {
-            stopApiServer()
-        }
-    }
-
-    fun startApiServer() {
-        if (apiServer == null) {
-            apiServer = OllamaApiServer(
-                context = getApplication(),
-                llmEngine = llmEngine,
-                getActiveModel = { _activeModel.value },
-                getAllModels = { _models.value.filter { it.isDownloaded } },
-                getSettings = { _settings.value }
-            )
-        }
-
-        refreshLocalIp()
-
-        apiServer?.start { isRunning, msg ->
-            _isApiModeEnabled.value = isRunning
-            _apiServerStatusMessage.value = msg
-            _engineStatusMessage.value = "API 서버 (포트 11434): ${if (isRunning) "실행 중" else "중지됨"}"
-        }
-    }
-
-    fun stopApiServer() {
-        apiServer?.stop { isRunning, msg ->
-            _isApiModeEnabled.value = isRunning
-            _apiServerStatusMessage.value = msg
-            _engineStatusMessage.value = "API 서버가 중지되었습니다."
-        }
-    }
-
-    fun refreshLocalIp() {
+    /**
+     * Import a local GGUF model file from device storage (via SAF / File Picker)
+     */
+    fun importLocalModel(uri: Uri, displayName: String) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
-                for (intf in interfaces) {
-                    val addrs = Collections.list(intf.inetAddresses)
-                    for (addr in addrs) {
-                        if (!addr.isLoopbackAddress) {
-                            val sAddr = addr.hostAddress ?: ""
-                            val isIPv4 = sAddr.indexOf(':') < 0
-                            if (isIPv4) {
-                                _localIpAddress.value = sAddr
-                                return@launch
-                            }
-                        }
+                val context = getApplication<Application>()
+                val modelsDir = File(context.filesDir, "models").apply { if (!exists()) mkdirs() }
+                val targetFileName = displayName.ifBlank { "imported_model.gguf" }
+                val destFile = File(modelsDir, targetFileName)
+
+                _engineStatusMessage.value = "기기에서 GGUF 모델 복사 중..."
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
                     }
                 }
-                _localIpAddress.value = "127.0.0.1"
-            } catch (_: Exception) {
-                _localIpAddress.value = "127.0.0.1"
+
+                val cleanName = targetFileName.removeSuffix(".gguf").replace("-", " ").replace("_", " ")
+                val customModel = LlmModel(
+                    id = "custom-${UUID.randomUUID()}",
+                    name = cleanName,
+                    repoId = "local/imported",
+                    fileName = targetFileName,
+                    runtimeType = ModelRuntimeType.LLAMA_CPP,
+                    sizeBytes = destFile.length(),
+                    isDownloaded = true,
+                    downloadStatus = "COMPLETED",
+                    localFilePath = destFile.absolutePath,
+                    description = "기기 저장소에서 직접 불러온 로컬 GGUF 모델",
+                    quantization = "GGUF"
+                )
+
+                val updatedList = listOf(customModel) + _models.value
+                _models.value = updatedList
+                modelStorageManager.saveModels(updatedList)
+                _engineStatusMessage.value = "모델 가져오기 완료: $cleanName"
+                selectModel(customModel)
+            } catch (e: Exception) {
+                _engineStatusMessage.value = "모델 가져오기 실패: ${e.localizedMessage}"
             }
         }
     }
@@ -742,6 +711,5 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         voiceManager.release()
         modelLoadingJob?.cancel()
-        apiServer?.stop { _, _ -> }
     }
 }

@@ -27,7 +27,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Memory
@@ -86,8 +85,6 @@ fun ChatScreen(
     val isModelLoading by viewModel.isModelLoading.collectAsState()
     val modelLoadingProgress by viewModel.modelLoadingProgress.collectAsState()
     val modelLoadingStage by viewModel.modelLoadingStage.collectAsState()
-    val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsState()
-    val apiPort by viewModel.apiServerPort.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -206,10 +203,6 @@ fun ChatScreen(
                     viewModel.navigateTo("voice_mode")
                     scope.launch { drawerState.close() }
                 },
-                onOpenApiMode = {
-                    viewModel.navigateTo("api_mode")
-                    scope.launch { drawerState.close() }
-                },
                 onOpenSettings = {
                     viewModel.navigateTo("settings")
                     scope.launch { drawerState.close() }
@@ -229,8 +222,7 @@ fun ChatScreen(
                     onSelectModel = { viewModel.selectModel(it) },
                     onOpenSettings = { viewModel.navigateTo("settings") },
                     onSwitchRuntime = { viewModel.switchRuntime(it) },
-                    onOpenModelManager = { viewModel.navigateTo("models") },
-                    onOpenApiMode = { viewModel.navigateTo("api_mode") }
+                    onOpenModelManager = { viewModel.navigateTo("models") }
                 )
             },
             bottomBar = {
@@ -327,42 +319,6 @@ fun ChatScreen(
                     }
                 }
 
-                // API Dedicated Mode Active Banner
-                AnimatedVisibility(visible = isApiModeEnabled) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
-                            .clickable { viewModel.navigateTo("api_mode") }
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Dns,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "API 모드 실행 중 (포트 $apiPort) • 탭하여 API 정보 확인",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                            }
-                            Text(
-                                text = "상세보기 >",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-                    }
-                }
 
                 // Engine Status Pill Banner
                 if (!engineStatus.isNullOrBlank()) {
