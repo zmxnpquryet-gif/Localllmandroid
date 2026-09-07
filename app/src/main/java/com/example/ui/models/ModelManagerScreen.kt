@@ -35,7 +35,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.SdCard
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -185,34 +187,90 @@ fun ModelManagerScreen(
                 )
             }
 
-            // Quick Info Banner
+            // Device Storage & Model Footprint Monitor Card
+            val modelsDir = remember { java.io.File(context.filesDir, "models") }
+            val actualStorageUsedBytes = remember(models, activeDownloadStatus) {
+                if (modelsDir.exists()) {
+                    modelsDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+                } else 0L
+            }
+            val totalDeviceStorageBytes = remember {
+                try {
+                    val stat = android.os.StatFs(context.filesDir.path)
+                    stat.totalBytes
+                } catch (_: Exception) {
+                    64_000_000_000L // 64 GB default fallback
+                }
+            }
+            val availableDeviceStorageBytes = remember(actualStorageUsedBytes) {
+                try {
+                    val stat = android.os.StatFs(context.filesDir.path)
+                    stat.availableBytes
+                } catch (_: Exception) {
+                    32_000_000_000L
+                }
+            }
+
+            val storageUsedFormatted = remember(actualStorageUsedBytes) {
+                val gb = actualStorageUsedBytes / (1024.0 * 1024.0 * 1024.0)
+                if (gb >= 1.0) String.format("%.2f GB", gb)
+                else String.format("%.1f MB", actualStorageUsedBytes / (1024.0 * 1024.0))
+            }
+            val availableStorageFormatted = remember(availableDeviceStorageBytes) {
+                val gb = availableDeviceStorageBytes / (1024.0 * 1024.0 * 1024.0)
+                String.format("%.1f GB", gb)
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Default.Layers,
+                    imageVector = Icons.Default.Storage,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "모델 구성",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "메인 가중치, 비전 타워, 드래프터를 함께 다운로드하고 실행할 수 있습니다.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "앱 모델 실제 사용 용량",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = storageUsedFormatted,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "실제 기기 저장소에 기록된 파일 크기",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "기기 여유: $availableStorageFormatted",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
@@ -662,11 +720,34 @@ private fun ModelBundleCardItem(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "크기: ${model.displaySize}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column {
+                Text(
+                    text = "크기: ${model.displaySize}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (model.isDownloaded) {
+                    val localBytes = remember(model.localFilePath, model.localMmprojPath, model.localMtpDrafterPath) {
+                        var sum = 0L
+                        model.localFilePath?.let { p -> val f = java.io.File(p); if (f.exists()) sum += f.length() }
+                        model.localMmprojPath?.let { p -> val f = java.io.File(p); if (f.exists()) sum += f.length() }
+                        model.localMtpDrafterPath?.let { p -> val f = java.io.File(p); if (f.exists()) sum += f.length() }
+                        model.localTemplatePath?.let { p -> val f = java.io.File(p); if (f.exists()) sum += f.length() }
+                        sum
+                    }
+                    val actualDiskFormatted = remember(localBytes) {
+                        val gb = localBytes / (1024.0 * 1024.0 * 1024.0)
+                        if (gb >= 1.0) String.format("%.2f GB", gb)
+                        else String.format("%.1f MB", localBytes / (1024.0 * 1024.0))
+                    }
+                    Text(
+                        text = "디스크 점유: $actualDiskFormatted",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 11.sp
+                    )
+                }
+            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (model.isDownloaded) {
