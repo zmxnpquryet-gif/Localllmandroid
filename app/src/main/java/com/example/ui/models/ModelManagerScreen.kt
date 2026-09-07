@@ -427,8 +427,9 @@ private fun FdmActiveDownloadCard(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            val safeProgress = if (status.progress.isNaN() || status.progress < 0f) 0f else status.progress.coerceIn(0f, 1f)
             Text(
-                text = String.format("%.0f%%", status.progress * 100f),
+                text = String.format("%.0f%%", safeProgress * 100f),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -436,8 +437,9 @@ private fun FdmActiveDownloadCard(
 
         Spacer(modifier = Modifier.height(6.dp))
 
+        val safeProgress = if (status.progress.isNaN() || status.progress < 0f) 0f else status.progress.coerceIn(0f, 1f)
         LinearProgressIndicator(
-            progress = { status.progress },
+            progress = { safeProgress },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(8.dp)
@@ -459,6 +461,7 @@ private fun FdmActiveDownloadCard(
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             status.segments.forEach { segProgress ->
+                val safeSeg = if (segProgress.isNaN() || segProgress < 0f) 0f else segProgress.coerceIn(0f, 1f)
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -468,7 +471,7 @@ private fun FdmActiveDownloadCard(
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(segProgress)
+                            .fillMaxWidth(safeSeg)
                             .height(10.dp)
                             .background(MaterialTheme.colorScheme.primary)
                     )
@@ -519,6 +522,7 @@ private fun FdmActiveDownloadCard(
 
 @Composable
 private fun ComponentProgressRow(title: String, progress: Float) {
+    val safeProgress = if (progress.isNaN() || progress < 0f) 0f else progress.coerceIn(0f, 1f)
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -531,7 +535,7 @@ private fun ComponentProgressRow(title: String, progress: Float) {
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             LinearProgressIndicator(
-                progress = { progress },
+                progress = { safeProgress },
                 modifier = Modifier
                     .width(80.dp)
                     .height(6.dp)
@@ -539,9 +543,9 @@ private fun ComponentProgressRow(title: String, progress: Float) {
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = String.format("%.0f%%", progress * 100f),
+                text = String.format("%.0f%%", safeProgress * 100f),
                 style = MaterialTheme.typography.labelSmall,
-                color = if (progress >= 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (safeProgress >= 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

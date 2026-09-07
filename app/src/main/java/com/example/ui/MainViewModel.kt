@@ -355,6 +355,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var inProcessDownloadJob: kotlinx.coroutines.Job? = null
+
     fun downloadModel(modelId: String) {
         val targetModel = _models.value.find { it.id == modelId } ?: return
         if (targetModel.isDownloading) return
@@ -367,11 +369,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ) else it
         }
 
-        ModelDownloadService.startDownload(getApplication(), targetModel)
+        try {
+            ModelDownloadService.startDownload(getApplication(), targetModel)
+        } catch (e: Throwable) {
+            android.util.Log.e("MainViewModel", "Service start failed, using in-process fallback: ${e.message}", e)
+            startInProcessDownloadFallback(targetModel)
+        }
+    }
+
+    private fun startInProcessDownloadFallback(model: LlmModel) {
+        inProcessDownloadJob?.cancel()
+        inProcessDownloadJob = viewModelScope.launch {
+            try {
+                val modelsDir = java.io.File(getApplication<android.app.Application>().filesDir, "models").apply { if (!exists()) mkdirs() }
+                val downloader = com.example.engine.ModelDownloader()
+                downloader.downloadUnifiedBundle(model, modelsDir).collect { status ->
+                    _activeDownloadStatus.value = status
+                    _models.value = _models.value.map { m ->
+                        if (m.id == model.id) {
+                            m.copy(
+                                isDownloading = !status.isCompleted && status.errorMessage == null,
+                                downloadStatus = if (status.isCompleted) "COMPLETED" else if (status.errorMessage != null) "FAILED" else "DOWNLOADING",
+                                downloadProgress = status.progress,
+                                downloadSpeedText = status.speedText,
+                                downloadEtaSeconds = status.etaSeconds,
+                                mainDownloadProgress = status.mainProgress,
+                                visionDownloadProgress = status.visionProgress,
+                                mtpDownloadProgress = status.mtpProgress,
+                                templateDownloadProgress = status.templateProgress,
+                                isDownloaded = if (status.isCompleted) true else m.isDownloaded,
+                                isVisionDownloaded = if (m.hasMmproj || m.visionTowerUrl.isNotBlank()) status.isCompleted else m.isVisionDownloaded,
+                                isMtpDownloaded = if (m.supportsMtp || m.mtpDrafterUrl.isNotBlank()) status.isCompleted else m.isMtpDownloaded,
+                                isTemplateDownloaded = if (m.templateFileUrl.isNotBlank() || m.templateFileName != null) status.isCompleted else m.isTemplateDownloaded,
+                                localFilePath = status.localMainPath ?: m.localFilePath,
+                                localMmprojPath = status.localVisionPath ?: m.localMmprojPath,
+                                localMtpDrafterPath = status.localMtpPath ?: m.localMtpDrafterPath,
+                                localTemplatePath = status.localTemplatePath ?: m.localTemplatePath
+                            )
+                        } else m
+                    }
+
+                    if (status.isCompleted) {
+                        modelStorageManager.saveModels(_models.value)
+                        modelStorageManager.saveActiveModelId(model.id)
+                        val downloadedModel = _models.value.find { it.id == model.id }
+                        if (downloadedModel != null) {
+                            selectModel(downloadedModel)
+                        }
+                    }
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("MainViewModel", "In-process fallback download error", e)
+                _models.value = _models.value.map { m ->
+                    if (m.id == model.id) m.copy(isDownloading = false, downloadStatus = "FAILED") else m
+                }
+            }
+        }
     }
 
     fun cancelDownload(modelId: String) {
-        ModelDownloadService.cancelDownload(getApplication(), modelId)
+        inProcessDownloadJob?.cancel()
+        inProcessDownloadJob = null
+        try {
+            ModelDownloadService.cancelDownload(getApplication(), modelId)
+        } catch (e: Throwable) {
+            android.util.Log.w("MainViewModel", "Error canceling service download: ${e.message}")
+        }
         _activeDownloadStatus.value = null
         _models.value = _models.value.map { m ->
             if (m.id == modelId) {

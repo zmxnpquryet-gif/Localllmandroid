@@ -59,10 +59,14 @@ class ModelDownloadService : Service() {
                 action = ACTION_START_DOWNLOAD
                 putExtra(EXTRA_MODEL_ID, model.id)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed to start ModelDownloadService: ${e.message}", e)
             }
         }
 
@@ -71,7 +75,11 @@ class ModelDownloadService : Service() {
                 action = ACTION_CANCEL_DOWNLOAD
                 putExtra(EXTRA_MODEL_ID, modelId)
             }
-            context.startService(intent)
+            try {
+                context.startService(intent)
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed to send cancelDownload intent: ${e.message}", e)
+            }
         }
     }
 
@@ -92,28 +100,10 @@ class ModelDownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action
-        when (action) {
-            ACTION_START_DOWNLOAD -> {
-                val model = activeDownloadingModel
-                if (model != null) {
-                    startForegroundDownload(model)
-                } else {
-                    stopSelf()
-                }
-            }
-            ACTION_CANCEL_DOWNLOAD -> {
-                val modelId = intent.getStringExtra(EXTRA_MODEL_ID)
-                handleCancelDownload(modelId)
-            }
-        }
-        return START_NOT_STICKY
-    }
-
-    private fun startForegroundDownload(model: LlmModel) {
+        val model = activeDownloadingModel
         val initialNotification = buildNotification(
-            title = "다운로드 준비 중...",
-            content = "${model.name} 다운로드를 시작합니다.",
+            title = if (model != null) "다운로드 시작: ${model.name}" else "다운로드 서비스",
+            content = if (model != null) "${model.name} 다운로드를 준비하고 있습니다..." else "서비스 준비 중...",
             progress = 0,
             isIndeterminate = true
         )
@@ -129,35 +119,89 @@ class ModelDownloadService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, initialNotification)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start foreground service", e)
+        } catch (e: Throwable) {
+            Log.e(TAG, "Initial startForeground failed: ${e.message}", e)
         }
 
+        val action = intent?.action
+        when (action) {
+            ACTION_START_DOWNLOAD -> {
+                if (model != null) {
+                    startForegroundDownload(model)
+                } else {
+                    try {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                    } catch (_: Throwable) {}
+                    stopSelf()
+                }
+            }
+            ACTION_CANCEL_DOWNLOAD -> {
+                val modelId = intent.getStringExtra(EXTRA_MODEL_ID)
+                handleCancelDownload(modelId)
+            }
+            else -> {
+                if (model == null && downloadJob == null) {
+                    try {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                    } catch (_: Throwable) {}
+                    stopSelf()
+                }
+            }
+        }
+        return START_NOT_STICKY
+    }
+
+    private fun startForegroundDownload(model: LlmModel) {
         downloadJob?.cancel()
         downloadJob = serviceScope.launch {
-            val modelsDir = File(filesDir, "models").apply { if (!exists()) mkdirs() }
+            try {
+                val modelsDir = File(filesDir, "models").apply { if (!exists()) mkdirs() }
 
-            modelDownloader.downloadUnifiedBundle(model, modelsDir).collect { status ->
-                _currentDownloadStatus.value = status
+                modelDownloader.downloadUnifiedBundle(model, modelsDir).collect { status ->
+                    _currentDownloadStatus.value = status
 
-                val now = System.currentTimeMillis()
-                if (now - lastNotificationUpdateTime >= 800L || status.isCompleted || status.errorMessage != null) {
-                    lastNotificationUpdateTime = now
-                    updateNotification(model, status)
+                    val now = System.currentTimeMillis()
+                    if (now - lastNotificationUpdateTime >= 800L || status.isCompleted || status.errorMessage != null) {
+                        lastNotificationUpdateTime = now
+                        try {
+                            updateNotification(model, status)
+                        } catch (e: Throwable) {
+                            Log.w(TAG, "Notification update failed: ${e.message}")
+                        }
+                    }
+
+                    if (status.isCompleted) {
+                        Log.i(TAG, "Download completed for ${model.name}")
+                        releaseWakeLock()
+                        try {
+                            stopForeground(STOP_FOREGROUND_DETACH)
+                        } catch (_: Throwable) {}
+                        stopSelf()
+                    } else if (status.errorMessage != null) {
+                        Log.e(TAG, "Download failed: ${status.errorMessage}")
+                        releaseWakeLock()
+                        try {
+                            stopForeground(STOP_FOREGROUND_DETACH)
+                        } catch (_: Throwable) {}
+                        stopSelf()
+                    }
                 }
-
-                if (status.isCompleted) {
-                    Log.i(TAG, "Download completed for ${model.name}")
-                    releaseWakeLock()
-                    // Leave notification showing completion, then stop foreground
+            } catch (e: Throwable) {
+                Log.e(TAG, "Error during download stream: ${e.message}", e)
+                _currentDownloadStatus.value = DownloadStatus(
+                    modelId = model.id,
+                    progress = 0f,
+                    downloadedBytes = 0L,
+                    totalBytes = 0L,
+                    speedText = "오류",
+                    errorMessage = e.localizedMessage ?: "다운로드 중 오류 발생",
+                    isCompleted = false
+                )
+                releaseWakeLock()
+                try {
                     stopForeground(STOP_FOREGROUND_DETACH)
-                    stopSelf()
-                } else if (status.errorMessage != null) {
-                    Log.e(TAG, "Download failed: ${status.errorMessage}")
-                    releaseWakeLock()
-                    stopForeground(STOP_FOREGROUND_DETACH)
-                    stopSelf()
-                }
+                } catch (_: Throwable) {}
+                stopSelf()
             }
         }
     }
@@ -231,7 +275,7 @@ class ModelDownloadService : Service() {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(content)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setSmallIcon(com.example.R.mipmap.ic_launcher)
             .setContentIntent(pendingOpenApp)
             .setOngoing(isOngoing)
             .setOnlyAlertOnce(true)
@@ -254,7 +298,7 @@ class ModelDownloadService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             builder.addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
+                android.R.drawable.ic_delete,
                 "취소",
                 pendingCancel
             )
