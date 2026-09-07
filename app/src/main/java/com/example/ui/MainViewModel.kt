@@ -891,24 +891,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val detected = GgufMetadataDetector.detect(destFile)
                 val hasVision = detected.hasVision
                 val hasDrafter = detected.hasDrafter
+                val isLiteRt = detected.detectedRuntime == ModelRuntimeType.LITE_RT
 
-                val cleanName = targetFileName.removeSuffix(".gguf").replace("-", " ").replace("_", " ")
+                val cleanName = targetFileName
+                    .removeSuffix(".gguf")
+                    .removeSuffix(".bin")
+                    .removeSuffix(".litertlm")
+                    .removeSuffix(".task")
+                    .removeSuffix(".tflite")
+                    .replace("-", " ")
+                    .replace("_", " ")
+
                 val customModel = LlmModel(
                     id = "custom-${UUID.randomUUID()}",
                     name = cleanName,
-                    repoId = "local/imported",
+                    repoId = if (isLiteRt) "local/litert-imported" else "local/imported",
                     fileName = targetFileName,
-                    runtimeType = ModelRuntimeType.LLAMA_CPP,
+                    runtimeType = detected.detectedRuntime,
                     sizeBytes = destFile.length(),
                     isDownloaded = true,
                     downloadStatus = "COMPLETED",
                     localFilePath = destFile.absolutePath,
+                    isBundledModel = isLiteRt || detected.isUnifiedBundle,
                     description = buildString {
-                        append("기기 저장소에서 직접 불러온 로컬 GGUF 모델")
-                        if (hasVision) append(" • 내장 비전타워")
-                        if (hasDrafter) append(" • 내장 드래프터")
+                        if (isLiteRt) {
+                            append("기기 저장소에서 불러온 LiteRT 올인원 통합 모델")
+                            if (hasVision) append(" • 통합 비전타워(Vision Encoder)")
+                            if (hasDrafter) append(" • 통합 드래프터(MTP)")
+                        } else {
+                            append("기기 저장소에서 직접 불러온 로컬 GGUF 모델")
+                            if (hasVision) append(" • 내장 비전타워")
+                            if (hasDrafter) append(" • 내장 드래프터")
+                        }
                     },
-                    quantization = "GGUF",
+                    quantization = if (isLiteRt) "LiteRT" else "GGUF",
                     hasMmproj = hasVision,
                     supportsMtp = hasDrafter,
                     isVisionDownloaded = hasVision,

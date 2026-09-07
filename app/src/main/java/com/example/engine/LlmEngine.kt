@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Conversation
@@ -138,10 +139,12 @@ class LlmEngine(private val context: Context) {
                 litertConversation = conv
                 activeModel = model
                 isModelLoaded = true
-                isVisionTowerLoaded = false
+                isVisionTowerLoaded = model.hasMmproj
 
+                val visionMsg = if (model.hasMmproj) " + 통합 올인원 비전타워" else ""
+                val drafterMsg = if (model.supportsMtp) " + 통합 드래프터" else ""
                 val templateMsg = if (model.localTemplatePath != null) " (Jinja 템플릿 적용)" else ""
-                val resultMsg = "[LiteRT LM] ${model.name} 온디바이스 로드 완료$templateMsg"
+                val resultMsg = "[LiteRT LM] ${model.name} 온디바이스 로드 완료$visionMsg$drafterMsg$templateMsg"
                 Log.i(tag, resultMsg)
                 onStageUpdate?.invoke("로드 완료", 1.0f)
                 resultMsg
@@ -376,10 +379,46 @@ class LlmEngine(private val context: Context) {
             val conv = litertConversation
                 ?: throw IllegalStateException("LiteRT 대화 세션이 준비되지 않았습니다.")
 
-            Log.d(tag, "Starting LiteRT inference with prompt length: ${formattedPrompt.length}")
+            var tempVisionFile: File? = null
+            val localImagePath: String? = if (attachment?.isImage == true && isVisionTowerLoaded) {
+                val raw = attachment.uriString
+                val uri = Uri.parse(raw)
+                if (uri.scheme == "file") {
+                    uri.path
+                } else if (uri.scheme == "content") {
+                    try {
+                        val temp = File(context.cacheDir, "litert_vision_${System.currentTimeMillis()}.jpg")
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            temp.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        tempVisionFile = temp
+                        temp.absolutePath
+                    } catch (e: Exception) {
+                        Log.w(tag, "Failed to cache content URI for LiteRT vision: ${e.message}")
+                        null
+                    }
+                } else {
+                    File(raw).takeIf { it.exists() }?.absolutePath
+                }
+            } else null
+
+            val hasImage = localImagePath != null
+            Log.d(tag, "Starting LiteRT inference with prompt length: ${formattedPrompt.length}, hasVisionInput: $hasImage")
+
+            val contents = if (localImagePath != null) {
+                Log.i(tag, "[LiteRT LM] 올인원 통합 비전 인코더 이미지 연동: $localImagePath")
+                Contents.of(
+                    Content.ImageFile(localImagePath),
+                    Content.Text(formattedPrompt)
+                )
+            } else {
+                Contents.of(Content.Text(formattedPrompt))
+            }
 
             try {
-                conv.sendMessageAsync(formattedPrompt).collect { msg ->
+                conv.sendMessageAsync(contents).collect { msg ->
                     val rawChunk = msg.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
                     if (rawChunk.isNotEmpty()) {
                         if (firstTokenTime == null) {
@@ -450,6 +489,8 @@ class LlmEngine(private val context: Context) {
             } catch (e: Throwable) {
                 Log.e(tag, "LiteRT inference error", e)
                 throw RuntimeException("LiteRT 추론 오류: ${e.localizedMessage ?: e.message}")
+            } finally {
+                tempVisionFile?.delete()
             }
             return@flow
         }

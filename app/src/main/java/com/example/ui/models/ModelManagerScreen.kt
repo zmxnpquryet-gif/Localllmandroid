@@ -149,7 +149,7 @@ fun ModelManagerScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("기기 GGUF 가져오기", fontSize = 12.sp)
+                        Text("기기 모델 가져오기", fontSize = 12.sp)
                     }
 
                     Button(
@@ -644,15 +644,26 @@ private fun ModelBundleCardItem(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Main weights badge
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text("메인 가중치", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+            // Main weights / Unified package badge
+            if (model.runtimeType == ModelRuntimeType.LITE_RT) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.tertiaryContainer)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text("올인원 통합 모델", fontSize = 10.sp, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text("메인 가중치", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
 
             // Vision Tower badge
@@ -672,7 +683,8 @@ private fun ModelBundleCardItem(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (model.isVisionDownloaded) "비전 타워 포함" else "비전 타워 지원",
+                            text = if (model.runtimeType == ModelRuntimeType.LITE_RT) "LiteRT 통합 비전"
+                            else if (model.isVisionDownloaded) "비전 타워 포함" else "비전 타워 지원",
                             fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -964,13 +976,14 @@ private fun FdmAddBundleDialog(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            modelNameInput = "DeepSeek R1 1.5B (Thinking)"
+                            modelNameInput = "DeepSeek R1 (GGUF)"
                             runtimeChoice = ModelRuntimeType.LLAMA_CPP
                             mainUrlInput = "https://huggingface.co/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf"
                             customFileNameInput = "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf"
                             visionUrlInput = ""
                             mtpUrlInput = ""
                             templateUrlInput = ""
+                            hasEmbeddedVisionInput = false
                             supportsReasoningInput = true
                         },
                         shape = RoundedCornerShape(6.dp),
@@ -980,13 +993,31 @@ private fun FdmAddBundleDialog(
                     }
                     OutlinedButton(
                         onClick = {
-                            modelNameInput = "Phi-4 Mini LiteRT"
+                            modelNameInput = "Gemma 3 1B (LiteRT 통합 비전)"
+                            runtimeChoice = ModelRuntimeType.LITE_RT
+                            mainUrlInput = "https://huggingface.co/litert-community/gemma-3-1b-it-litert-lm/resolve/main/gemma-3-1b-it.litertlm"
+                            customFileNameInput = "gemma-3-1b-it.litertlm"
+                            visionUrlInput = ""
+                            mtpUrlInput = ""
+                            templateUrlInput = ""
+                            hasEmbeddedVisionInput = true
+                            supportsReasoningInput = false
+                        },
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1.1f)
+                    ) {
+                        Text("LiteRT 통합 비전", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            modelNameInput = "Phi-4 Mini (LiteRT)"
                             runtimeChoice = ModelRuntimeType.LITE_RT
                             mainUrlInput = "https://huggingface.co/litert-community/Phi-4-mini-instruct/resolve/main/phi-4-mini-instruct-gpu.bin"
                             customFileNameInput = "phi-4-mini-instruct-gpu.bin"
                             visionUrlInput = ""
                             mtpUrlInput = ""
                             templateUrlInput = "https://huggingface.co/litert-community/Phi-4-mini-instruct/raw/main/tokenizer_config.json"
+                            hasEmbeddedVisionInput = false
                             supportsReasoningInput = true
                         },
                         shape = RoundedCornerShape(6.dp),
@@ -1022,6 +1053,22 @@ private fun FdmAddBundleDialog(
                             selected = runtimeChoice == ModelRuntimeType.LITE_RT,
                             onClick = { runtimeChoice = ModelRuntimeType.LITE_RT },
                             label = { Text("LiteRT LM") }
+                        )
+                    }
+                }
+
+                if (runtimeChoice == ModelRuntimeType.LITE_RT) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "💡 Google LiteRT 모델은 비전 타워(Vision Encoder), 토크나이저, 프롬프트 템플릿이 단일 바이너리(.litertlm / .bin)에 통합 패키징된 올인원 구조입니다.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
                     }
                 }
