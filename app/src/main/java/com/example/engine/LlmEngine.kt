@@ -190,19 +190,22 @@ class LlmEngine(private val context: Context) {
             return@withContext "모델 파일 형식 오류: $errorReason"
         }
 
-        // Check mmproj if present
-        val mmprojPath = if (model.hasMmproj && !model.localMmprojPath.isNullOrBlank() && File(model.localMmprojPath).exists()) {
-            val mmFile = File(model.localMmprojPath)
-            if (mmFile.length() >= 4) {
-                val mmGguf = try {
-                    FileInputStream(mmFile).use { fis ->
-                        val h = ByteArray(4)
-                        fis.read(h) == 4 && h[0] == 'G'.code.toByte() && h[1] == 'G'.code.toByte() &&
-                                h[2] == 'U'.code.toByte() && h[3] == 'F'.code.toByte()
-                    }
-                } catch (_: Exception) { false }
-                if (mmGguf) model.localMmprojPath else null
-            } else null
+        // Check mmproj if present (support external mmproj file AND embedded vision projector)
+        val mmprojPath = if (model.hasMmproj) {
+            val externalFile = if (!model.localMmprojPath.isNullOrBlank()) {
+                File(model.localMmprojPath)
+            } else if (!model.mmprojFileName.isNullOrBlank()) {
+                File(modelFile.parentFile ?: context.filesDir, model.mmprojFileName)
+            } else {
+                File(modelFile.parentFile ?: context.filesDir, "mmproj-${model.fileName}")
+            }
+
+            if (externalFile.exists() && externalFile.length() >= 4) {
+                externalFile.absolutePath
+            } else {
+                // Embedded vision tower: projector tensors built directly into the main model file
+                modelFile.absolutePath
+            }
         } else null
 
         unloadCurrentModel()
@@ -260,7 +263,10 @@ class LlmEngine(private val context: Context) {
                             isModelLoaded = true
                             isVisionTowerLoaded = mmprojPath != null
 
-                            val visionText = if (isVisionTowerLoaded) " + mmproj 비전타워" else ""
+                            val isEmbedded = mmprojPath == modelFile.absolutePath
+                            val visionText = if (isVisionTowerLoaded) {
+                                if (isEmbedded) " + 내장 비전타워" else " + mmproj 비전타워"
+                            } else ""
                             val resultMsg = "[llama.cpp GGUF] ${model.name} 온디바이스 로드 완료 (Context: $contextWindow$visionText)"
                             Log.i(tag, resultMsg)
                             onStageUpdate?.invoke("로드 완료", 1.0f)
@@ -268,6 +274,25 @@ class LlmEngine(private val context: Context) {
                         }
                     }
                 } catch (e: Throwable) {
+                    if (mmprojUriString != null) {
+                        Log.w(tag, "비전타워 로드 예외 발생 (${e.message}), 텍스트 전용 모드로 재시도합니다.")
+                        try {
+                            helper.load(modelUriString, contextWindow, null) {
+                                errorJob.cancel()
+                                if (!isResumed && continuation.isActive) {
+                                    isResumed = true
+                                    activeModel = model
+                                    isModelLoaded = true
+                                    isVisionTowerLoaded = false
+                                    val resultMsg = "[llama.cpp GGUF] ${model.name} 온디바이스 로드 완료 (텍스트 모드)"
+                                    Log.i(tag, resultMsg)
+                                    onStageUpdate?.invoke("로드 완료", 1.0f)
+                                    continuation.resume(resultMsg)
+                                }
+                            }
+                            return@suspendCancellableCoroutine
+                        } catch (_: Throwable) {}
+                    }
                     errorJob.cancel()
                     Log.e(tag, "Error invoking helper.load", e)
                     if (!isResumed && continuation.isActive) {

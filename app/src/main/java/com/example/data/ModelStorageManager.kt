@@ -6,6 +6,7 @@ import android.util.Log
 import com.example.model.LlmModel
 import com.example.model.ModelCatalog
 import com.example.model.ModelRuntimeType
+import com.example.engine.GgufMetadataDetector
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -76,6 +77,8 @@ class ModelStorageManager(private val context: Context) {
                         localTemplatePath = saved.localTemplatePath,
                         downloadStatus = saved.downloadStatus,
                         supportsReasoning = saved.supportsReasoning,
+                        hasMmproj = saved.hasMmproj,
+                        supportsMtp = saved.supportsMtp,
                         templateFileName = saved.templateFileName ?: defaultModel.templateFileName,
                         templateFileUrl = saved.templateFileUrl.ifBlank { defaultModel.templateFileUrl }
                     )
@@ -103,25 +106,35 @@ class ModelStorageManager(private val context: Context) {
 
         val mainExists = mainFile.exists() && mainFile.length() > 0
 
-        // Vision tower file
+        // Auto-detect embedded features from GGUF metadata or filename
+        val detected = if (mainExists && model.runtimeType == ModelRuntimeType.LLAMA_CPP) {
+            GgufMetadataDetector.detect(mainFile)
+        } else null
+
+        val effectiveHasMmproj = model.hasMmproj || (detected?.hasVisionTower == true)
+        val effectiveSupportsMtp = model.supportsMtp || (detected?.hasDrafter == true)
+
+        // Vision tower file (external mmproj OR embedded vision)
         val visionFile = if (!model.localMmprojPath.isNullOrBlank()) {
             File(model.localMmprojPath)
         } else if (!model.mmprojFileName.isNullOrBlank()) {
             File(modelsDir, model.mmprojFileName)
-        } else if (model.hasMmproj) {
+        } else if (effectiveHasMmproj) {
             File(modelsDir, "mmproj-${model.fileName}")
         } else null
-        val visionExists = visionFile?.let { it.exists() && it.length() > 0 } ?: false
+        val externalVisionExists = visionFile?.let { it.exists() && it.length() > 0 } ?: false
+        val isVisionReady = externalVisionExists || (effectiveHasMmproj && mainExists)
 
-        // MTP Drafter file
+        // MTP Drafter file (external drafter OR embedded MTP)
         val mtpFile = if (!model.localMtpDrafterPath.isNullOrBlank()) {
             File(model.localMtpDrafterPath)
         } else if (!model.mtpDrafterFileName.isNullOrBlank()) {
             File(modelsDir, model.mtpDrafterFileName)
-        } else if (model.supportsMtp) {
+        } else if (effectiveSupportsMtp) {
             File(modelsDir, "draft-${model.fileName}")
         } else null
-        val mtpExists = mtpFile?.let { it.exists() && it.length() > 0 } ?: false
+        val externalMtpExists = mtpFile?.let { it.exists() && it.length() > 0 } ?: false
+        val isMtpReady = externalMtpExists || (effectiveSupportsMtp && mainExists)
 
         // Template file (supports modern Jinja chat_template and JSON)
         val templateFile = if (!model.localTemplatePath.isNullOrBlank()) {
@@ -143,13 +156,15 @@ class ModelStorageManager(private val context: Context) {
         val templateExists = templateFile?.let { it.exists() && it.length() > 0 } ?: false
 
         return model.copy(
+            hasMmproj = effectiveHasMmproj,
+            supportsMtp = effectiveSupportsMtp,
             isDownloaded = mainExists,
             downloadStatus = if (mainExists) "COMPLETED" else if (model.isDownloading) "DOWNLOADING" else "IDLE",
             localFilePath = if (mainExists) mainFile.absolutePath else null,
-            isVisionDownloaded = visionExists,
-            localMmprojPath = if (visionExists) visionFile?.absolutePath else null,
-            isMtpDownloaded = mtpExists,
-            localMtpDrafterPath = if (mtpExists) mtpFile?.absolutePath else null,
+            isVisionDownloaded = isVisionReady,
+            localMmprojPath = if (externalVisionExists) visionFile?.absolutePath else null,
+            isMtpDownloaded = isMtpReady,
+            localMtpDrafterPath = if (externalMtpExists) mtpFile?.absolutePath else null,
             isTemplateDownloaded = templateExists,
             localTemplatePath = if (templateExists) templateFile?.absolutePath else null
         )

@@ -326,7 +326,9 @@ fun ModelManagerScreen(
                         isActive = isActive,
                         onMount = { viewModel.selectModel(model) },
                         onDownload = { viewModel.downloadModel(model.id) },
-                        onDelete = { viewModel.deleteModel(model.id) }
+                        onDelete = { viewModel.deleteModel(model.id) },
+                        onToggleVision = { viewModel.toggleModelVision(model.id) },
+                        onToggleDrafter = { viewModel.toggleModelDrafter(model.id) }
                     )
                 }
                 item {
@@ -336,13 +338,13 @@ fun ModelManagerScreen(
         }
     }
 
-    // FDM Multi-Link Downloader Dialog (Supports Filename, LiteRT Template, and Thinking/Reasoning)
+    // FDM Multi-Link Downloader Dialog (Supports Filename, LiteRT Template, Thinking/Reasoning, and Embedded Vision/Drafter)
     if (showFdmDialog) {
         FdmAddBundleDialog(
             context = context,
             initialHfToken = settings.hfToken,
             onDismiss = { showFdmDialog = false },
-            onStartDownload = { name, runtime, mainUrl, customFileName, visionUrl, mtpUrl, templateUrl, supportsReasoning, hfToken ->
+            onStartDownload = { name, runtime, mainUrl, customFileName, visionUrl, mtpUrl, templateUrl, supportsReasoning, hfToken, hasEmbeddedVision, hasEmbeddedDrafter ->
                 viewModel.addCustomFdmBundle(
                     name = name,
                     runtime = runtime,
@@ -353,7 +355,9 @@ fun ModelManagerScreen(
                     templateUrl = templateUrl,
                     supportsReasoning = supportsReasoning,
                     autoStartDownload = true,
-                    hfToken = hfToken
+                    hfToken = hfToken,
+                    hasEmbeddedVision = hasEmbeddedVision,
+                    hasEmbeddedDrafter = hasEmbeddedDrafter
                 )
                 showFdmDialog = false
             }
@@ -567,7 +571,9 @@ private fun ModelBundleCardItem(
     isActive: Boolean,
     onMount: () -> Unit,
     onDownload: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onToggleVision: () -> Unit,
+    onToggleDrafter: () -> Unit
 ) {
     val borderColor = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
 
@@ -750,7 +756,54 @@ private fun ModelBundleCardItem(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Manual Feature Toggles (Vision Tower & Speculative Drafter)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FilterChip(
+                selected = model.hasMmproj,
+                onClick = onToggleVision,
+                leadingIcon = {
+                    Icon(
+                        imageVector = if (model.hasMmproj) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (model.hasMmproj) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                label = {
+                    Text(
+                        text = if (model.hasMmproj) "비전 타워 [ON]" else "비전 타워 [OFF]",
+                        fontSize = 11.sp
+                    )
+                }
+            )
+
+            FilterChip(
+                selected = model.supportsMtp,
+                onClick = onToggleDrafter,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (model.supportsMtp) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                label = {
+                    Text(
+                        text = if (model.supportsMtp) "드래프터 [ON]" else "드래프터 [OFF]",
+                        fontSize = 11.sp
+                    )
+                }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
 
         // Action Buttons
         Row(
@@ -858,7 +911,9 @@ private fun FdmAddBundleDialog(
         mtpUrl: String,
         templateUrl: String,
         supportsReasoning: Boolean,
-        hfToken: String
+        hfToken: String,
+        hasEmbeddedVision: Boolean,
+        hasEmbeddedDrafter: Boolean
     ) -> Unit
 ) {
     var modelNameInput by remember { mutableStateOf("") }
@@ -869,6 +924,8 @@ private fun FdmAddBundleDialog(
     var mtpUrlInput by remember { mutableStateOf("") }
     var templateUrlInput by remember { mutableStateOf("") }
     var supportsReasoningInput by remember { mutableStateOf(false) }
+    var hasEmbeddedVisionInput by remember { mutableStateOf(false) }
+    var hasEmbeddedDrafterInput by remember { mutableStateOf(false) }
     var hfTokenInput by remember { mutableStateOf(initialHfToken) }
     var isTokenVisible by remember { mutableStateOf(false) }
 
@@ -1089,6 +1146,78 @@ private fun FdmAddBundleDialog(
                     )
                 }
 
+                // Embedded Vision Tower toggle
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Visibility,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "내장 비전 타워 (Vision Tower)",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Text(
+                            text = "단일 GGUF 파일 내부에 비전 가중치 내장 (Qwen2-VL, Llava 등)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = hasEmbeddedVisionInput,
+                        onCheckedChange = { hasEmbeddedVisionInput = it }
+                    )
+                }
+
+                // Embedded Speculative Drafter (MTP) toggle
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "내장 추측 디코딩 드래프터 (MTP)",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Text(
+                            text = "단일 GGUF 파일 내부에 드래프터 헤드 내장 (DeepSeek-V3 MTP 등)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = hasEmbeddedDrafterInput,
+                        onCheckedChange = { hasEmbeddedDrafterInput = it }
+                    )
+                }
+
                 // 2. Vision Tower URL (Optional)
                 OutlinedTextField(
                     value = visionUrlInput,
@@ -1137,7 +1266,9 @@ private fun FdmAddBundleDialog(
                             mtpUrlInput.trim(),
                             templateUrlInput.trim(),
                             supportsReasoningInput,
-                            hfTokenInput.trim()
+                            hfTokenInput.trim(),
+                            hasEmbeddedVisionInput,
+                            hasEmbeddedDrafterInput
                         )
                     }
                 },

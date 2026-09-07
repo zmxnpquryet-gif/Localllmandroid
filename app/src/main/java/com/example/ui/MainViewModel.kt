@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.ModelStorageManager
 import com.example.data.local.ChatDatabase
 import com.example.data.repository.ChatRepository
+import com.example.engine.GgufMetadataDetector
 import com.example.engine.GenerationChunk
 import com.example.engine.LlmEngine
 import com.example.engine.McpClient
@@ -541,12 +542,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun toggleModelVision(modelId: String) {
+        _models.value = _models.value.map { m ->
+            if (m.id == modelId) {
+                val newVision = !m.hasMmproj
+                m.copy(
+                    hasMmproj = newVision,
+                    isVisionDownloaded = if (newVision) (m.isDownloaded || m.isVisionDownloaded) else false
+                )
+            } else m
+        }
+        modelStorageManager.saveModels(_models.value)
+        _activeModel.value?.let { active ->
+            if (active.id == modelId) {
+                val updated = _models.value.first { it.id == modelId }
+                _activeModel.value = updated
+                _engineStatusMessage.value = "${updated.name}: 비전 타워 ${if (updated.hasMmproj) "활성화 (실행 시 연동)" else "비활성화"}"
+            }
+        }
+    }
+
+    fun toggleModelDrafter(modelId: String) {
+        _models.value = _models.value.map { m ->
+            if (m.id == modelId) {
+                val newDrafter = !m.supportsMtp
+                m.copy(
+                    supportsMtp = newDrafter,
+                    isMtpDownloaded = if (newDrafter) (m.isDownloaded || m.isMtpDownloaded) else false
+                )
+            } else m
+        }
+        modelStorageManager.saveModels(_models.value)
+        _activeModel.value?.let { active ->
+            if (active.id == modelId) {
+                val updated = _models.value.first { it.id == modelId }
+                _activeModel.value = updated
+                _engineStatusMessage.value = "${updated.name}: 드래프터 ${if (updated.supportsMtp) "활성화 (가속 연동)" else "비활성화"}"
+            }
+        }
+    }
+
     /**
      * Adds an external custom model via FDM multi-link format.
      * Supports:
      * - Direct custom filename entry
      * - LiteRT prompt template file url/path
      * - Explicit reasoning / thinking mode toggle
+     * - Embedded Vision Tower and Embedded Speculative Drafter detection and manual toggles
      */
     fun addCustomFdmBundle(
         name: String,
@@ -558,7 +600,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         templateUrl: String = "",
         supportsReasoning: Boolean = false,
         autoStartDownload: Boolean = true,
-        hfToken: String = ""
+        hfToken: String = "",
+        hasEmbeddedVision: Boolean = false,
+        hasEmbeddedDrafter: Boolean = false
     ) {
         val cleanMain = mainUrl.trim()
         val cleanVision = visionUrl.trim()
@@ -592,12 +636,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 modelName.contains("Thinking", ignoreCase = true) ||
                 finalFileName.contains("R1", ignoreCase = true)
 
+        val autoDetectedVision = GgufMetadataDetector.isVisionModel(finalFileName) || GgufMetadataDetector.isVisionModel(modelName)
+        val autoDetectedDrafter = GgufMetadataDetector.isDrafterModel(finalFileName) || GgufMetadataDetector.isDrafterModel(modelName)
+
+        val effectiveVision = hasEmbeddedVision || cleanVision.isNotBlank() || autoDetectedVision
+        val effectiveMtp = hasEmbeddedDrafter || cleanMtp.isNotBlank() || autoDetectedDrafter
+
         val descriptionParts = mutableListOf<String>()
         descriptionParts.add("파일명: $finalFileName")
         if (runtime == ModelRuntimeType.LITE_RT) descriptionParts.add("LiteRT LM 템플릿 지원")
         if (effectiveReasoning) descriptionParts.add("사고 과정(Thinking) 지원")
-        if (cleanVision.isNotBlank()) descriptionParts.add("비전타워 포함")
-        if (cleanMtp.isNotBlank()) descriptionParts.add("MTP 드래프터 포함")
+        if (effectiveVision) descriptionParts.add(if (cleanVision.isNotBlank()) "비전타워 포함" else "내장 비전타워")
+        if (effectiveMtp) descriptionParts.add(if (cleanMtp.isNotBlank()) "MTP 드래프터 포함" else "내장 드래프터")
         if (cleanToken.isNotBlank()) descriptionParts.add("인증 토큰 적용")
 
         val newModel = LlmModel(
@@ -607,9 +657,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             fileName = finalFileName,
             runtimeType = runtime,
             sizeBytes = 2_100_000_000L,
-            supportsMtp = cleanMtp.isNotBlank(),
+            supportsMtp = effectiveMtp,
             supportsReasoning = effectiveReasoning,
-            hasMmproj = cleanVision.isNotBlank(),
+            hasMmproj = effectiveVision,
             mmprojFileName = visionFileName,
             mtpDrafterFileName = mtpFileName,
             templateFileName = templateFileName,
@@ -838,6 +888,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
+                val detected = GgufMetadataDetector.detect(destFile)
+                val hasVision = detected.hasVision
+                val hasDrafter = detected.hasDrafter
+
                 val cleanName = targetFileName.removeSuffix(".gguf").replace("-", " ").replace("_", " ")
                 val customModel = LlmModel(
                     id = "custom-${UUID.randomUUID()}",
@@ -849,8 +903,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     isDownloaded = true,
                     downloadStatus = "COMPLETED",
                     localFilePath = destFile.absolutePath,
-                    description = "기기 저장소에서 직접 불러온 로컬 GGUF 모델",
-                    quantization = "GGUF"
+                    description = buildString {
+                        append("기기 저장소에서 직접 불러온 로컬 GGUF 모델")
+                        if (hasVision) append(" • 내장 비전타워")
+                        if (hasDrafter) append(" • 내장 드래프터")
+                    },
+                    quantization = "GGUF",
+                    hasMmproj = hasVision,
+                    supportsMtp = hasDrafter,
+                    isVisionDownloaded = hasVision,
+                    isMtpDownloaded = hasDrafter
                 )
 
                 val updatedList = listOf(customModel) + _models.value
