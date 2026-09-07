@@ -1,0 +1,6 @@
+{
+  "name": "Local LLM",
+  "description": "High-performance local LLM chat app supporting LiteRT LM & llama.cpp, encrypted local SQLite history, HuggingFace downloads, vision, MCP, and voice mode.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

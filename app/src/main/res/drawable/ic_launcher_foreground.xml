@@ -1,0 +1,45 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Center AI Spark / Neural Node Icon within 66dp safe zone (21 to 87) -->
+    <!-- Ambient glow circle -->
+    <path
+        android:fillColor="#1510B981"
+        android:pathData="M54,54m-26,0a26,26 0,1 1,52 0a26,26 0,1 1,-52 0" />
+
+    <!-- Neural Circuit hexagon/rhombus core -->
+    <path
+        android:strokeWidth="2.5"
+        android:strokeColor="#10B981"
+        android:fillColor="#00000000"
+        android:pathData="M54,32 L74,44 L74,64 L54,76 L34,64 L34,44 Z" />
+
+    <!-- Central Intel Core / Lightning Spark -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M55,36 L43,53 L52,53 L49,72 L65,51 L56,51 Z" />
+
+    <!-- Node connection dots -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M54,32m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M74,44m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M74,64m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M54,76m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M34,64m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M34,44m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+</vector>
+
