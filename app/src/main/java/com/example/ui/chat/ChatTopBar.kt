@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
@@ -31,6 +32,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,6 +42,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.LlmModel
@@ -57,6 +61,7 @@ fun ChatTopBar(
     onOpenSettings: () -> Unit,
     onSwitchRuntime: (ModelRuntimeType) -> Unit,
     onOpenModelManager: () -> Unit = {},
+    onOpenApiMode: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isModelMenuExpanded by remember { mutableStateOf(false) }
@@ -310,6 +315,19 @@ fun ChatTopBar(
                     }
                 )
 
+
+                DropdownMenuItem(
+                    text = {
+                        Text("API 모드 (포트 11434)")
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    },
+                    onClick = {
+                        onOpenApiMode()
+                        isMoreMenuExpanded = false
+                    }
+                )
 
                 DropdownMenuItem(
                     text = { Text("설정") },

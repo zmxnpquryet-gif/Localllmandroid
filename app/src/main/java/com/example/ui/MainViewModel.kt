@@ -21,6 +21,9 @@ import com.example.model.ModelRuntimeType
 import com.example.voice.InteractiveVoiceState
 import com.example.voice.VoiceManager
 import android.net.Uri
+import com.example.server.OllamaApiServer
+import com.example.service.ModelDownloadService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +33,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+import java.net.NetworkInterface
+import java.util.Collections
 import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -94,6 +99,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _modelLoadingStage = MutableStateFlow("")
     val modelLoadingStage: StateFlow<String> = _modelLoadingStage.asStateFlow()
 
+    // API Mode (Port 11434 Server)
+    private val _isApiModeEnabled = MutableStateFlow(false)
+    val isApiModeEnabled: StateFlow<Boolean> = _isApiModeEnabled.asStateFlow()
+
+    private val _apiServerPort = MutableStateFlow(OllamaApiServer.DEFAULT_PORT)
+    val apiServerPort: StateFlow<Int> = _apiServerPort.asStateFlow()
+
+    private val _apiServerStatusMessage = MutableStateFlow<String?>("대기 중")
+    val apiServerStatusMessage: StateFlow<String?> = _apiServerStatusMessage.asStateFlow()
+
+    private val _apiRequestCount = MutableStateFlow(0)
+    val apiRequestCount: StateFlow<Int> = _apiRequestCount.asStateFlow()
+
+    private val _localIpAddress = MutableStateFlow("127.0.0.1")
+    val localIpAddress: StateFlow<String> = _localIpAddress.asStateFlow()
+
+    private var apiServer: OllamaApiServer? = null
     private var modelLoadingJob: Job? = null
 
     // FDM Active Download Status
@@ -137,6 +159,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     createNewConversation()
                 } else if (_currentConversationId.value == null && list.isNotEmpty()) {
                     selectConversation(list.first().id)
+                }
+            }
+        }
+
+        // Observe Foreground Service background download status
+        viewModelScope.launch {
+            ModelDownloadService.currentDownloadStatus.collect { status ->
+                _activeDownloadStatus.value = status
+                if (status != null) {
+                    val modelId = status.modelId
+                    _models.value = _models.value.map { m ->
+                        if (m.id == modelId) {
+                            m.copy(
+                                isDownloading = !status.isCompleted && status.errorMessage == null,
+                                downloadStatus = if (status.isCompleted) "COMPLETED" else if (status.errorMessage != null) "FAILED" else "DOWNLOADING",
+                                downloadProgress = status.progress,
+                                downloadSpeedText = status.speedText,
+                                downloadEtaSeconds = status.etaSeconds,
+                                mainDownloadProgress = status.mainProgress,
+                                visionDownloadProgress = status.visionProgress,
+                                mtpDownloadProgress = status.mtpProgress,
+                                templateDownloadProgress = status.templateProgress,
+                                isDownloaded = if (status.isCompleted) true else m.isDownloaded,
+                                isVisionDownloaded = if (m.hasMmproj || m.visionTowerUrl.isNotBlank()) status.isCompleted else m.isVisionDownloaded,
+                                isMtpDownloaded = if (m.supportsMtp || m.mtpDrafterUrl.isNotBlank()) status.isCompleted else m.isMtpDownloaded,
+                                isTemplateDownloaded = if (m.templateFileUrl.isNotBlank() || m.templateFileName != null) status.isCompleted else m.isTemplateDownloaded,
+                                localFilePath = status.localMainPath ?: m.localFilePath,
+                                localMmprojPath = status.localVisionPath ?: m.localMmprojPath,
+                                localMtpDrafterPath = status.localMtpPath ?: m.localMtpDrafterPath,
+                                localTemplatePath = status.localTemplatePath ?: m.localTemplatePath
+                            )
+                        } else m
+                    }
+
+                    if (status.isCompleted) {
+                        modelStorageManager.saveModels(_models.value)
+                        modelStorageManager.saveActiveModelId(modelId)
+                        val downloadedModel = _models.value.find { it.id == modelId }
+                        if (downloadedModel != null) {
+                            selectModel(downloadedModel)
+                        }
+                    }
                 }
             }
         }
@@ -293,62 +357,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun downloadModel(modelId: String) {
         val targetModel = _models.value.find { it.id == modelId } ?: return
-        activeDownloadJob?.cancel()
-        activeDownloadJob = viewModelScope.launch {
-            _models.value = _models.value.map {
-                if (it.id == modelId) it.copy(
-                    isDownloading = true,
-                    downloadStatus = "DOWNLOADING",
-                    downloadProgress = 0f
-                ) else it
-            }
+        if (targetModel.isDownloading) return
 
-            val dummyDir = File(getApplication<Application>().filesDir, "models")
-            if (!dummyDir.exists()) dummyDir.mkdirs()
-
-            modelDownloader.downloadUnifiedBundle(targetModel, dummyDir).collect { status ->
-                _activeDownloadStatus.value = status
-
-                _models.value = _models.value.map { m ->
-                    if (m.id == modelId) {
-                        m.copy(
-                            isDownloading = !status.isCompleted,
-                            downloadStatus = if (status.isCompleted) "COMPLETED" else "DOWNLOADING",
-                            downloadProgress = status.progress,
-                            downloadSpeedText = status.speedText,
-                            downloadEtaSeconds = status.etaSeconds,
-                            mainDownloadProgress = status.mainProgress,
-                            visionDownloadProgress = status.visionProgress,
-                            mtpDownloadProgress = status.mtpProgress,
-                            templateDownloadProgress = status.templateProgress,
-                            isDownloaded = status.isCompleted,
-                            isVisionDownloaded = if (m.hasMmproj || m.visionTowerUrl.isNotBlank()) status.isCompleted else m.isVisionDownloaded,
-                            isMtpDownloaded = if (m.supportsMtp || m.mtpDrafterUrl.isNotBlank()) status.isCompleted else m.isMtpDownloaded,
-                            isTemplateDownloaded = if (m.templateFileUrl.isNotBlank() || m.templateFileName != null) status.isCompleted else m.isTemplateDownloaded,
-                            localFilePath = status.localMainPath ?: m.localFilePath,
-                            localMmprojPath = status.localVisionPath ?: m.localMmprojPath,
-                            localMtpDrafterPath = status.localMtpPath ?: m.localMtpDrafterPath,
-                            localTemplatePath = status.localTemplatePath ?: m.localTemplatePath
-                        )
-                    } else m
-                }
-
-                if (status.isCompleted) {
-                    modelStorageManager.saveModels(_models.value)
-                    modelStorageManager.saveActiveModelId(modelId)
-                    val downloadedModel = _models.value.find { it.id == modelId }
-                    if (downloadedModel != null) {
-                        // Automatically mount the unified bundle together (Main + Vision + MTP Drafter)
-                        selectModel(downloadedModel)
-                    }
-                }
-            }
+        _models.value = _models.value.map {
+            if (it.id == modelId) it.copy(
+                isDownloading = true,
+                downloadStatus = "DOWNLOADING",
+                downloadProgress = 0f
+            ) else it
         }
+
+        ModelDownloadService.startDownload(getApplication(), targetModel)
     }
 
     fun cancelDownload(modelId: String) {
-        activeDownloadJob?.cancel()
-        activeDownloadJob = null
+        ModelDownloadService.cancelDownload(getApplication(), modelId)
         _activeDownloadStatus.value = null
         _models.value = _models.value.map { m ->
             if (m.id == modelId) {
@@ -707,9 +730,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ==========================================
+    // API Server Mode Controls (Port 11434)
+    // ==========================================
+    fun setApiModeEnabled(enabled: Boolean) {
+        _isApiModeEnabled.value = enabled
+        if (enabled) {
+            startApiServer()
+        } else {
+            stopApiServer()
+        }
+    }
+
+    fun startApiServer() {
+        if (apiServer == null) {
+            apiServer = OllamaApiServer(
+                context = getApplication(),
+                llmEngine = llmEngine,
+                getActiveModel = { _activeModel.value },
+                getAllModels = { _models.value.filter { it.isDownloaded } },
+                getSettings = { _settings.value }
+            )
+        }
+
+        refreshLocalIp()
+
+        apiServer?.start { isRunning, msg ->
+            _isApiModeEnabled.value = isRunning
+            _apiServerStatusMessage.value = msg
+            _engineStatusMessage.value = "API 서버 (포트 11434): ${if (isRunning) "실행 중" else "중지됨"}"
+            _apiRequestCount.value = apiServer?.requestCount ?: 0
+        }
+    }
+
+    fun stopApiServer() {
+        apiServer?.stop { isRunning, msg ->
+            _isApiModeEnabled.value = isRunning
+            _apiServerStatusMessage.value = msg
+            _engineStatusMessage.value = "API 서버가 중지되었습니다."
+        }
+    }
+
+    fun refreshLocalIp() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
+                for (intf in interfaces) {
+                    val addrs = Collections.list(intf.inetAddresses)
+                    for (addr in addrs) {
+                        if (!addr.isLoopbackAddress) {
+                            val sAddr = addr.hostAddress ?: ""
+                            val isIPv4 = sAddr.indexOf(':') < 0
+                            if (isIPv4) {
+                                _localIpAddress.value = sAddr
+                                return@launch
+                            }
+                        }
+                    }
+                }
+                _localIpAddress.value = "127.0.0.1"
+            } catch (_: Exception) {
+                _localIpAddress.value = "127.0.0.1"
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         voiceManager.release()
         modelLoadingJob?.cancel()
+        apiServer?.stop { _, _ -> }
     }
 }

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
@@ -46,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -77,6 +79,9 @@ fun SettingsScreen(
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
     val mcpStatusText by viewModel.mcpStatusText.collectAsState()
+    val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsState()
+    val apiPort by viewModel.apiServerPort.collectAsState()
+    val localIpAddress by viewModel.localIpAddress.collectAsState()
 
     var showClearDialog by remember { mutableStateOf(false) }
     var mcpUrlInput by remember { mutableStateOf(settings.mcpServerUrl) }
@@ -430,6 +435,56 @@ fun SettingsScreen(
                 }
             }
 
+
+            // 7. API Dedicated Mode (Port 11434 Ollama / OpenAI Server)
+            SettingsCard(
+                title = "API 전용 모드 (포트 11434)",
+                icon = Icons.Default.Dns
+            ) {
+                Text(
+                    text = "기기를 독립적인 Ollama 호환 LLM 서버로 구동합니다. 로컬 네트워크의 다른 장치나 앱에서 HTTP API로 연결할 수 있습니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isApiModeEnabled) "API 서버 구동 중" else "API 서버 꺼짐",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isApiModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (isApiModeEnabled) "http://$localIpAddress:$apiPort" else "포트 11434 수신 대기",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    androidx.compose.material3.Switch(
+                        checked = isApiModeEnabled,
+                        onCheckedChange = { viewModel.setApiModeEnabled(it) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { viewModel.navigateTo("api_mode") },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Dns,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("API 모드 상세 화면 및 cURL 가이드 열기")
+                }
+            }
 
             // 8. Encrypted SQLite Storage Management
             SettingsCard(

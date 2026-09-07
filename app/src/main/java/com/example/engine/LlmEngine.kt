@@ -160,7 +160,9 @@ class LlmEngine(private val context: Context) {
         }
 
         // Construct standard prompt formatted for on-device instruction-tuned model
-        val formattedPrompt = formatChatPrompt(
+        val formattedPrompt = PromptFormatter.formatPrompt(
+            templateType = model.promptTemplateType,
+            templateJsonPath = model.localTemplatePath,
             systemPrompt = settings.systemPrompt,
             history = history,
             userPrompt = prompt,
@@ -291,45 +293,4 @@ class LlmEngine(private val context: Context) {
         unloadCurrentModel()
     }
 
-    /**
-     * Constructs a clean, multi-turn ChatML prompt for the on-device model.
-     */
-    private fun formatChatPrompt(
-        systemPrompt: String,
-        history: List<Pair<String, String>>,
-        userPrompt: String,
-        toolsContext: String?,
-        supportsReasoning: Boolean
-    ): String {
-        val sb = StringBuilder()
-
-        // 1. System instruction
-        val effectiveSystem = buildString {
-            if (systemPrompt.isNotBlank()) {
-                append(systemPrompt.trim())
-            } else {
-                append("당신은 Android 기기에서 완전히 로컬로 실행되는 친절하고 유능한 AI 어시스턴트입니다. 외부 서버 없이 기기 내부에서 모든 답변을 생성합니다.")
-            }
-            if (toolsContext != null && toolsContext.isNotBlank()) {
-                append("\n\n[현재 기기 로컬 컨텍스트 및 도구 정보]:\n").append(toolsContext)
-            }
-            if (supportsReasoning) {
-                append("\n답변을 작성할 때 사고 및 추론 과정은 반드시 <think>...</think> 태그 안에 작성하세요.")
-            }
-        }
-
-        sb.append("<|im_start|>system\n").append(effectiveSystem).append("<|im_end|>\n")
-
-        // 2. Chat history turns
-        for ((role, text) in history.takeLast(6)) {
-            val normalizedRole = if (role.equals("user", ignoreCase = true)) "user" else "assistant"
-            sb.append("<|im_start|>").append(normalizedRole).append("\n").append(text.trim()).append("<|im_end|>\n")
-        }
-
-        // 3. Current User Turn
-        sb.append("<|im_start|>user\n").append(userPrompt.trim()).append("<|im_end|>\n")
-        sb.append("<|im_start|>assistant\n")
-
-        return sb.toString()
-    }
 }
