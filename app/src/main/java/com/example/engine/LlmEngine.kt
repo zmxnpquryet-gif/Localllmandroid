@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.model.ChatAttachment
 import com.example.model.GenerationSettings
 import com.example.model.LlmModel
+import com.example.model.ModelRuntimeType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,6 +15,11 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.Conversation
 import org.nehuatl.llamacpp.LlamaHelper
 import android.net.Uri
 import java.io.File
@@ -36,7 +42,7 @@ data class GenerationChunk(
 )
 
 /**
- * Genuine On-Device Local LLM Inference Engine powered by native llama.cpp.
+ * Genuine On-Device Local LLM Inference Engine powered by native llama.cpp & LiteRT-LM.
  * Runs completely offline on device CPU/GPU with no external API or cloud dependency.
  */
 class LlmEngine(private val context: Context) {
@@ -50,6 +56,9 @@ class LlmEngine(private val context: Context) {
     )
 
     private var llamaHelper: LlamaHelper? = null
+    private var litertEngine: Engine? = null
+    private var litertConversation: Conversation? = null
+
     private var activeModel: LlmModel? = null
     private var isVisionTowerLoaded: Boolean = false
     private var isModelLoaded: Boolean = false
@@ -87,7 +96,62 @@ class LlmEngine(private val context: Context) {
             return@withContext "모델 파일이 디스크에 존재하지 않거나 빈 파일입니다: ${modelFile.name}"
         }
 
-        onStageUpdate?.invoke("GGUF 헤더 및 무결성 검증 중...", 0.10f)
+        onStageUpdate?.invoke("모델 무결성 검증 중...", 0.10f)
+
+        // Branch by runtime type
+        if (model.runtimeType == ModelRuntimeType.LITE_RT) {
+            onStageUpdate?.invoke("LiteRT 모델 파일 검증 중...", 0.15f)
+
+            val preview = try {
+                FileInputStream(modelFile).use { fis ->
+                    val buf = ByteArray(256)
+                    val len = fis.read(buf)
+                    if (len > 0) String(buf, 0, len, Charsets.UTF_8).trim() else ""
+                }
+            } catch (_: Exception) { "" }
+
+            if (preview.contains("Unauthorized", ignoreCase = true) || preview.contains("401", ignoreCase = true)) {
+                unloadCurrentModel()
+                onStageUpdate?.invoke("인증 실패 (401)", 0f)
+                return@withContext "모델 파일 오류: Hugging Face 인증 필요 (401 Unauthorized). 설정에서 HF 토큰을 입력 후 모델을 다시 다운로드하세요."
+            }
+            if (preview.startsWith("<!DOCTYPE", ignoreCase = true) || preview.startsWith("<html", ignoreCase = true)) {
+                unloadCurrentModel()
+                onStageUpdate?.invoke("HTML 오류 페이지", 0f)
+                return@withContext "모델 파일 오류: 다운로드된 파일이 모델 바이너리가 아닌 HTML 웹페이지입니다."
+            }
+
+            unloadCurrentModel()
+            onStageUpdate?.invoke("LiteRT LM 네이티브 엔진 초기화 중...", 0.40f)
+
+            return@withContext try {
+                val config = EngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = Backend.CPU()
+                )
+                val engine = Engine(config)
+                onStageUpdate?.invoke("LiteRT 가중치 로드 및 대화 세션 생성 중...", 0.70f)
+                engine.initialize()
+                val conv = engine.createConversation()
+
+                litertEngine = engine
+                litertConversation = conv
+                activeModel = model
+                isModelLoaded = true
+                isVisionTowerLoaded = false
+
+                val templateMsg = if (model.localTemplatePath != null) " (Jinja 템플릿 적용)" else ""
+                val resultMsg = "[LiteRT LM] ${model.name} 온디바이스 로드 완료$templateMsg"
+                Log.i(tag, resultMsg)
+                onStageUpdate?.invoke("로드 완료", 1.0f)
+                resultMsg
+            } catch (e: Throwable) {
+                Log.e(tag, "LiteRT load error", e)
+                unloadCurrentModel()
+                onStageUpdate?.invoke("LiteRT 초기화 실패", 0f)
+                "LiteRT LM 엔진 초기화 오류: ${e.localizedMessage ?: e.message}"
+            }
+        }
 
         // Pre-flight check: Verify GGUF magic bytes (0x47, 0x47, 0x55, 0x46 -> "GGUF")
         val isValidGguf = try {
@@ -228,6 +292,15 @@ class LlmEngine(private val context: Context) {
             Log.w(tag, "Error releasing llama context: ${e.message}")
         }
         llamaHelper = null
+
+        try {
+            litertEngine?.close()
+        } catch (e: Throwable) {
+            Log.w(tag, "Error releasing LiteRT engine: ${e.message}")
+        }
+        litertEngine = null
+        litertConversation = null
+
         activeModel = null
         isModelLoaded = false
         isVisionTowerLoaded = false
@@ -248,8 +321,6 @@ class LlmEngine(private val context: Context) {
         attachment: ChatAttachment?,
         mcpToolsContext: String? = null
     ): Flow<GenerationChunk> = flow {
-        val helper = llamaHelper
-            ?: throw IllegalStateException("추론 엔진이 초기화되지 않았습니다.")
         val model = activeModel
             ?: throw IllegalStateException("선택된 로컬 모델이 없습니다. 모델 관리자에서 모델을 먼저 로드하세요.")
 
@@ -268,13 +339,6 @@ class LlmEngine(private val context: Context) {
             supportsReasoning = model.supportsReasoning
         )
 
-        val imagePath = if (attachment?.isImage == true && isVisionTowerLoaded) {
-            val raw = attachment.uriString
-            if (raw.startsWith("content://") || raw.startsWith("file://")) raw
-            else Uri.fromFile(File(raw)).toString()
-        } else null
-        val hasImage = imagePath != null
-
         val startTime = System.currentTimeMillis()
         var firstTokenTime: Long? = null
         var totalTokens = 0
@@ -283,13 +347,107 @@ class LlmEngine(private val context: Context) {
         val contentBuffer = StringBuilder()
         var isInReasoningMode = false
 
-        Log.d(tag, "Starting real inference with prompt length: ${formattedPrompt.length}, isImage: $hasImage")
+        if (model.runtimeType == ModelRuntimeType.LITE_RT) {
+            val conv = litertConversation
+                ?: throw IllegalStateException("LiteRT 대화 세션이 준비되지 않았습니다.")
+
+            Log.d(tag, "Starting LiteRT inference with prompt length: ${formattedPrompt.length}")
+
+            try {
+                conv.sendMessageAsync(formattedPrompt).collect { msg ->
+                    val rawChunk = msg.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
+                    if (rawChunk.isNotEmpty()) {
+                        if (firstTokenTime == null) {
+                            firstTokenTime = System.currentTimeMillis()
+                        }
+                        totalTokens++
+
+                        val currentTime = System.currentTimeMillis()
+                        val elapsedSinceFirstTokenSec = ((currentTime - (firstTokenTime ?: currentTime)) / 1000f).coerceAtLeast(0.001f)
+                        val currentTps = totalTokens / elapsedSinceFirstTokenSec
+
+                        val promptEvalTimeSec = ((firstTokenTime!! - startTime) / 1000f).coerceAtLeast(0.001f)
+                        val promptSpeed = ((formattedPrompt.length / 3f) / promptEvalTimeSec).coerceIn(10f, 500f)
+
+                        // Track <think> and </think> tags
+                        if (rawChunk.contains("<think>")) {
+                            isInReasoningMode = true
+                            val before = rawChunk.substringBefore("<think>")
+                            val after = rawChunk.substringAfter("<think>")
+                            if (before.isNotEmpty()) contentBuffer.append(before)
+                            if (after.isNotEmpty()) reasoningBuffer.append(after)
+                        } else if (rawChunk.contains("</think>")) {
+                            val before = rawChunk.substringBefore("</think>")
+                            val after = rawChunk.substringAfter("</think>")
+                            if (before.isNotEmpty()) reasoningBuffer.append(before)
+                            isInReasoningMode = false
+                            if (after.isNotEmpty()) contentBuffer.append(after)
+                        } else {
+                            if (isInReasoningMode) {
+                                reasoningBuffer.append(rawChunk)
+                            } else {
+                                contentBuffer.append(rawChunk)
+                            }
+                        }
+
+                        emit(
+                            GenerationChunk(
+                                token = rawChunk,
+                                isReasoning = isInReasoningMode,
+                                currentReasoningText = reasoningBuffer.toString(),
+                                currentContentText = contentBuffer.toString(),
+                                tps = currentTps,
+                                promptSpeed = promptSpeed,
+                                totalTokens = totalTokens,
+                                isComplete = false
+                            )
+                        )
+                    }
+                }
+
+                val finalElapsedSec = ((System.currentTimeMillis() - (firstTokenTime ?: startTime)) / 1000f).coerceAtLeast(0.001f)
+                val finalTps = if (totalTokens > 0) totalTokens / finalElapsedSec else 0f
+                val promptEvalTimeSec = (((firstTokenTime ?: System.currentTimeMillis()) - startTime) / 1000f).coerceAtLeast(0.001f)
+                val promptSpeed = ((formattedPrompt.length / 3f) / promptEvalTimeSec).coerceIn(10f, 500f)
+
+                emit(
+                    GenerationChunk(
+                        token = "",
+                        isReasoning = false,
+                        currentReasoningText = reasoningBuffer.toString(),
+                        currentContentText = contentBuffer.toString(),
+                        tps = finalTps,
+                        promptSpeed = promptSpeed,
+                        totalTokens = totalTokens,
+                        isComplete = true
+                    )
+                )
+            } catch (e: Throwable) {
+                Log.e(tag, "LiteRT inference error", e)
+                throw RuntimeException("LiteRT 추론 오류: ${e.localizedMessage ?: e.message}")
+            }
+            return@flow
+        }
+
+        // LLAMA_CPP
+        val helper = llamaHelper
+            ?: throw IllegalStateException("추론 엔진이 초기화되지 않았습니다.")
+
+        val imagePath = if (attachment?.isImage == true && isVisionTowerLoaded) {
+            val raw = attachment.uriString
+            if (raw.startsWith("content://") || raw.startsWith("file://")) raw
+            else Uri.fromFile(File(raw)).toString()
+        } else null
+        val hasImage = imagePath != null
+
+        Log.d(tag, "Starting real GGUF inference with prompt length: ${formattedPrompt.length}, isImage: $hasImage")
 
         // Trigger native inference in LlamaHelper
+        // CRITICAL FIX: The 3rd parameter is emit_partial_completion, MUST be true for partial token streaming!
         helper.predict(
             formattedPrompt,
             imagePath,
-            hasImage
+            true
         )
 
         // Collect genuine real-time tokens from native llama.cpp stream
@@ -386,6 +544,13 @@ class LlmEngine(private val context: Context) {
             llamaHelper?.stopPrediction()
         } catch (e: Throwable) {
             Log.w(tag, "Error stopping prediction: ${e.message}")
+        }
+        try {
+            if (activeModel?.runtimeType == ModelRuntimeType.LITE_RT) {
+                litertConversation = litertEngine?.createConversation()
+            }
+        } catch (e: Throwable) {
+            Log.w(tag, "Error resetting LiteRT conversation: ${e.message}")
         }
     }
 

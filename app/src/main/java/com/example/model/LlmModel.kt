@@ -227,12 +227,12 @@ object ModelCatalog {
             supportsMtp = false,
             supportsReasoning = false,
             hasMmproj = false,
-            templateFileUrl = "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct/raw/main/tokenizer_config.json",
-            templateFileName = "qwen2.5-coder-template.json",
+            templateFileUrl = "https://huggingface.co/itme-brain/Qwen-chat_template.jinja/raw/main/chat_template.jinja",
+            templateFileName = "chat_template.jinja",
             mainModelUrl = "https://huggingface.co/4ntoine/Qwen2.5-Coder-1.5B-Instruct-LiteRTLM/resolve/main/model.litertlm",
             isBundledModel = false,
             isDownloaded = false,
-            description = "Google LiteRT 엔진 구동용 Qwen 2.5 Coder 1.5B 모델. 코딩 및 프롬프트 템플릿 지원.",
+            description = "Google LiteRT LM 엔진 구동용 Qwen 2.5 Coder 1.5B 모델. 공식 Jinja 프롬프트 템플릿(chat_template.jinja) 완벽 지원.",
             quantization = "INT4"
         )
     )

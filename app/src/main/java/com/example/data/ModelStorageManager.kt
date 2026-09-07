@@ -123,13 +123,22 @@ class ModelStorageManager(private val context: Context) {
         } else null
         val mtpExists = mtpFile?.let { it.exists() && it.length() > 0 } ?: false
 
-        // Template file
+        // Template file (supports modern Jinja chat_template and JSON)
         val templateFile = if (!model.localTemplatePath.isNullOrBlank()) {
             File(model.localTemplatePath)
         } else if (!model.templateFileName.isNullOrBlank()) {
             File(modelsDir, model.templateFileName)
         } else if (model.runtimeType == ModelRuntimeType.LITE_RT) {
-            File(modelsDir, "${model.fileName.substringBeforeLast('.')}-template.json")
+            val base = model.fileName.substringBeforeLast('.')
+            val jinja = File(modelsDir, "$base-template.jinja")
+            val chatJinja = File(modelsDir, "chat_template.jinja")
+            val json = File(modelsDir, "$base-template.json")
+            when {
+                jinja.exists() -> jinja
+                chatJinja.exists() -> chatJinja
+                json.exists() -> json
+                else -> jinja
+            }
         } else null
         val templateExists = templateFile?.let { it.exists() && it.length() > 0 } ?: false
 

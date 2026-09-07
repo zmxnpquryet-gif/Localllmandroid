@@ -13,8 +13,8 @@ android {
     applicationId = "com.aistudio.localllm.kqzp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 2
-    versionName = "1.1.0"
+    versionCode = 6
+    versionName = "1.1.5"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -89,6 +89,12 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.llamacpp)
+  implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.0") {
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-reflect")
+  }
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
@@ -114,4 +120,17 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+configurations.all {
+  resolutionStrategy {
+    force("org.jetbrains.kotlin:kotlin-stdlib:2.2.10")
+    force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.10")
+    force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.2.10")
+    force("org.jetbrains.kotlin:kotlin-reflect:2.2.10")
+  }
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+  compilerOptions.freeCompilerArgs.add("-Xskip-metadata-version-check")
 }

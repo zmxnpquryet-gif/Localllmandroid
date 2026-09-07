@@ -1036,12 +1036,12 @@ private fun FdmAddBundleDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // LiteRT Template file URL
+                // LiteRT Template file URL (Jinja / JSON)
                 OutlinedTextField(
                     value = templateUrlInput,
                     onValueChange = { templateUrlInput = it },
-                    label = { Text("LiteRT 템플릿 파일 다운로드 링크" + if (runtimeChoice == ModelRuntimeType.LITE_RT) " [권장]" else " (선택)") },
-                    placeholder = { Text("https://.../tokenizer_config.json") },
+                    label = { Text("LiteRT Jinja/JSON 템플릿 파일 링크" + if (runtimeChoice == ModelRuntimeType.LITE_RT) " [권장]" else " (선택)") },
+                    placeholder = { Text("https://.../chat_template.jinja 또는 tokenizer_config.json") },
                     trailingIcon = {
                         IconButton(onClick = {
                             val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()

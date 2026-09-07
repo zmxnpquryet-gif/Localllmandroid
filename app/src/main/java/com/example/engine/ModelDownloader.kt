@@ -131,7 +131,8 @@ class ModelDownloader {
             File(modelsDir, model.mtpDrafterFileName ?: "draft-${model.fileName}")
         } else null
         val templateFile = if (model.templateFileUrl.isNotBlank() || model.templateFileName != null) {
-            File(modelsDir, model.templateFileName ?: "${model.fileName.substringBeforeLast('.')}-template.json")
+            val defaultExt = if (model.templateFileUrl.contains(".jinja", ignoreCase = true)) "jinja" else "json"
+            File(modelsDir, model.templateFileName ?: "${model.fileName.substringBeforeLast('.')}-template.$defaultExt")
         } else null
 
         data class DownloadTask(
