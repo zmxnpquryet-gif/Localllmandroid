@@ -11,11 +11,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.BufferedOutputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.io.RandomAccessFile
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
@@ -63,7 +66,7 @@ data class DownloadStatus(
 
 /**
  * High-performance Multi-thread Segmented Range Downloader (FDM engine).
- * Uses HTTP Range requests and RandomAccessFile to write segments in parallel.
+ * Uses HTTP Range requests and parallel part files merged with kernel zero-copy transferTo.
  * Supports resume, cancellation, ETA, and per-segment progress monitoring.
  */
 class ModelDownloader {
@@ -73,7 +76,8 @@ class ModelDownloader {
     companion object {
         private const val USER_AGENT = "Mozilla/5.0 (Android; Mobile) LocalLLM/1.1.0 FDM"
         private const val DEFAULT_SEGMENTS = 4
-        private const val MIN_SEGMENT_SIZE = 15 * 1024 * 1024L // 15MB
+        private const val MIN_SEGMENT_SIZE = 5 * 1024 * 1024L // 5MB minimum for segmented
+        private const val BUFFER_SIZE = 256 * 1024 // 256KB buffer for max I/O throughput
 
         fun safeFraction(downloaded: Long, total: Long): Float {
             if (total <= 0L || downloaded <= 0L) return 0f
@@ -82,11 +86,20 @@ class ModelDownloader {
         }
     }
 
+    private val dispatcher = Dispatcher().apply {
+        maxRequests = 64
+        maxRequestsPerHost = 32
+    }
+    private val connectionPool = ConnectionPool(16, 5, TimeUnit.MINUTES)
+
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .dispatcher(dispatcher)
+        .connectionPool(connectionPool)
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        .retryOnConnectionFailure(true)
         .build()
 
     fun downloadUnifiedBundle(
@@ -292,6 +305,71 @@ class ModelDownloader {
         )
     }.flowOn(Dispatchers.IO)
 
+    private data class ProbeResult(
+        val finalUrl: String,
+        val totalBytes: Long,
+        val supportsRange: Boolean
+    )
+
+    private fun probeUrl(initialUrl: String, fallbackSize: Long): ProbeResult {
+        var resolvedUrl = initialUrl
+        var totalBytes = fallbackSize
+        var supportsRange = false
+
+        // 1. Probe with Range: bytes=0-0 to resolve redirects and test Range in 1 request
+        try {
+            val rangeReq = Request.Builder()
+                .url(initialUrl)
+                .header("User-Agent", USER_AGENT)
+                .header("Range", "bytes=0-0")
+                .build()
+
+            httpClient.newCall(rangeReq).execute().use { resp ->
+                resolvedUrl = resp.request.url.toString()
+                if (resp.code == 206) {
+                    supportsRange = true
+                    val cr = resp.header("Content-Range")
+                    if (cr != null && cr.contains("/")) {
+                        val parsed = cr.substringAfter("/").trim().toLongOrNull()
+                        if (parsed != null && parsed > 1000L) totalBytes = parsed
+                    }
+                } else if (resp.isSuccessful) {
+                    val cl = resp.header("Content-Length")?.toLongOrNull()
+                    if (cl != null && cl > 1000L) totalBytes = cl
+                    val ar = resp.header("Accept-Ranges")
+                    if (ar?.contains("bytes", ignoreCase = true) == true) supportsRange = true
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Range probe check failed: ${e.message}")
+        }
+
+        // 2. Fallback HEAD probe if Range didn't confirm
+        if (!supportsRange) {
+            try {
+                val headReq = Request.Builder()
+                    .url(resolvedUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .head()
+                    .build()
+
+                httpClient.newCall(headReq).execute().use { resp ->
+                    resolvedUrl = resp.request.url.toString()
+                    if (resp.isSuccessful) {
+                        val cl = resp.header("Content-Length")?.toLongOrNull()
+                        if (cl != null && cl > 1000L) totalBytes = cl
+                        val ar = resp.header("Accept-Ranges")
+                        if (ar?.contains("bytes", ignoreCase = true) == true) supportsRange = true
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "HEAD probe check failed: ${e.message}")
+            }
+        }
+
+        return ProbeResult(resolvedUrl, totalBytes, supportsRange)
+    }
+
     private suspend fun downloadComponent(
         taskTitle: String,
         url: String,
@@ -301,63 +379,19 @@ class ModelDownloader {
         onProgress: suspend (Long, Long, String, Int, List<Float>) -> Unit,
         onError: suspend (String) -> Unit
     ): Boolean {
-        val tempFile = File(modelsDir, "${targetFile.name}.downloading")
-        var totalSize = fallbackSize
-        var supportsRange = false
+        val probe = probeUrl(url, fallbackSize)
+        val finalUrl = probe.finalUrl
+        val totalSize = probe.totalBytes
+        val supportsRange = probe.supportsRange
 
-        try {
-            val headReq = Request.Builder()
-                .url(url)
-                .header("User-Agent", USER_AGENT)
-                .head()
-                .build()
-
-            httpClient.newCall(headReq).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val cl = resp.header("Content-Length")?.toLongOrNull()
-                    val ar = resp.header("Accept-Ranges")
-                    if (cl != null && cl > 1000L) totalSize = cl
-                    if (ar?.contains("bytes", ignoreCase = true) == true) supportsRange = true
-                }
-            }
-        } catch (e: Exception) {
-            Log.d(tag, "HEAD probe failed: ${e.message}")
-        }
-
-        if (!supportsRange) {
-            try {
-                val probeReq = Request.Builder()
-                    .url(url)
-                    .header("User-Agent", USER_AGENT)
-                    .header("Range", "bytes=0-0")
-                    .build()
-
-                httpClient.newCall(probeReq).execute().use { resp ->
-                    if (resp.code == 206) {
-                        supportsRange = true
-                        val cr = resp.header("Content-Range")
-                        if (cr != null && cr.contains("/")) {
-                            val parsed = cr.substringAfter("/").trim().toLongOrNull()
-                            if (parsed != null && parsed > 1000L) totalSize = parsed
-                        }
-                    } else if (resp.isSuccessful) {
-                        val cl = resp.header("Content-Length")?.toLongOrNull()
-                        if (cl != null && cl > 1000L) totalSize = cl
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(tag, "Range probe check: ${e.message}")
-            }
-        }
-
-        Log.i(tag, "[$taskTitle] Target size: $totalSize bytes (Range: $supportsRange)")
+        Log.i(tag, "[$taskTitle] Target size: $totalSize bytes (Range: $supportsRange, URL: $finalUrl)")
 
         return if (supportsRange && totalSize >= MIN_SEGMENT_SIZE) {
             val ok = downloadSegmented(
                 taskTitle = taskTitle,
-                url = url,
-                tempFile = tempFile,
+                url = finalUrl,
                 targetFile = targetFile,
+                modelsDir = modelsDir,
                 totalSize = totalSize,
                 segmentCount = DEFAULT_SEGMENTS,
                 onProgress = onProgress,
@@ -367,23 +401,24 @@ class ModelDownloader {
                 }
             )
             if (!ok) {
-                downloadSingleStream(taskTitle, url, tempFile, targetFile, totalSize, onProgress, onError)
+                downloadSingleStream(taskTitle, finalUrl, targetFile, modelsDir, totalSize, onProgress, onError)
             } else true
         } else {
-            downloadSingleStream(taskTitle, url, tempFile, targetFile, totalSize, onProgress, onError)
+            downloadSingleStream(taskTitle, finalUrl, targetFile, modelsDir, totalSize, onProgress, onError)
         }
     }
 
     private suspend fun downloadSegmented(
         taskTitle: String,
         url: String,
-        tempFile: File,
         targetFile: File,
+        modelsDir: File,
         totalSize: Long,
         segmentCount: Int,
         onProgress: suspend (Long, Long, String, Int, List<Float>) -> Unit,
         onError: suspend (String) -> Boolean
     ): Boolean {
+        val partFiles = (0 until segmentCount).map { i -> File(modelsDir, "${targetFile.name}.part_$i") }
         val segmentStarts = LongArray(segmentCount)
         val segmentEnds = LongArray(segmentCount)
         val segmentTotals = LongArray(segmentCount)
@@ -394,6 +429,8 @@ class ModelDownloader {
             segmentStarts[i] = i * chunkSize
             segmentEnds[i] = if (i == segmentCount - 1) totalSize - 1L else (i + 1) * chunkSize - 1L
             segmentTotals[i] = segmentEnds[i] - segmentStarts[i] + 1L
+            val existing = if (partFiles[i].exists()) partFiles[i].length().coerceAtMost(segmentTotals[i]) else 0L
+            segmentDownloaded[i].set(existing)
         }
 
         var downloadFailed = false
@@ -402,11 +439,11 @@ class ModelDownloader {
         try {
             coroutineScope {
                 var lastProgressTime = System.currentTimeMillis()
-                var lastProgressBytes = 0L
+                var lastProgressBytes = segmentDownloaded.sumOf { it.get() }
 
                 val monitorJob = async(Dispatchers.Default) {
                     while (isActive) {
-                        delay(250)
+                        delay(200)
                         val now = System.currentTimeMillis()
                         val currentDownloaded = segmentDownloaded.sumOf { it.get() }
                         val timeDeltaSec = max((now - lastProgressTime) / 1000.0, 0.001)
@@ -434,30 +471,57 @@ class ModelDownloader {
 
                 val workers = (0 until segmentCount).map { i ->
                     async(Dispatchers.IO) {
-                        val reqStart = segmentStarts[i]
-                        val reqEnd = segmentEnds[i]
+                        val partFile = partFiles[i]
+                        val segTotal = segmentTotals[i]
+                        var attempt = 0
+                        val maxAttempts = 3
 
-                        val req = Request.Builder()
-                            .url(url)
-                            .header("User-Agent", USER_AGENT)
-                            .header("Range", "bytes=$reqStart-$reqEnd")
-                            .build()
+                        while (isActive && attempt < maxAttempts) {
+                            attempt++
+                            val currentPartLen = if (partFile.exists()) partFile.length() else 0L
+                            if (currentPartLen >= segTotal) {
+                                segmentDownloaded[i].set(segTotal)
+                                return@async
+                            }
 
-                        val resp = httpClient.newCall(req).execute()
-                        if (!resp.isSuccessful && resp.code != 206) {
-                            throw RuntimeException("HTTP ${resp.code} on segment $i")
-                        }
+                            val reqStart = segmentStarts[i] + currentPartLen
+                            val reqEnd = segmentEnds[i]
 
-                        val body = resp.body ?: throw RuntimeException("Empty body on segment $i")
-                        body.byteStream().use { input ->
-                            RandomAccessFile(tempFile, "rw").use { raf ->
-                                raf.seek(reqStart)
-                                val buf = ByteArray(64 * 1024)
-                                var readLen = 0
-                                while (isActive && input.read(buf).also { readLen = it } != -1) {
-                                    raf.write(buf, 0, readLen)
-                                    segmentDownloaded[i].addAndGet(readLen.toLong())
+                            try {
+                                val req = Request.Builder()
+                                    .url(url)
+                                    .header("User-Agent", USER_AGENT)
+                                    .header("Range", "bytes=$reqStart-$reqEnd")
+                                    .build()
+
+                                val resp = httpClient.newCall(req).execute()
+                                if (!resp.isSuccessful && resp.code != 206 && resp.code != 200) {
+                                    resp.close()
+                                    throw RuntimeException("HTTP ${resp.code} on segment $i")
                                 }
+
+                                val body = resp.body ?: throw RuntimeException("Empty body on segment $i")
+                                body.byteStream().use { input ->
+                                    BufferedOutputStream(FileOutputStream(partFile, currentPartLen > 0), BUFFER_SIZE).use { output ->
+                                        val buf = ByteArray(BUFFER_SIZE)
+                                        var readLen = 0
+                                        while (isActive && input.read(buf).also { readLen = it } != -1) {
+                                            output.write(buf, 0, readLen)
+                                            val newLen = segmentDownloaded[i].addAndGet(readLen.toLong())
+                                            if (newLen >= segTotal) break
+                                        }
+                                        output.flush()
+                                    }
+                                }
+
+                                if (partFile.length() >= segTotal) {
+                                    segmentDownloaded[i].set(segTotal)
+                                    return@async
+                                }
+                            } catch (e: Exception) {
+                                Log.w(tag, "Segment $i attempt $attempt failed: ${e.message}")
+                                if (attempt >= maxAttempts) throw e
+                                delay(500)
                             }
                         }
                     }
@@ -470,14 +534,18 @@ class ModelDownloader {
                 }
             }
 
-            if (tempFile.exists() && tempFile.length() > 0) {
-                if (targetFile.exists()) targetFile.delete()
-                tempFile.renameTo(targetFile)
-                Log.i(tag, "[$taskTitle] Segmented download completed: ${targetFile.name} (${targetFile.length()} bytes)")
+            // Verify all parts are complete
+            val allComplete = (0 until segmentCount).all { i ->
+                partFiles[i].exists() && partFiles[i].length() >= segmentTotals[i]
+            }
+
+            if (allComplete) {
+                mergeParts(partFiles, targetFile, modelsDir)
+                Log.i(tag, "[$taskTitle] Segmented download & zero-copy merge completed: ${targetFile.name} (${targetFile.length()} bytes)")
                 return true
             } else {
                 downloadFailed = true
-                failureReason = "임시 파일이 비어 있습니다."
+                failureReason = "일부 분할 청크 다운로드 불완전"
             }
         } catch (e: Exception) {
             downloadFailed = true
@@ -492,15 +560,42 @@ class ModelDownloader {
         return true
     }
 
+    private fun mergeParts(partFiles: List<File>, targetFile: File, modelsDir: File) {
+        val tempMerged = File(modelsDir, "${targetFile.name}.merging")
+        if (tempMerged.exists()) tempMerged.delete()
+
+        FileOutputStream(tempMerged).use { fos ->
+            val outChannel = fos.channel
+            for (part in partFiles) {
+                FileInputStream(part).use { fis ->
+                    val inChannel = fis.channel
+                    var transferred = 0L
+                    val size = inChannel.size()
+                    while (transferred < size) {
+                        val count = inChannel.transferTo(transferred, size - transferred, outChannel)
+                        if (count <= 0) break
+                        transferred += count
+                    }
+                }
+            }
+            outChannel.force(true)
+        }
+
+        if (targetFile.exists()) targetFile.delete()
+        tempMerged.renameTo(targetFile)
+        partFiles.forEach { it.delete() }
+    }
+
     private suspend fun downloadSingleStream(
         taskTitle: String,
         url: String,
-        tempFile: File,
         targetFile: File,
+        modelsDir: File,
         totalSize: Long,
         onProgress: suspend (Long, Long, String, Int, List<Float>) -> Unit,
         onError: suspend (String) -> Unit
     ): Boolean {
+        val tempFile = File(modelsDir, "${targetFile.name}.downloading")
         try {
             val req = Request.Builder()
                 .url(url)
@@ -524,15 +619,15 @@ class ModelDownloader {
             var lastBytes = 0L
 
             body.byteStream().use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    val buf = ByteArray(64 * 1024)
+                BufferedOutputStream(FileOutputStream(tempFile, false), BUFFER_SIZE).use { output ->
+                    val buf = ByteArray(BUFFER_SIZE)
                     var readLen = 0
                     while (input.read(buf).also { readLen = it } != -1) {
                         output.write(buf, 0, readLen)
                         downloaded += readLen
 
                         val now = System.currentTimeMillis()
-                        if (now - lastTime >= 250L) {
+                        if (now - lastTime >= 200L) {
                             val timeDelta = max((now - lastTime) / 1000.0, 0.001)
                             val speedMbps = ((downloaded - lastBytes).toDouble() / timeDelta) / (1024.0 * 1024.0)
                             val speedText = String.format("%.2f MB/s", speedMbps)
@@ -548,6 +643,7 @@ class ModelDownloader {
                             lastBytes = downloaded
                         }
                     }
+                    output.flush()
                 }
             }
 
