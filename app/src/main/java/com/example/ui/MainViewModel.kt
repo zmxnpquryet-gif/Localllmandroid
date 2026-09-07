@@ -59,8 +59,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
+    private val settingsPrefs = application.getSharedPreferences("app_settings_prefs", android.content.Context.MODE_PRIVATE)
+
     // Generation settings
-    private val _settings = MutableStateFlow(GenerationSettings())
+    private val _settings = MutableStateFlow(
+        GenerationSettings(
+            hfToken = settingsPrefs.getString("hf_token", "") ?: "",
+            themeColorName = settingsPrefs.getString("theme_color", "artistic") ?: "artistic",
+            darkModePreference = settingsPrefs.getString("dark_mode", "system") ?: "system",
+            systemPrompt = settingsPrefs.getString("system_prompt", "") ?: "",
+            temperature = settingsPrefs.getFloat("temperature", 0.7f),
+            topP = settingsPrefs.getFloat("top_p", 0.9f),
+            topK = settingsPrefs.getInt("top_k", 40),
+            contextWindow = settingsPrefs.getInt("context_window", 4096),
+            repetitionPenalty = settingsPrefs.getFloat("repetition_penalty", 1.1f),
+            enableMtp = settingsPrefs.getBoolean("enable_mtp", true),
+            enableIndexingAcceleration = settingsPrefs.getBoolean("enable_indexing", true),
+            showPerformanceMetrics = settingsPrefs.getBoolean("show_metrics", true),
+            mcpServerUrl = settingsPrefs.getString("mcp_server_url", "") ?: "",
+            isMcpEnabled = settingsPrefs.getBoolean("is_mcp_enabled", false)
+        )
+    )
     val settings: StateFlow<GenerationSettings> = _settings.asStateFlow()
 
     // Models catalog restored from persistent metadata and reconciled with physical storage
@@ -327,8 +346,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateHfToken(token: String) {
+        val clean = token.trim()
+        _settings.value = _settings.value.copy(hfToken = clean)
+        settingsPrefs.edit().putString("hf_token", clean).apply()
+    }
+
     fun updateSettings(newSettings: GenerationSettings) {
         _settings.value = newSettings
+        settingsPrefs.edit().apply {
+            putString("hf_token", newSettings.hfToken)
+            putString("theme_color", newSettings.themeColorName)
+            putString("dark_mode", newSettings.darkModePreference)
+            putString("system_prompt", newSettings.systemPrompt)
+            putFloat("temperature", newSettings.temperature)
+            putFloat("top_p", newSettings.topP)
+            putInt("top_k", newSettings.topK)
+            putInt("context_window", newSettings.contextWindow)
+            putFloat("repetition_penalty", newSettings.repetitionPenalty)
+            putBoolean("enable_mtp", newSettings.enableMtp)
+            putBoolean("enable_indexing", newSettings.enableIndexingAcceleration)
+            putBoolean("show_metrics", newSettings.showPerformanceMetrics)
+            putString("mcp_server_url", newSettings.mcpServerUrl)
+            putBoolean("is_mcp_enabled", newSettings.isMcpEnabled)
+            apply()
+        }
         viewModelScope.launch {
             val status = llmEngine.loadModel(_activeModel.value, newSettings)
             _engineStatusMessage.value = status
@@ -357,33 +399,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var inProcessDownloadJob: kotlinx.coroutines.Job? = null
 
-    fun downloadModel(modelId: String) {
+    fun downloadModel(modelId: String, hfTokenOverride: String? = null) {
         val targetModel = _models.value.find { it.id == modelId } ?: return
         if (targetModel.isDownloading) return
+
+        val effectiveToken = hfTokenOverride?.ifBlank { null }
+            ?: targetModel.hfToken?.ifBlank { null }
+            ?: _settings.value.hfToken.ifBlank { null }
 
         _models.value = _models.value.map {
             if (it.id == modelId) it.copy(
                 isDownloading = true,
                 downloadStatus = "DOWNLOADING",
-                downloadProgress = 0f
+                downloadProgress = 0f,
+                hfToken = effectiveToken ?: it.hfToken
             ) else it
         }
 
+        val updatedModel = _models.value.find { it.id == modelId } ?: targetModel
+
         try {
-            ModelDownloadService.startDownload(getApplication(), targetModel)
+            ModelDownloadService.startDownload(getApplication(), updatedModel, effectiveToken)
         } catch (e: Throwable) {
             android.util.Log.e("MainViewModel", "Service start failed, using in-process fallback: ${e.message}", e)
-            startInProcessDownloadFallback(targetModel)
+            startInProcessDownloadFallback(updatedModel, effectiveToken)
         }
     }
 
-    private fun startInProcessDownloadFallback(model: LlmModel) {
+    private fun startInProcessDownloadFallback(model: LlmModel, hfToken: String? = null) {
         inProcessDownloadJob?.cancel()
         inProcessDownloadJob = viewModelScope.launch {
             try {
                 val modelsDir = java.io.File(getApplication<android.app.Application>().filesDir, "models").apply { if (!exists()) mkdirs() }
                 val downloader = com.example.engine.ModelDownloader()
-                downloader.downloadUnifiedBundle(model, modelsDir).collect { status ->
+                downloader.downloadUnifiedBundle(model, modelsDir, hfToken).collect { status ->
                     _activeDownloadStatus.value = status
                     _models.value = _models.value.map { m ->
                         if (m.id == model.id) {
@@ -505,12 +554,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         mtpUrl: String = "",
         templateUrl: String = "",
         supportsReasoning: Boolean = false,
-        autoStartDownload: Boolean = true
+        autoStartDownload: Boolean = true,
+        hfToken: String = ""
     ) {
         val cleanMain = mainUrl.trim()
         val cleanVision = visionUrl.trim()
         val cleanMtp = mtpUrl.trim()
         val cleanTemplate = templateUrl.trim()
+        val cleanToken = hfToken.trim()
+
+        if (cleanToken.isNotBlank() && _settings.value.hfToken.isBlank()) {
+            updateHfToken(cleanToken)
+        }
 
         val defaultMainExt = if (runtime == ModelRuntimeType.LITE_RT) ".bin" else ".gguf"
         val derivedFileName = cleanMain.substringAfterLast('/', "custom_model$defaultMainExt")
@@ -540,6 +595,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (effectiveReasoning) descriptionParts.add("사고 과정(Thinking) 지원")
         if (cleanVision.isNotBlank()) descriptionParts.add("비전타워 포함")
         if (cleanMtp.isNotBlank()) descriptionParts.add("MTP 드래프터 포함")
+        if (cleanToken.isNotBlank()) descriptionParts.add("인증 토큰 적용")
 
         val newModel = LlmModel(
             id = "custom-" + UUID.randomUUID().toString().take(8),
@@ -560,14 +616,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             mtpDrafterUrl = cleanMtp,
             isBundledModel = true,
             isDownloaded = false,
-            description = "커스텀 모델 (" + descriptionParts.joinToString(" • ") + ")"
+            description = "커스텀 모델 (" + descriptionParts.joinToString(" • ") + ")",
+            hfToken = cleanToken.ifBlank { null }
         )
 
         _models.value = listOf(newModel) + _models.value
         modelStorageManager.saveModels(_models.value)
 
         if (autoStartDownload) {
-            downloadModel(newModel.id)
+            downloadModel(newModel.id, cleanToken.ifBlank { null })
         }
     }
 

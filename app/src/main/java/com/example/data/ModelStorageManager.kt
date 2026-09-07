@@ -218,6 +218,7 @@ class ModelStorageManager(private val context: Context) {
         obj.put("localMmprojPath", m.localMmprojPath ?: "")
         obj.put("localMtpDrafterPath", m.localMtpDrafterPath ?: "")
         obj.put("localTemplatePath", m.localTemplatePath ?: "")
+        obj.put("hfToken", m.hfToken ?: "")
         return obj
     }
 
@@ -256,7 +257,8 @@ class ModelStorageManager(private val context: Context) {
             localFilePath = obj.optString("localFilePath", "").ifBlank { null },
             localMmprojPath = obj.optString("localMmprojPath", "").ifBlank { null },
             localMtpDrafterPath = obj.optString("localMtpDrafterPath", "").ifBlank { null },
-            localTemplatePath = obj.optString("localTemplatePath", "").ifBlank { null }
+            localTemplatePath = obj.optString("localTemplatePath", "").ifBlank { null },
+            hfToken = obj.optString("hfToken", "").ifBlank { null }
         )
     }
 }

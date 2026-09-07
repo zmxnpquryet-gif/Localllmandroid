@@ -37,12 +37,16 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SdCard
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -336,8 +340,9 @@ fun ModelManagerScreen(
     if (showFdmDialog) {
         FdmAddBundleDialog(
             context = context,
+            initialHfToken = settings.hfToken,
             onDismiss = { showFdmDialog = false },
-            onStartDownload = { name, runtime, mainUrl, customFileName, visionUrl, mtpUrl, templateUrl, supportsReasoning ->
+            onStartDownload = { name, runtime, mainUrl, customFileName, visionUrl, mtpUrl, templateUrl, supportsReasoning, hfToken ->
                 viewModel.addCustomFdmBundle(
                     name = name,
                     runtime = runtime,
@@ -347,7 +352,8 @@ fun ModelManagerScreen(
                     mtpUrl = mtpUrl,
                     templateUrl = templateUrl,
                     supportsReasoning = supportsReasoning,
-                    autoStartDownload = true
+                    autoStartDownload = true,
+                    hfToken = hfToken
                 )
                 showFdmDialog = false
             }
@@ -841,6 +847,7 @@ private fun ModelBundleCardItem(
 @Composable
 private fun FdmAddBundleDialog(
     context: Context,
+    initialHfToken: String = "",
     onDismiss: () -> Unit,
     onStartDownload: (
         name: String,
@@ -850,7 +857,8 @@ private fun FdmAddBundleDialog(
         visionUrl: String,
         mtpUrl: String,
         templateUrl: String,
-        supportsReasoning: Boolean
+        supportsReasoning: Boolean,
+        hfToken: String
     ) -> Unit
 ) {
     var modelNameInput by remember { mutableStateOf("") }
@@ -861,6 +869,8 @@ private fun FdmAddBundleDialog(
     var mtpUrlInput by remember { mutableStateOf("") }
     var templateUrlInput by remember { mutableStateOf("") }
     var supportsReasoningInput by remember { mutableStateOf(false) }
+    var hfTokenInput by remember { mutableStateOf(initialHfToken) }
+    var isTokenVisible by remember { mutableStateOf(false) }
 
     val clipboard = remember { context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager }
 
@@ -999,6 +1009,33 @@ private fun FdmAddBundleDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                // 2. Hugging Face Access Token (Optional for gated / private models)
+                OutlinedTextField(
+                    value = hfTokenInput,
+                    onValueChange = { hfTokenInput = it },
+                    label = { Text("Hugging Face 토큰 (선택: Gated/비공개 모델)") },
+                    placeholder = { Text("hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") },
+                    singleLine = true,
+                    visualTransformation = if (isTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { isTokenVisible = !isTokenVisible }) {
+                                Icon(
+                                    imageVector = if (isTokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (isTokenVisible) "숨기기" else "보기"
+                                )
+                            }
+                            IconButton(onClick = {
+                                val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+                                if (!clip.isNullOrBlank()) hfTokenInput = clip.trim()
+                            }) {
+                                Icon(Icons.Default.ContentPaste, contentDescription = "붙여넣기")
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 // LiteRT Template file URL
                 OutlinedTextField(
                     value = templateUrlInput,
@@ -1099,7 +1136,8 @@ private fun FdmAddBundleDialog(
                             visionUrlInput.trim(),
                             mtpUrlInput.trim(),
                             templateUrlInput.trim(),
-                            supportsReasoningInput
+                            supportsReasoningInput,
+                            hfTokenInput.trim()
                         )
                     }
                 },

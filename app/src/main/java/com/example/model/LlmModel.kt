@@ -52,7 +52,8 @@ data class LlmModel(
     val visionDownloadProgress: Float = 0f,
     val mtpDownloadProgress: Float = 0f,
     val templateDownloadProgress: Float = 0f,
-    val downloadEtaSeconds: Int = 0
+    val downloadEtaSeconds: Int = 0,
+    val hfToken: String? = null
 ) {
     val displaySize: String
         get() {

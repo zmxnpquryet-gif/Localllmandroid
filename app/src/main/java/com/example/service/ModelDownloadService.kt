@@ -44,6 +44,7 @@ class ModelDownloadService : Service() {
         const val ACTION_START_DOWNLOAD = "com.example.action.START_DOWNLOAD"
         const val ACTION_CANCEL_DOWNLOAD = "com.example.action.CANCEL_DOWNLOAD"
         const val EXTRA_MODEL_ID = "extra_model_id"
+        const val EXTRA_HF_TOKEN = "extra_hf_token"
 
         // Active download status shared with ViewModels / UI
         private val _currentDownloadStatus = MutableStateFlow<DownloadStatus?>(null)
@@ -53,11 +54,14 @@ class ModelDownloadService : Service() {
         var activeDownloadingModel: LlmModel? = null
             private set
 
-        fun startDownload(context: Context, model: LlmModel) {
+        fun startDownload(context: Context, model: LlmModel, hfToken: String? = null) {
             activeDownloadingModel = model
             val intent = Intent(context, ModelDownloadService::class.java).apply {
                 action = ACTION_START_DOWNLOAD
                 putExtra(EXTRA_MODEL_ID, model.id)
+                if (!hfToken.isNullOrBlank()) {
+                    putExtra(EXTRA_HF_TOKEN, hfToken)
+                }
             }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -126,8 +130,9 @@ class ModelDownloadService : Service() {
         val action = intent?.action
         when (action) {
             ACTION_START_DOWNLOAD -> {
+                val token = intent.getStringExtra(EXTRA_HF_TOKEN) ?: model?.hfToken
                 if (model != null) {
-                    startForegroundDownload(model)
+                    startForegroundDownload(model, token)
                 } else {
                     try {
                         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -151,13 +156,13 @@ class ModelDownloadService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun startForegroundDownload(model: LlmModel) {
+    private fun startForegroundDownload(model: LlmModel, hfToken: String? = null) {
         downloadJob?.cancel()
         downloadJob = serviceScope.launch {
             try {
                 val modelsDir = File(filesDir, "models").apply { if (!exists()) mkdirs() }
 
-                modelDownloader.downloadUnifiedBundle(model, modelsDir).collect { status ->
+                modelDownloader.downloadUnifiedBundle(model, modelsDir, hfToken).collect { status ->
                     _currentDownloadStatus.value = status
 
                     val now = System.currentTimeMillis()

@@ -84,6 +84,19 @@ class ModelDownloader {
             val f = downloaded.toFloat() / total.toFloat()
             return if (f.isNaN() || f.isInfinite()) 0f else f.coerceIn(0f, 1f)
         }
+
+        fun withHfAuth(builder: Request.Builder, requestUrl: String, token: String?): Request.Builder {
+            val trimmed = token?.trim()
+            if (!trimmed.isNullOrBlank() &&
+                requestUrl.contains("huggingface.co", ignoreCase = true) &&
+                !requestUrl.contains(".cdn.", ignoreCase = true) &&
+                !requestUrl.contains("cloudfront.net", ignoreCase = true) &&
+                !requestUrl.contains("amazonaws.com", ignoreCase = true)
+            ) {
+                builder.header("Authorization", "Bearer $trimmed")
+            }
+            return builder
+        }
     }
 
     private val dispatcher = Dispatcher().apply {
@@ -104,10 +117,12 @@ class ModelDownloader {
 
     fun downloadUnifiedBundle(
         model: LlmModel,
-        modelsDir: File
+        modelsDir: File,
+        hfTokenOverride: String? = null
     ): Flow<DownloadStatus> = channelFlow {
         if (!modelsDir.exists()) modelsDir.mkdirs()
 
+        val effectiveToken = hfTokenOverride?.ifBlank { null } ?: model.hfToken?.ifBlank { null }
         val mainFile = File(modelsDir, model.fileName)
         val visionFile = if (model.hasMmproj || model.visionTowerUrl.isNotBlank()) {
             File(modelsDir, model.mmprojFileName ?: "mmproj-${model.fileName}")
@@ -217,6 +232,7 @@ class ModelDownloader {
                 targetFile = targetFile,
                 modelsDir = modelsDir,
                 fallbackSize = task.fallbackEstimatedSize,
+                token = effectiveToken,
                 onProgress = { taskDownloaded, taskTotal, speedText, etaSec, segmentBars ->
                     val overallDownloaded = bundleDownloadedBytes + taskDownloaded
                     val overallTotal = max(totalBundleBytes, overallDownloaded)
@@ -311,18 +327,21 @@ class ModelDownloader {
         val supportsRange: Boolean
     )
 
-    private fun probeUrl(initialUrl: String, fallbackSize: Long): ProbeResult {
+    private fun probeUrl(initialUrl: String, fallbackSize: Long, token: String? = null): ProbeResult {
         var resolvedUrl = initialUrl
         var totalBytes = fallbackSize
         var supportsRange = false
 
         // 1. Probe with Range: bytes=0-0 to resolve redirects and test Range in 1 request
         try {
-            val rangeReq = Request.Builder()
-                .url(initialUrl)
-                .header("User-Agent", USER_AGENT)
-                .header("Range", "bytes=0-0")
-                .build()
+            val rangeReq = withHfAuth(
+                Request.Builder()
+                    .url(initialUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .header("Range", "bytes=0-0"),
+                initialUrl,
+                token
+            ).build()
 
             httpClient.newCall(rangeReq).execute().use { resp ->
                 resolvedUrl = resp.request.url.toString()
@@ -347,11 +366,14 @@ class ModelDownloader {
         // 2. Fallback HEAD probe if Range didn't confirm
         if (!supportsRange) {
             try {
-                val headReq = Request.Builder()
-                    .url(resolvedUrl)
-                    .header("User-Agent", USER_AGENT)
-                    .head()
-                    .build()
+                val headReq = withHfAuth(
+                    Request.Builder()
+                        .url(resolvedUrl)
+                        .header("User-Agent", USER_AGENT)
+                        .head(),
+                    resolvedUrl,
+                    token
+                ).build()
 
                 httpClient.newCall(headReq).execute().use { resp ->
                     resolvedUrl = resp.request.url.toString()
@@ -376,10 +398,11 @@ class ModelDownloader {
         targetFile: File,
         modelsDir: File,
         fallbackSize: Long,
+        token: String? = null,
         onProgress: suspend (Long, Long, String, Int, List<Float>) -> Unit,
         onError: suspend (String) -> Unit
     ): Boolean {
-        val probe = probeUrl(url, fallbackSize)
+        val probe = probeUrl(url, fallbackSize, token)
         val finalUrl = probe.finalUrl
         val totalSize = probe.totalBytes
         val supportsRange = probe.supportsRange
@@ -394,6 +417,7 @@ class ModelDownloader {
                 modelsDir = modelsDir,
                 totalSize = totalSize,
                 segmentCount = DEFAULT_SEGMENTS,
+                token = token,
                 onProgress = onProgress,
                 onError = { err ->
                     Log.w(tag, "Segmented download failed: $err, falling back to single stream")
@@ -401,10 +425,10 @@ class ModelDownloader {
                 }
             )
             if (!ok) {
-                downloadSingleStream(taskTitle, finalUrl, targetFile, modelsDir, totalSize, onProgress, onError)
+                downloadSingleStream(taskTitle, finalUrl, targetFile, modelsDir, totalSize, token, onProgress, onError)
             } else true
         } else {
-            downloadSingleStream(taskTitle, finalUrl, targetFile, modelsDir, totalSize, onProgress, onError)
+            downloadSingleStream(taskTitle, finalUrl, targetFile, modelsDir, totalSize, token, onProgress, onError)
         }
     }
 
@@ -415,6 +439,7 @@ class ModelDownloader {
         modelsDir: File,
         totalSize: Long,
         segmentCount: Int,
+        token: String? = null,
         onProgress: suspend (Long, Long, String, Int, List<Float>) -> Unit,
         onError: suspend (String) -> Boolean
     ): Boolean {
@@ -488,11 +513,14 @@ class ModelDownloader {
                             val reqEnd = segmentEnds[i]
 
                             try {
-                                val req = Request.Builder()
-                                    .url(url)
-                                    .header("User-Agent", USER_AGENT)
-                                    .header("Range", "bytes=$reqStart-$reqEnd")
-                                    .build()
+                                val req = withHfAuth(
+                                    Request.Builder()
+                                        .url(url)
+                                        .header("User-Agent", USER_AGENT)
+                                        .header("Range", "bytes=$reqStart-$reqEnd"),
+                                    url,
+                                    token
+                                ).build()
 
                                 val resp = httpClient.newCall(req).execute()
                                 if (!resp.isSuccessful && resp.code != 206 && resp.code != 200) {
@@ -592,15 +620,19 @@ class ModelDownloader {
         targetFile: File,
         modelsDir: File,
         totalSize: Long,
+        token: String? = null,
         onProgress: suspend (Long, Long, String, Int, List<Float>) -> Unit,
         onError: suspend (String) -> Unit
     ): Boolean {
         val tempFile = File(modelsDir, "${targetFile.name}.downloading")
         try {
-            val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", USER_AGENT)
-                .build()
+            val req = withHfAuth(
+                Request.Builder()
+                    .url(url)
+                    .header("User-Agent", USER_AGENT),
+                url,
+                token
+            ).build()
 
             val resp = httpClient.newCall(req).execute()
             if (!resp.isSuccessful) {

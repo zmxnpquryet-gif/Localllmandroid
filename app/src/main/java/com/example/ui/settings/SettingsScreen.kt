@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
@@ -35,6 +36,10 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -86,6 +91,8 @@ fun SettingsScreen(
     var showClearDialog by remember { mutableStateOf(false) }
     var mcpUrlInput by remember { mutableStateOf(settings.mcpServerUrl) }
     var systemPromptInput by remember { mutableStateOf(settings.systemPrompt) }
+    var hfTokenInput by remember { mutableStateOf(settings.hfToken) }
+    var isTokenVisible by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -344,7 +351,46 @@ fun SettingsScreen(
                 }
             }
 
-            // 6. Theme & Dark/Light Mode Personalization
+            // 6. Hugging Face Personal Access Token (Optional)
+            SettingsCard(
+                title = "Hugging Face 액세스 토큰 (선택)",
+                icon = Icons.Default.Key
+            ) {
+                Text(
+                    text = "Gated 모델(Gemma, Meta Llama 등) 또는 비공개 저장소 모델을 다운로드할 때 인증 헤더로 전송됩니다. 공개 모델 다운로드 시에는 비워두셔도 정상 동작합니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = hfTokenInput,
+                    onValueChange = {
+                        hfTokenInput = it
+                        viewModel.updateHfToken(it)
+                    },
+                    label = { Text("Hugging Face 토큰 (hf_...)") },
+                    placeholder = { Text("hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") },
+                    singleLine = true,
+                    visualTransformation = if (isTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { isTokenVisible = !isTokenVisible }) {
+                            Icon(
+                                imageVector = if (isTokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (isTokenVisible) "숨기기" else "보기"
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = if (settings.hfToken.isNotBlank()) "✓ 토큰 설정됨 (다운로드 요청 시 Authorization 헤더 자동 포함)" else "미설정 (공개 모델 전용)",
+                    fontSize = 12.sp,
+                    color = if (settings.hfToken.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // 7. Theme & Dark/Light Mode Personalization
             SettingsCard(
                 title = "UI 테마 및 다크/화이트 모드",
                 icon = Icons.Default.Palette
