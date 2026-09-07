@@ -157,26 +157,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ?: _models.value.firstOrNull { it.isDownloaded }
 
         if (restoredModel != null) {
+            _activeModel.value = restoredModel
             _settings.value = _settings.value.copy(
                 runtime = restoredModel.runtimeType,
                 enableMtp = if (restoredModel.supportsMtp) true else _settings.value.enableMtp
             )
-            viewModelScope.launch {
-                try {
-                    val initStatus = llmEngine.loadModel(restoredModel, _settings.value)
-                    _engineStatusMessage.value = initStatus
-                    if (llmEngine.isModelReady()) {
-                        _activeModel.value = restoredModel
-                        modelStorageManager.saveActiveModelId(restoredModel.id)
-                    } else {
-                        _activeModel.value = null
-                    }
-                } catch (t: Throwable) {
-                    android.util.Log.e("MainViewModel", "Initial model load failed", t)
-                    _activeModel.value = null
-                    _engineStatusMessage.value = "초기 모델 로드 오류: ${t.localizedMessage ?: t.message}"
-                }
-            }
+            _engineStatusMessage.value = "${restoredModel.name} 준비됨 (대화 시작 시 메모리 로드)"
         } else {
             _activeModel.value = null
             _engineStatusMessage.value = "기본 모델 미탑재: 모델 관리자에서 최신 모델을 다운로드하세요."
@@ -761,14 +747,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             if (!llmEngine.isModelReady()) {
-                val noticeMessage = ChatMessage(
-                    conversationId = convId,
-                    role = MessageRole.ASSISTANT,
-                    content = "모델이 아직 메모리에 로드되지 않았습니다 (${_engineStatusMessage.value}). 모델 관리자에서 모델을 다시 선택해 로드해 주세요.",
-                    isStreaming = false
-                )
-                repository.saveMessage(noticeMessage)
-                return@launch
+                _engineStatusMessage.value = "${currentModel.name} 메모리 로드 중..."
+                _isModelLoading.value = true
+                _modelLoadingProgress.value = 0.15f
+                _modelLoadingStage.value = "온디바이스 가중치 로드 중..."
+                val loadResult = try {
+                    llmEngine.loadModel(currentModel, _settings.value) { stage, progress ->
+                        _modelLoadingStage.value = stage
+                        _modelLoadingProgress.value = progress
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.e("MainViewModel", "Auto-load on sendMessage failed", t)
+                    "모델 로드 예외: ${t.localizedMessage ?: t.message}"
+                } finally {
+                    _isModelLoading.value = false
+                    _modelLoadingProgress.value = 0f
+                    _modelLoadingStage.value = ""
+                }
+
+                _engineStatusMessage.value = loadResult
+
+                if (!llmEngine.isModelReady()) {
+                    val noticeMessage = ChatMessage(
+                        conversationId = convId,
+                        role = MessageRole.ASSISTANT,
+                        content = "모델 로드 실패: $loadResult. 모델 관리자에서 모델 상태를 확인해 주세요.",
+                        isStreaming = false
+                    )
+                    repository.saveMessage(noticeMessage)
+                    return@launch
+                }
             }
 
             // 2. Start streaming assistant response

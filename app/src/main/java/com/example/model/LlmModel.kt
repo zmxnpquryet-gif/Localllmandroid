@@ -237,7 +237,7 @@ object ModelCatalog {
         ),
         LlmModel(
             id = "gemma-3-1b-it-litert",
-            name = "Gemma 3 1B IT (LiteRT 통합 비전 모델)",
+            name = "Gemma 3 1B IT (LiteRT LM)",
             repoId = "lotapa/gemma3-1b-it-int4.litertlm",
             fileName = "gemma3-1b-it-int4.litertlm",
             runtimeType = ModelRuntimeType.LITE_RT,
@@ -245,11 +245,11 @@ object ModelCatalog {
             sizeBytes = 584_417_280L,
             supportsMtp = false,
             supportsReasoning = false,
-            hasMmproj = true,
-            isBundledModel = true,
+            hasMmproj = false,
+            isBundledModel = false,
             isDownloaded = false,
             mainModelUrl = "https://huggingface.co/lotapa/gemma3-1b-it-int4.litertlm/resolve/main/gemma3-1b-it-int4.litertlm",
-            description = "Google 공식 LiteRT-LM 규격 Gemma 3 1B IT 온디바이스 올인원 통합 모델. 텍스트 디코더와 비전 멀티모달, 토크나이저가 단일 바이너리에 통합 내장.",
+            description = "Google 공식 LiteRT-LM 규격 Gemma 3 1B IT 온디바이스 모델. 584MB 초경량 INT4 양자화 탑재.",
             quantization = "INT4"
         ),
         LlmModel(

@@ -39,17 +39,17 @@ object GgufMetadataDetector {
 
     fun isVisionModel(name: String): Boolean {
         val lower = name.lowercase()
-        return lower.contains("vl") ||
+        return lower.contains("-vl") ||
+                lower.contains("_vl") ||
+                lower.contains("qwen2-vl") ||
+                lower.contains("qwen2vl") ||
                 lower.contains("vision") ||
                 lower.contains("llava") ||
                 lower.contains("minicpm-v") ||
                 lower.contains("paligemma") ||
-                lower.contains("gemma-3") ||
                 lower.contains("mmproj") ||
-                lower.contains("qwen2vl") ||
                 lower.contains("multimodal") ||
-                lower.contains("siglip") ||
-                lower.contains("image")
+                lower.contains("siglip")
     }
 
     fun isDrafterModel(name: String): Boolean {

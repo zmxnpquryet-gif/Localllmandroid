@@ -45,27 +45,35 @@ class VoiceManager(private val context: Context) {
     }
 
     private fun initTts() {
-        textToSpeech = TextToSpeech(context) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                val result = textToSpeech?.setLanguage(Locale.KOREAN)
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    textToSpeech?.setLanguage(Locale.US)
+        try {
+            textToSpeech = TextToSpeech(context) { status ->
+                try {
+                    if (status == TextToSpeech.SUCCESS) {
+                        val result = textToSpeech?.setLanguage(Locale.KOREAN)
+                        if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                            textToSpeech?.setLanguage(Locale.US)
+                        }
+                        isTtsInitialized = true
+                        textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                            override fun onStart(utteranceId: String?) {
+                                _voiceState.value = InteractiveVoiceState.SPEAKING
+                            }
+
+                            override fun onDone(utteranceId: String?) {
+                                _voiceState.value = InteractiveVoiceState.IDLE
+                            }
+
+                            override fun onError(utteranceId: String?) {
+                                _voiceState.value = InteractiveVoiceState.IDLE
+                            }
+                        })
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.w("VoiceManager", "TTS listener setup warning", t)
                 }
-                isTtsInitialized = true
-                textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        _voiceState.value = InteractiveVoiceState.SPEAKING
-                    }
-
-                    override fun onDone(utteranceId: String?) {
-                        _voiceState.value = InteractiveVoiceState.IDLE
-                    }
-
-                    override fun onError(utteranceId: String?) {
-                        _voiceState.value = InteractiveVoiceState.IDLE
-                    }
-                })
             }
+        } catch (t: Throwable) {
+            android.util.Log.w("VoiceManager", "TextToSpeech init warning", t)
         }
     }
 

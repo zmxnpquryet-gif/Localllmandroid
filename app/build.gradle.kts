@@ -13,8 +13,8 @@ android {
     applicationId = "com.aistudio.localllm.kqzp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 9
-    versionName = "1.1.8"
+    versionCode = 10
+    versionName = "1.1.9"
 
     ndk {
       abiFilters.addAll(listOf("arm64-v8a", "x86_64"))

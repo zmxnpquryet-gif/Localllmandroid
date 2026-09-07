@@ -142,25 +142,38 @@ class LlmEngine(private val context: Context) {
             val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
             val maxTokens = settings.contextWindow.coerceIn(512, 8192)
 
-            val configsToTry = listOf(
+            val configsToTry = mutableListOf<Pair<String, EngineConfig>>()
+
+            // 1. If model claims vision/mmproj, first try CPU with visionBackend
+            if (model.hasMmproj) {
+                configsToTry.add(
+                    "CPU 멀티스레드(${threadCount}T, 비전 연동)" to EngineConfig(
+                        modelPath = modelFile.absolutePath,
+                        backend = Backend.CPU(threadCount = threadCount, numOfThreads = threadCount),
+                        visionBackend = Backend.CPU(threadCount = threadCount, numOfThreads = threadCount),
+                        maxNumTokens = maxTokens,
+                        cacheDir = cacheDir
+                    )
+                )
+            }
+
+            // 2. Pure CPU multithread (standard text decoder without vision)
+            configsToTry.add(
                 "CPU 멀티스레드(${threadCount}T)" to EngineConfig(
                     modelPath = modelFile.absolutePath,
                     backend = Backend.CPU(threadCount = threadCount, numOfThreads = threadCount),
-                    visionBackend = if (model.hasMmproj) Backend.CPU(threadCount = threadCount, numOfThreads = threadCount) else null,
+                    visionBackend = null,
                     maxNumTokens = maxTokens,
                     cacheDir = cacheDir
-                ),
+                )
+            )
+
+            // 3. CPU default fallback
+            configsToTry.add(
                 "CPU 기본 백엔드" to EngineConfig(
                     modelPath = modelFile.absolutePath,
                     backend = Backend.CPU(),
-                    visionBackend = if (model.hasMmproj) Backend.CPU() else null,
-                    maxNumTokens = maxTokens,
-                    cacheDir = cacheDir
-                ),
-                "GPU 가속 백엔드" to EngineConfig(
-                    modelPath = modelFile.absolutePath,
-                    backend = Backend.GPU(),
-                    visionBackend = if (model.hasMmproj) Backend.GPU() else null,
+                    visionBackend = null,
                     maxNumTokens = maxTokens,
                     cacheDir = cacheDir
                 )
@@ -216,9 +229,9 @@ class LlmEngine(private val context: Context) {
             litertConversation = successConv
             activeModel = model
             isModelLoaded = true
-            isVisionTowerLoaded = model.hasMmproj
+            isVisionTowerLoaded = usedBackendName.contains("비전 연동")
 
-            val visionMsg = if (model.hasMmproj) " + 통합 올인원 비전타워" else ""
+            val visionMsg = if (isVisionTowerLoaded) " + 통합 올인원 비전타워" else ""
             val drafterMsg = if (model.supportsMtp) " + 통합 드래프터" else ""
             val templateMsg = if (model.localTemplatePath != null) " (Jinja 템플릿 적용)" else ""
             val resultMsg = "[LiteRT LM] ${model.name} 온디바이스 로드 완료 [$usedBackendName]$visionMsg$drafterMsg$templateMsg"
@@ -264,7 +277,7 @@ class LlmEngine(private val context: Context) {
             return@withContext "모델 파일 형식 오류: $errorReason"
         }
 
-        // Check mmproj if present (support external mmproj file AND embedded vision projector)
+        // Check mmproj if present (support external mmproj file only)
         val mmprojPath = if (model.hasMmproj) {
             val externalFile = if (!model.localMmprojPath.isNullOrBlank()) {
                 File(model.localMmprojPath)
@@ -276,10 +289,7 @@ class LlmEngine(private val context: Context) {
 
             if (externalFile.exists() && externalFile.length() >= 4) {
                 externalFile.absolutePath
-            } else {
-                // Embedded vision tower: projector tensors built directly into the main model file
-                modelFile.absolutePath
-            }
+            } else null
         } else null
 
         unloadCurrentModel()
