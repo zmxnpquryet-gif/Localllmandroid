@@ -30,7 +30,6 @@ object GgufMetadataDetector {
     fun isLiteRtModel(fileName: String): Boolean {
         val lower = fileName.lowercase()
         return lower.endsWith(".litertlm") ||
-                lower.endsWith(".bin") ||
                 lower.endsWith(".task") ||
                 lower.endsWith(".tflite") ||
                 lower.contains("litert") ||
@@ -68,7 +67,6 @@ object GgufMetadataDetector {
 
         return try {
             val fileNameLower = file.name.lowercase()
-            val isLiteRt = isLiteRtModel(fileNameLower)
 
             // Read up to 256 KB of model header to inspect magic bytes & metadata
             val readLen = minOf(file.length(), 256 * 1024L).toInt()
@@ -77,20 +75,33 @@ object GgufMetadataDetector {
                 fis.read(buffer, 0, readLen)
             }
 
-            // Check magic bytes:
-            // GGUF: 0x47, 0x47, 0x55, 0x46 ("GGUF")
-            // TFLite / LiteRT: 0x54, 0x46, 0x4C, 0x33 ("TFL3") at offset 4
+            // 1. Check GGUF Magic Bytes: 0x47, 0x47, 0x55, 0x46 ("GGUF")
             val hasGgufMagic = buffer.size >= 4 &&
                     buffer[0] == 0x47.toByte() && buffer[1] == 0x47.toByte() &&
                     buffer[2] == 0x55.toByte() && buffer[3] == 0x46.toByte()
-            val hasTfliteMagic = buffer.size >= 8 &&
-                    buffer[4] == 0x54.toByte() && buffer[5] == 0x46.toByte() &&
-                    buffer[6] == 0x4C.toByte() && buffer[7] == 0x33.toByte()
 
-            val detectedRuntime = if (hasTfliteMagic || isLiteRt) {
-                ModelRuntimeType.LITE_RT
-            } else {
-                ModelRuntimeType.LLAMA_CPP
+            // 2. Check LiteRT / TFLite FlatBuffer Magic (offset 4..7 == "TFL3" or "LITM" or "LRT1")
+            val hasTfliteMagic = (buffer.size >= 8 &&
+                    buffer[4] == 0x54.toByte() && buffer[5] == 0x46.toByte() &&
+                    buffer[6] == 0x4C.toByte() && buffer[7] == 0x33.toByte()) ||
+                    (buffer.size >= 8 &&
+                    buffer[4] == 'L'.code.toByte() && buffer[5] == 'I'.code.toByte() &&
+                    buffer[6] == 'T'.code.toByte() && buffer[7] == 'M'.code.toByte())
+
+            // 3. Check MediaPipe / LiteRT .task Zip Container Magic (bytes 0..3 == "PK\x03\x04")
+            val hasZipMagic = buffer.size >= 4 &&
+                    buffer[0] == 0x50.toByte() && buffer[1] == 0x4B.toByte() &&
+                    buffer[2] == 0x03.toByte() && buffer[3] == 0x04.toByte()
+
+            val isLiteRtName = isLiteRtModel(fileNameLower)
+
+            // Strict runtime classification: GGUF magic takes absolute priority
+            val detectedRuntime = when {
+                hasGgufMagic -> ModelRuntimeType.LLAMA_CPP
+                hasTfliteMagic || hasZipMagic -> ModelRuntimeType.LITE_RT
+                fileNameLower.endsWith(".gguf") -> ModelRuntimeType.LLAMA_CPP
+                isLiteRtName -> ModelRuntimeType.LITE_RT
+                else -> ModelRuntimeType.LLAMA_CPP // Safe fallback: default to LLAMA_CPP for standard weights
             }
 
             // Filename heuristics
@@ -101,24 +112,25 @@ object GgufMetadataDetector {
             val utf8 = String(buffer, 0, readLen, Charsets.UTF_8).lowercase()
             val content = "$ascii $utf8"
 
-            // Vision projector / encoder indicators in metadata or subgraphs
+            // Vision projector / encoder indicators in metadata or subgraphs (avoid generic noisy substrings like "mm." or "clip.")
             val metaHasVision = content.contains("qwen2vl") ||
+                    content.contains("qwen2_vl") ||
                     content.contains("llava") ||
-                    content.contains("clip.") ||
-                    content.contains("vision.") ||
-                    content.contains("projector.") ||
-                    content.contains("v.blk.") ||
-                    content.contains("mm.") ||
-                    content.contains("minicpmv") ||
                     content.contains("mllama") ||
+                    content.contains("minicpmv") ||
                     content.contains("paligemma") ||
                     content.contains("siglip") ||
-                    content.contains("image_encoder")
+                    content.contains("vision_encoder") ||
+                    content.contains("image_encoder") ||
+                    content.contains("clip.has_vision_encoder") ||
+                    content.contains("mm.projector") ||
+                    content.contains("mm_projector") ||
+                    content.contains("v.blk.0")
 
             // Drafter / MTP indicators
             val metaHasDrafter = content.contains("mtp.") ||
-                    content.contains("draft.") ||
-                    content.contains("speculative") ||
+                    content.contains("draft.head") ||
+                    content.contains("speculative.draft") ||
                     content.contains("multi_token_prediction")
 
             val finalVision = nameHasVision || metaHasVision

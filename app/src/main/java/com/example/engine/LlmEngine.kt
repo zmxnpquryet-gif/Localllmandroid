@@ -1,6 +1,7 @@
 package com.example.engine
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.example.model.ChatAttachment
 import com.example.model.GenerationSettings
@@ -9,11 +10,11 @@ import com.example.model.ModelRuntimeType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
@@ -23,15 +24,9 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.SamplerConfig
-import org.nehuatl.llamacpp.LlamaHelper
-import android.net.Uri
+import org.nehuatl.llamacpp.LlamaAndroid
 import java.io.File
 import java.io.FileInputStream
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.coroutines.resume
 
 data class GenerationChunk(
     val token: String,
@@ -53,12 +48,10 @@ class LlmEngine(private val context: Context) {
     private val tag = "LlmEngine"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    private val llmFlow = MutableSharedFlow<LlamaHelper.LLMEvent>(
-        extraBufferCapacity = 256,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST
-    )
+    private var llamaAndroid: LlamaAndroid? = null
+    private var llamaContextId: Int? = null
+    private var onTokenGenerated: ((String) -> Unit)? = null
 
-    private var llamaHelper: LlamaHelper? = null
     private var litertEngine: Engine? = null
     private var litertConversation: Conversation? = null
 
@@ -68,9 +61,9 @@ class LlmEngine(private val context: Context) {
 
     init {
         try {
-            llamaHelper = LlamaHelper(context.contentResolver, scope, llmFlow)
+            llamaAndroid = LlamaAndroid(context.contentResolver)
         } catch (e: Throwable) {
-            Log.e(tag, "Failed to initialize LlamaHelper", e)
+            Log.e(tag, "Failed to initialize LlamaAndroid", e)
         }
     }
 
@@ -144,7 +137,7 @@ class LlmEngine(private val context: Context) {
 
             val configsToTry = mutableListOf<Pair<String, EngineConfig>>()
 
-            // 1. If model claims vision/mmproj, first try CPU with visionBackend
+            // 1. If model claims vision/mmproj, try CPU with visionBackend first
             if (model.hasMmproj) {
                 configsToTry.add(
                     "CPU 멀티스레드(${threadCount}T, 비전 연동)" to EngineConfig(
@@ -168,14 +161,25 @@ class LlmEngine(private val context: Context) {
                 )
             )
 
-            // 3. CPU default fallback
+            // 3. Pure CPU with native model context (maxNumTokens = null, cacheDir = null)
+            configsToTry.add(
+                "CPU 기본 컨텍스트(${threadCount}T)" to EngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = Backend.CPU(threadCount = threadCount, numOfThreads = threadCount),
+                    visionBackend = null,
+                    maxNumTokens = null,
+                    cacheDir = null
+                )
+            )
+
+            // 4. CPU default fallback
             configsToTry.add(
                 "CPU 기본 백엔드" to EngineConfig(
                     modelPath = modelFile.absolutePath,
                     backend = Backend.CPU(),
                     visionBackend = null,
-                    maxNumTokens = maxTokens,
-                    cacheDir = cacheDir
+                    maxNumTokens = null,
+                    cacheDir = null
                 )
             )
 
@@ -296,111 +300,107 @@ class LlmEngine(private val context: Context) {
 
         onStageUpdate?.invoke("llama.cpp 네이티브 컨텍스트 생성 중...", 0.35f)
 
-        // Re-initialize LlamaHelper if needed
-        val helper = LlamaHelper(context.contentResolver, scope, llmFlow).also {
-            llamaHelper = it
-        }
-
         val contextWindow = settings.contextWindow.coerceIn(512, 16384)
-
-        // Format as valid file:// URIs so Android ContentResolver can resolve file descriptor
-        val modelUriString = Uri.fromFile(modelFile).toString()
-        val mmprojUriString = mmprojPath?.let { Uri.fromFile(File(it)).toString() }
-
-        Log.d(tag, "Loading GGUF model via URI: $modelUriString (ctx: $contextWindow, mmproj: $mmprojUriString)")
+        val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
 
         onStageUpdate?.invoke("네이티브 메모리 매핑(mmap) 및 가중치 로드 중...", 0.65f)
 
-        return@withContext withTimeoutOrNull(90_000L) {
-            suspendCancellableCoroutine<String> { continuation ->
-                var isResumed = false
+        val llama = (llamaAndroid ?: LlamaAndroid(context.contentResolver)).also {
+            llamaAndroid = it
+        }
 
-                // Listen for engine error events concurrently
-                val errorJob = scope.launch {
-                    llmFlow.collect { event ->
-                        if (event is LlamaHelper.LLMEvent.Error) {
-                            Log.e(tag, "Engine reported error during load: ${event.message}")
-                            if (!isResumed && continuation.isActive) {
-                                isResumed = true
-                                unloadCurrentModel()
-                                onStageUpdate?.invoke("로드 실패: ${event.message}", 0f)
-                                continuation.resume("모델 로드 실패: ${event.message}")
-                            }
-                        }
-                    }
-                }
+        val modelUri = Uri.fromFile(modelFile)
 
-                continuation.invokeOnCancellation {
-                    errorJob.cancel()
-                }
+        try {
+            val pfd = context.contentResolver.openFileDescriptor(modelUri, "r")
+                ?: throw IllegalStateException("모델 파일 디스크립터를 열 수 없습니다.")
+            val modelFd = pfd.detachFd()
 
+            val params = mutableMapOf<String, Any>(
+                "model" to modelUri.toString(),
+                "model_fd" to modelFd,
+                "use_mmap" to true, // CRITICAL FIX: True kernel mmap, zero heap RAM allocation!
+                "use_mlock" to false,
+                "n_ctx" to contextWindow,
+                "embedding" to false,
+                "n_batch" to 512,
+                "n_threads" to threadCount, // CRITICAL FIX: True CPU thread count
+                "n_gpu_layers" to 0,
+                "vocab_only" to false,
+                "lora" to "",
+                "lora_scaled" to 1.0,
+                "rope_freq_base" to 0.0,
+                "rope_freq_scale" to 0.0
+            )
+
+            var usedMmproj = false
+            if (mmprojPath != null) {
                 try {
-                    helper.load(
-                        modelUriString,
-                        contextWindow,
-                        mmprojUriString
-                    ) { contextId ->
-                        errorJob.cancel()
-                        if (!isResumed && continuation.isActive) {
-                            isResumed = true
-                            activeModel = model
-                            isModelLoaded = true
-                            isVisionTowerLoaded = mmprojPath != null
-
-                            val isEmbedded = mmprojPath == modelFile.absolutePath
-                            val visionText = if (isVisionTowerLoaded) {
-                                if (isEmbedded) " + 내장 비전타워" else " + mmproj 비전타워"
-                            } else ""
-                            val resultMsg = "[llama.cpp GGUF] ${model.name} 온디바이스 로드 완료 (Context: $contextWindow$visionText)"
-                            Log.i(tag, resultMsg)
-                            onStageUpdate?.invoke("로드 완료", 1.0f)
-                            continuation.resume(resultMsg)
-                        }
+                    val mmprojUri = Uri.fromFile(File(mmprojPath))
+                    val mmprojPfd = context.contentResolver.openFileDescriptor(mmprojUri, "r")
+                    if (mmprojPfd != null) {
+                        params["mmproj_fd"] = mmprojPfd.detachFd()
+                        usedMmproj = true
                     }
-                } catch (e: Throwable) {
-                    if (mmprojUriString != null) {
-                        Log.w(tag, "비전타워 로드 예외 발생 (${e.message}), 텍스트 전용 모드로 재시도합니다.")
-                        try {
-                            helper.load(modelUriString, contextWindow, null) {
-                                errorJob.cancel()
-                                if (!isResumed && continuation.isActive) {
-                                    isResumed = true
-                                    activeModel = model
-                                    isModelLoaded = true
-                                    isVisionTowerLoaded = false
-                                    val resultMsg = "[llama.cpp GGUF] ${model.name} 온디바이스 로드 완료 (텍스트 모드)"
-                                    Log.i(tag, resultMsg)
-                                    onStageUpdate?.invoke("로드 완료", 1.0f)
-                                    continuation.resume(resultMsg)
-                                }
-                            }
-                            return@suspendCancellableCoroutine
-                        } catch (_: Throwable) {}
-                    }
-                    errorJob.cancel()
-                    Log.e(tag, "Error invoking helper.load", e)
-                    if (!isResumed && continuation.isActive) {
-                        isResumed = true
-                        unloadCurrentModel()
-                        onStageUpdate?.invoke("로드 예외: ${e.localizedMessage ?: e.message}", 0f)
-                        continuation.resume("모델 로드 예외: ${e.localizedMessage ?: e.message}")
-                    }
+                } catch (me: Throwable) {
+                    Log.w(tag, "mmproj 파일 디스크립터 열기 실패: ${me.message}")
                 }
             }
-        } ?: run {
+
+            val tokenCallback: (String) -> Unit = { token ->
+                onTokenGenerated?.invoke(token)
+            }
+
+            val result = try {
+                llama.startEngine(params, tokenCallback)
+            } catch (initEx: Throwable) {
+                if (usedMmproj) {
+                    Log.w(tag, "비전타워 초기화 실패 (${initEx.message}), 텍스트 전용 모드로 재시도합니다.")
+                    params.remove("mmproj_fd")
+                    val retryPfd = context.contentResolver.openFileDescriptor(modelUri, "r")
+                        ?: throw initEx
+                    params["model_fd"] = retryPfd.detachFd()
+                    usedMmproj = false
+                    llama.startEngine(params, tokenCallback)
+                } else {
+                    throw initEx
+                }
+            }
+
+            val contextId = (result?.get("contextId") as? Number)?.toInt()
+                ?: throw IllegalStateException("llama.cpp contextId 반환 실패: $result")
+
+            llamaContextId = contextId
+            activeModel = model
+            isModelLoaded = true
+            isVisionTowerLoaded = usedMmproj
+
+            val visionText = if (isVisionTowerLoaded) " + mmproj 비전타워" else ""
+            val resultMsg = "[llama.cpp GGUF] ${model.name} 온디바이스 로드 완료 (Context: $contextWindow, ${threadCount}T$visionText)"
+            Log.i(tag, resultMsg)
+            onStageUpdate?.invoke("로드 완료", 1.0f)
+            return@withContext resultMsg
+        } catch (e: Throwable) {
             unloadCurrentModel()
-            onStageUpdate?.invoke("로드 시간 초과", 0f)
-            "모델 로드 시간 초과 (90초). 모델 크기가 기기 가용 RAM보다 크거나 로드 중 응답이 없습니다."
+            val errorMsg = e.localizedMessage ?: e.message ?: "알 수 없는 오류"
+            Log.e(tag, "GGUF 로드 실패: $errorMsg", e)
+            onStageUpdate?.invoke("로드 실패", 0f)
+            return@withContext "모델 로드 실패: $errorMsg"
         }
     }
 
     private fun unloadCurrentModel() {
-        try {
-            llamaHelper?.release()
-        } catch (e: Throwable) {
-            Log.w(tag, "Error releasing llama context: ${e.message}")
+        val llama = llamaAndroid
+        val ctxId = llamaContextId
+        if (llama != null && ctxId != null) {
+            try {
+                llama.releaseContext(ctxId)
+            } catch (e: Throwable) {
+                Log.w(tag, "Error releasing llama context: ${e.message}")
+            }
         }
-        llamaHelper = null
+        llamaContextId = null
+        onTokenGenerated = null
 
         try {
             litertEngine?.close()
@@ -577,8 +577,10 @@ class LlmEngine(private val context: Context) {
         }
 
         // LLAMA_CPP
-        val helper = llamaHelper
+        val llama = llamaAndroid
             ?: throw IllegalStateException("추론 엔진이 초기화되지 않았습니다.")
+        val ctxId = llamaContextId
+            ?: throw IllegalStateException("컨텍스트가 초기화되지 않았습니다.")
 
         val imagePath = if (attachment?.isImage == true && isVisionTowerLoaded) {
             val raw = attachment.uriString
@@ -589,108 +591,116 @@ class LlmEngine(private val context: Context) {
 
         Log.d(tag, "Starting real GGUF inference with prompt length: ${formattedPrompt.length}, isImage: $hasImage")
 
-        // Trigger native inference in LlamaHelper
-        // CRITICAL FIX: The 3rd parameter is emit_partial_completion, MUST be true for partial token streaming!
-        helper.predict(
-            formattedPrompt,
-            imagePath,
-            true
+        val completionParams = mutableMapOf<String, Any>(
+            "prompt" to formattedPrompt,
+            "emit_partial_completion" to true,
+            "temperature" to settings.temperature.toDouble().coerceAtLeast(0.01),
+            "top_k" to settings.topK.coerceAtLeast(1),
+            "top_p" to settings.topP.toDouble().coerceIn(0.01, 1.0),
+            "n_predict" to -1
         )
+        if (imagePath != null) {
+            completionParams["image_path"] = imagePath
+        }
 
-        // Collect genuine real-time tokens from native llama.cpp stream
-        llmFlow.collect { event ->
-            when (event) {
-                is LlamaHelper.LLMEvent.Started -> {
-                    Log.d(tag, "Inference started")
-                }
+        val tokenChannel = Channel<String>(Channel.UNLIMITED)
+        onTokenGenerated = { token ->
+            tokenChannel.trySend(token)
+        }
 
-                is LlamaHelper.LLMEvent.Ongoing -> {
-                    val rawWord = event.word
-                    if (firstTokenTime == null) {
-                        firstTokenTime = System.currentTimeMillis()
-                    }
-                    totalTokens++
-
-                    val currentTime = System.currentTimeMillis()
-                    val elapsedSinceFirstTokenSec = ((currentTime - (firstTokenTime ?: currentTime)) / 1000f).coerceAtLeast(0.001f)
-                    val currentTps = totalTokens / elapsedSinceFirstTokenSec
-
-                    val promptEvalTimeSec = ((firstTokenTime!! - startTime) / 1000f).coerceAtLeast(0.001f)
-                    val promptSpeed = ((formattedPrompt.length / 3f) / promptEvalTimeSec).coerceIn(10f, 500f)
-
-                    // Track <think> and </think> tags from reasoning models (e.g., DeepSeek-R1)
-                    if (rawWord.contains("<think>")) {
-                        isInReasoningMode = true
-                        val before = rawWord.substringBefore("<think>")
-                        val after = rawWord.substringAfter("<think>")
-                        if (before.isNotEmpty()) contentBuffer.append(before)
-                        if (after.isNotEmpty()) reasoningBuffer.append(after)
-                    } else if (rawWord.contains("</think>")) {
-                        val before = rawWord.substringBefore("</think>")
-                        val after = rawWord.substringAfter("</think>")
-                        if (before.isNotEmpty()) reasoningBuffer.append(before)
-                        isInReasoningMode = false
-                        if (after.isNotEmpty()) contentBuffer.append(after)
-                    } else {
-                        if (isInReasoningMode) {
-                            reasoningBuffer.append(rawWord)
-                        } else {
-                            contentBuffer.append(rawWord)
-                        }
-                    }
-
-                    emit(
-                        GenerationChunk(
-                            token = rawWord,
-                            isReasoning = isInReasoningMode,
-                            currentReasoningText = reasoningBuffer.toString(),
-                            currentContentText = contentBuffer.toString(),
-                            tps = currentTps,
-                            promptSpeed = promptSpeed,
-                            totalTokens = totalTokens,
-                            isComplete = false
-                        )
-                    )
-                }
-
-                is LlamaHelper.LLMEvent.Done -> {
-                    val finalElapsedSec = ((System.currentTimeMillis() - (firstTokenTime ?: startTime)) / 1000f).coerceAtLeast(0.001f)
-                    val finalTps = if (totalTokens > 0) totalTokens / finalElapsedSec else 0f
-                    val promptEvalTimeSec = (((firstTokenTime ?: System.currentTimeMillis()) - startTime) / 1000f).coerceAtLeast(0.001f)
-                    val promptSpeed = ((formattedPrompt.length / 3f) / promptEvalTimeSec).coerceIn(10f, 500f)
-
-                    emit(
-                        GenerationChunk(
-                            token = "",
-                            isReasoning = false,
-                            currentReasoningText = reasoningBuffer.toString(),
-                            currentContentText = contentBuffer.toString(),
-                            tps = finalTps,
-                            promptSpeed = promptSpeed,
-                            totalTokens = totalTokens,
-                            isComplete = true
-                        )
-                    )
-                    return@collect
-                }
-
-                is LlamaHelper.LLMEvent.Error -> {
-                    Log.e(tag, "Inference error: ${event.message}")
-                    throw RuntimeException("로컬 추론 오류: ${event.message}")
-                }
-
-                else -> {
-                    // Other lifecycle events
-                }
+        val completionJob = scope.launch(Dispatchers.IO) {
+            try {
+                llama.launchCompletion(ctxId, completionParams)
+            } catch (ce: Throwable) {
+                Log.e(tag, "Error during launchCompletion: ${ce.message}", ce)
+            } finally {
+                tokenChannel.close()
             }
+        }
+
+        try {
+            for (rawWord in tokenChannel) {
+                if (firstTokenTime == null) {
+                    firstTokenTime = System.currentTimeMillis()
+                }
+                totalTokens++
+
+                val currentTime = System.currentTimeMillis()
+                val elapsedSinceFirstTokenSec = ((currentTime - (firstTokenTime ?: currentTime)) / 1000f).coerceAtLeast(0.001f)
+                val currentTps = totalTokens / elapsedSinceFirstTokenSec
+
+                val promptEvalTimeSec = ((firstTokenTime!! - startTime) / 1000f).coerceAtLeast(0.001f)
+                val promptSpeed = ((formattedPrompt.length / 3f) / promptEvalTimeSec).coerceIn(10f, 500f)
+
+                // Track <think> and </think> tags from reasoning models (e.g., DeepSeek-R1)
+                if (rawWord.contains("<think>")) {
+                    isInReasoningMode = true
+                    val before = rawWord.substringBefore("<think>")
+                    val after = rawWord.substringAfter("<think>")
+                    if (before.isNotEmpty()) contentBuffer.append(before)
+                    if (after.isNotEmpty()) reasoningBuffer.append(after)
+                } else if (rawWord.contains("</think>")) {
+                    val before = rawWord.substringBefore("</think>")
+                    val after = rawWord.substringAfter("</think>")
+                    if (before.isNotEmpty()) reasoningBuffer.append(before)
+                    isInReasoningMode = false
+                    if (after.isNotEmpty()) contentBuffer.append(after)
+                } else {
+                    if (isInReasoningMode) {
+                        reasoningBuffer.append(rawWord)
+                    } else {
+                        contentBuffer.append(rawWord)
+                    }
+                }
+
+                emit(
+                    GenerationChunk(
+                        token = rawWord,
+                        isReasoning = isInReasoningMode,
+                        currentReasoningText = reasoningBuffer.toString(),
+                        currentContentText = contentBuffer.toString(),
+                        tps = currentTps,
+                        promptSpeed = promptSpeed,
+                        totalTokens = totalTokens,
+                        isComplete = false
+                    )
+                )
+            }
+
+            val finalElapsedSec = ((System.currentTimeMillis() - (firstTokenTime ?: startTime)) / 1000f).coerceAtLeast(0.001f)
+            val finalTps = if (totalTokens > 0) totalTokens / finalElapsedSec else 0f
+            val promptEvalTimeSec = (((firstTokenTime ?: System.currentTimeMillis()) - startTime) / 1000f).coerceAtLeast(0.001f)
+            val promptSpeed = ((formattedPrompt.length / 3f) / promptEvalTimeSec).coerceIn(10f, 500f)
+
+            emit(
+                GenerationChunk(
+                    token = "",
+                    isReasoning = false,
+                    currentReasoningText = reasoningBuffer.toString(),
+                    currentContentText = contentBuffer.toString(),
+                    tps = finalTps,
+                    promptSpeed = promptSpeed,
+                    totalTokens = totalTokens,
+                    isComplete = true
+                )
+            )
+        } finally {
+            onTokenGenerated = null
+            completionJob.cancel()
         }
     }.flowOn(Dispatchers.Default)
 
     fun stopGeneration() {
-        try {
-            llamaHelper?.stopPrediction()
-        } catch (e: Throwable) {
-            Log.w(tag, "Error stopping prediction: ${e.message}")
+        val llama = llamaAndroid
+        val ctxId = llamaContextId
+        if (llama != null && ctxId != null) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    llama.stopCompletion(ctxId)
+                } catch (e: Throwable) {
+                    Log.w(tag, "Error stopping prediction: ${e.message}")
+                }
+            }
         }
         try {
             if (activeModel?.runtimeType == ModelRuntimeType.LITE_RT) {

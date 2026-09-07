@@ -1,6 +1,9 @@
 package com.example.ui.chat
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,9 +31,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
@@ -40,6 +45,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -90,6 +96,7 @@ fun ChatScreen(
     val apiPort by viewModel.apiServerPort.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
+    var showStatusDetailDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     // Auto-scroll control: follows answer during streaming, releases when user interacts
@@ -377,28 +384,99 @@ fun ChatScreen(
 
                 // Engine Status Pill Banner
                 if (!engineStatus.isNullOrBlank()) {
+                    val isErrorStatus = engineStatus?.contains("오류") == true ||
+                            engineStatus?.contains("실패") == true ||
+                            engineStatus?.contains("Error") == true ||
+                            engineStatus?.contains("Failed") == true
+
+                    val bannerBg = if (isErrorStatus) {
+                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    }
+
+                    val bannerTextColor = if (isErrorStatus) {
+                        MaterialTheme.colorScheme.onErrorContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+
+                    val bannerIcon = if (isErrorStatus) Icons.Default.ErrorOutline else Icons.Default.Info
+                    val bannerIconTint = if (isErrorStatus) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .background(bannerBg)
+                            .clickable { showStatusDetailDialog = true }
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.Info,
+                                imageVector = bannerIcon,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(12.dp)
+                                tint = bannerIconTint,
+                                modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = engineStatus ?: "",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
+                                color = bannerTextColor,
+                                maxLines = 3,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "[상세]",
+                                fontSize = 10.sp,
+                                color = bannerIconTint,
+                                style = MaterialTheme.typography.labelSmall
                             )
                         }
                     }
+                }
+
+                // Full Engine Status & Diagnostics Dialog
+                if (showStatusDetailDialog && !engineStatus.isNullOrBlank()) {
+                    AlertDialog(
+                        onDismissRequest = { showStatusDetailDialog = false },
+                        title = {
+                            Text(
+                                text = if (engineStatus?.contains("오류") == true || engineStatus?.contains("실패") == true) "엔진 오류 상세 정보" else "엔진 상태 정보",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        },
+                        text = {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = engineStatus ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    val clip = ClipData.newPlainText("Engine Status", engineStatus ?: "")
+                                    clipboard?.setPrimaryClip(clip)
+                                    Toast.makeText(context, "클립보드에 복사되었습니다.", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Text("복사")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showStatusDetailDialog = false }) {
+                                Text("닫기")
+                            }
+                        }
+                    )
                 }
 
                 // Chat Messages Container
