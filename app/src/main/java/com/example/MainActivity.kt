@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import com.example.ui.AppScreen
 import com.example.ui.MainViewModel
 import com.example.ui.api.ApiServerScreen
 import com.example.ui.chat.ChatScreen
@@ -37,11 +38,11 @@ class MainActivity : ComponentActivity() {
             ) {
                 Crossfade(targetState = currentScreen, label = "screenTransition") { screen ->
                     when (screen) {
-                        "models" -> ModelManagerScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                        "settings" -> SettingsScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                        "voice_mode" -> VoiceModeScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                        "api_mode" -> ApiServerScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                        else -> ChatScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                        AppScreen.MODELS -> ModelManagerScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                        AppScreen.SETTINGS -> SettingsScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                        AppScreen.VOICE_MODE -> VoiceModeScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                        AppScreen.API_MODE -> ApiServerScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                        AppScreen.CHAT -> ChatScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
                     }
                 }
             }

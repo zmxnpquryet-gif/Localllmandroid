@@ -1,12 +1,22 @@
 package com.example.engine
 
+import android.app.ActivityManager
 import android.content.Context
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.example.model.ChatAttachment
 import com.example.model.GenerationSettings
 import com.example.model.LlmModel
 import com.example.model.ModelRuntimeType
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Conversation
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.SamplerConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,20 +26,11 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Content
-import com.google.ai.edge.litertlm.Contents
-import com.google.ai.edge.litertlm.Engine
-import com.google.ai.edge.litertlm.EngineConfig
-import com.google.ai.edge.litertlm.Conversation
-import com.google.ai.edge.litertlm.ConversationConfig
-import com.google.ai.edge.litertlm.SamplerConfig
 import org.nehuatl.llamacpp.LlamaAndroid
 import org.nehuatl.llamacpp.LlamaContext
-import android.os.ParcelFileDescriptor
 import java.io.File
 import java.io.FileInputStream
-import java.util.concurrent.ConcurrentHashMap
+import java.util.Random
 
 data class GenerationChunk(
     val token: String,
@@ -43,8 +44,9 @@ data class GenerationChunk(
 )
 
 /**
- * Genuine On-Device Local LLM Inference Engine powered by native llama.cpp & LiteRT-LM.
- * Runs completely offline on device CPU/GPU with no external API or cloud dependency.
+ * High-performance on-device Local LLM Inference Engine.
+ * Supports both native llama.cpp (GGUF) and Google LiteRT-LM backends with CPU/GPU/NPU acceleration.
+ * Manages native lifecycle directly without fragile reflection hacks.
  */
 class LlmEngine(private val context: Context) {
 
@@ -52,7 +54,7 @@ class LlmEngine(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var llamaAndroid: LlamaAndroid? = null
-    private var llamaContextId: Int? = null
+    private var currentLlamaContext: LlamaContext? = null
     private var onTokenGenerated: ((String) -> Unit)? = null
 
     private var litertEngine: Engine? = null
@@ -68,29 +70,7 @@ class LlmEngine(private val context: Context) {
                 try { setContextLimit(16) } catch (_: Throwable) {}
             }
         } catch (e: Throwable) {
-            Log.e(tag, "Failed to initialize LlamaAndroid", e)
-        }
-    }
-
-    private fun getOrCreateLlamaAndroid(): LlamaAndroid {
-        return (llamaAndroid ?: LlamaAndroid(context.contentResolver)).also {
-            try {
-                it.setContextLimit(16)
-            } catch (_: Throwable) {}
-            llamaAndroid = it
-        }
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun getLlamaContextsMap(llama: LlamaAndroid): ConcurrentHashMap<Int, LlamaContext>? {
-        return try {
-            val field = LlamaAndroid::class.java.getDeclaredField("contexts").apply {
-                isAccessible = true
-            }
-            field.get(llama) as? ConcurrentHashMap<Int, LlamaContext>
-        } catch (e: Throwable) {
-            Log.w(tag, "LlamaAndroid.contexts reflection failed: ${e.message}")
-            null
+            Log.e(tag, "Failed to initialize LlamaAndroid runtime wrapper", e)
         }
     }
 
@@ -103,8 +83,26 @@ class LlmEngine(private val context: Context) {
         } ?: throw IllegalStateException("모델 파일 디스크립터를 열 수 없습니다: ${file.path}")
     }
 
+    private fun logMemoryDiagnostics(modelFile: File) {
+        try {
+            val actManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            actManager?.getMemoryInfo(memInfo)
+            val availMemMb = memInfo.availMem / (1024 * 1024)
+            val totalMemMb = memInfo.totalMem / (1024 * 1024)
+            val modelSizeMb = modelFile.length() / (1024 * 1024)
+            Log.i(tag, "메모리 진단: 가용 RAM=${availMemMb}MB / 전체 RAM=${totalMemMb}MB, 모델 크기=${modelSizeMb}MB, 저메모리 상태=${memInfo.lowMemory}")
+
+            if (modelSizeMb > availMemMb) {
+                Log.w(tag, "경고: 모델 크기(${modelSizeMb}MB)가 가용 메모리(${availMemMb}MB)를 초과하여 OOM 위험이 있습니다.")
+            }
+        } catch (e: Throwable) {
+            Log.w(tag, "메모리 진단 정보 조회 실패: ${e.message}")
+        }
+    }
+
     /**
-     * Loads a real GGUF model into memory from local disk.
+     * Loads a model into memory from local disk (LiteRT or llama.cpp GGUF).
      */
     suspend fun loadModel(
         model: LlmModel?,
@@ -128,6 +126,7 @@ class LlmEngine(private val context: Context) {
             return@withContext "모델 파일이 디스크에 존재하지 않거나 빈 파일입니다: ${modelFile.name}"
         }
 
+        logMemoryDiagnostics(modelFile)
         onStageUpdate?.invoke("모델 무결성 검증 중...", 0.10f)
 
         // Branch by runtime type
@@ -173,7 +172,43 @@ class LlmEngine(private val context: Context) {
 
             val configsToTry = mutableListOf<Pair<String, EngineConfig>>()
 
-            // 1. If model claims vision/mmproj, try CPU with visionBackend first
+            // 1. Hardware acceleration candidates (GPU / NPU)
+            if (settings.enableGpuAcceleration) {
+                if (model.hasMmproj) {
+                    configsToTry.add(
+                        "GPU 가속 (비전 연동)" to EngineConfig(
+                            modelPath = modelFile.absolutePath,
+                            backend = Backend.GPU(),
+                            visionBackend = Backend.GPU(),
+                            maxNumTokens = maxTokens,
+                            cacheDir = cacheDir
+                        )
+                    )
+                }
+
+                configsToTry.add(
+                    "GPU 가속 (${maxTokens} ctx)" to EngineConfig(
+                        modelPath = modelFile.absolutePath,
+                        backend = Backend.GPU(),
+                        visionBackend = null,
+                        maxNumTokens = maxTokens,
+                        cacheDir = cacheDir
+                    )
+                )
+
+                val nativeLibDir = context.applicationInfo.nativeLibraryDir
+                configsToTry.add(
+                    "NPU 가속 (${maxTokens} ctx)" to EngineConfig(
+                        modelPath = modelFile.absolutePath,
+                        backend = Backend.NPU(nativeLibDir),
+                        visionBackend = null,
+                        maxNumTokens = maxTokens,
+                        cacheDir = cacheDir
+                    )
+                )
+            }
+
+            // 2. Multithread CPU with vision
             if (model.hasMmproj) {
                 configsToTry.add(
                     "CPU 멀티스레드(${threadCount}T, 비전 연동)" to EngineConfig(
@@ -186,9 +221,9 @@ class LlmEngine(private val context: Context) {
                 )
             }
 
-            // 2. Pure CPU multithread (standard text decoder without vision)
+            // 3. Multithread CPU standard text decoder
             configsToTry.add(
-                "CPU 멀티스레드(${threadCount}T)" to EngineConfig(
+                "CPU 멀티스레드(${threadCount}T, ${maxTokens} ctx)" to EngineConfig(
                     modelPath = modelFile.absolutePath,
                     backend = Backend.CPU(threadCount = threadCount, numOfThreads = threadCount),
                     visionBackend = null,
@@ -197,7 +232,7 @@ class LlmEngine(private val context: Context) {
                 )
             )
 
-            // 3. Pure CPU with native model context (maxNumTokens = null, cacheDir = null)
+            // 4. Pure CPU with native model context (maxNumTokens = null)
             configsToTry.add(
                 "CPU 기본 컨텍스트(${threadCount}T)" to EngineConfig(
                     modelPath = modelFile.absolutePath,
@@ -208,7 +243,7 @@ class LlmEngine(private val context: Context) {
                 )
             )
 
-            // 4. CPU default fallback
+            // 5. CPU default fallback
             configsToTry.add(
                 "CPU 기본 백엔드" to EngineConfig(
                     modelPath = modelFile.absolutePath,
@@ -338,40 +373,45 @@ class LlmEngine(private val context: Context) {
 
         val contextWindow = settings.contextWindow.coerceIn(512, 16384)
         val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
-
-        val llama = getOrCreateLlamaAndroid()
+        val targetGpuLayers = if (settings.enableGpuAcceleration) settings.gpuLayers.coerceIn(0, 99) else 0
 
         val tokenCallback: (String) -> Unit = { token ->
             onTokenGenerated?.invoke(token)
         }
 
-        // Multi-stage fallback candidate list:
-        // Stage 1: Kernel mmap + vision tower (if mmproj exists)
-        // Stage 2: Direct memory load + vision tower (if mmproj exists)
-        // Stage 3: Kernel mmap, standard text decoder (contextWindow)
-        // Stage 4: Direct memory load, standard text decoder (contextWindow)
-        // Stage 5: Kernel mmap, reduced context (2048ctx)
-        // Stage 6: Direct memory load, minimal context (1024ctx)
         data class GgufInitCandidate(
             val desc: String,
             val useMmap: Boolean,
             val useMmproj: Boolean,
-            val ctxLength: Int
+            val ctxLength: Int,
+            val gpuLayers: Int
         )
 
         val candidates = mutableListOf<GgufInitCandidate>()
-        if (mmprojPath != null) {
-            candidates.add(GgufInitCandidate("네이티브 mmap + mmproj 비전타워", useMmap = true, useMmproj = true, ctxLength = contextWindow))
-            candidates.add(GgufInitCandidate("직접 메모리 로드 + mmproj 비전타워", useMmap = false, useMmproj = true, ctxLength = contextWindow))
-        }
-        candidates.add(GgufInitCandidate("네이티브 mmap (${contextWindow} ctx)", useMmap = true, useMmproj = false, ctxLength = contextWindow))
-        candidates.add(GgufInitCandidate("직접 메모리 로드 (${contextWindow} ctx)", useMmap = false, useMmproj = false, ctxLength = contextWindow))
-        if (contextWindow > 2048) {
-            candidates.add(GgufInitCandidate("안정화 mmap 모드 (2048 ctx)", useMmap = true, useMmproj = false, ctxLength = 2048))
-            candidates.add(GgufInitCandidate("절전 직접 메모리 모드 (1024 ctx)", useMmap = false, useMmproj = false, ctxLength = 1024))
+
+        // 1. GPU Acceleration candidates (if enabled)
+        if (targetGpuLayers > 0) {
+            if (mmprojPath != null) {
+                candidates.add(GgufInitCandidate("GPU 가속 (${targetGpuLayers}L) + mmproj 비전타워", useMmap = true, useMmproj = true, ctxLength = contextWindow, gpuLayers = targetGpuLayers))
+            }
+            candidates.add(GgufInitCandidate("GPU 가속 (${targetGpuLayers}L, ${contextWindow} ctx)", useMmap = true, useMmproj = false, ctxLength = contextWindow, gpuLayers = targetGpuLayers))
         }
 
-        var activeContextId: Int? = null
+        // 2. CPU fallback candidates
+        if (mmprojPath != null) {
+            candidates.add(GgufInitCandidate("네이티브 mmap + mmproj 비전타워", useMmap = true, useMmproj = true, ctxLength = contextWindow, gpuLayers = 0))
+            candidates.add(GgufInitCandidate("직접 메모리 로드 + mmproj 비전타워", useMmap = false, useMmproj = true, ctxLength = contextWindow, gpuLayers = 0))
+        }
+        candidates.add(GgufInitCandidate("네이티브 mmap (${contextWindow} ctx)", useMmap = true, useMmproj = false, ctxLength = contextWindow, gpuLayers = 0))
+        candidates.add(GgufInitCandidate("직접 메모리 로드 (${contextWindow} ctx)", useMmap = false, useMmproj = false, ctxLength = contextWindow, gpuLayers = 0))
+
+        // 3. Fallback to reduced context if large context fails
+        if (contextWindow > 2048) {
+            candidates.add(GgufInitCandidate("안정화 mmap 모드 (2048 ctx)", useMmap = true, useMmproj = false, ctxLength = 2048, gpuLayers = 0))
+            candidates.add(GgufInitCandidate("절전 직접 메모리 모드 (1024 ctx)", useMmap = false, useMmproj = false, ctxLength = 1024, gpuLayers = 0))
+        }
+
+        var newLlamaContext: LlamaContext? = null
         var loadedWithMmproj = false
         var successfulDesc = ""
         var lastError: Throwable? = null
@@ -398,7 +438,7 @@ class LlmEngine(private val context: Context) {
                     "embedding" to false,
                     "n_batch" to 512,
                     "n_threads" to threadCount,
-                    "n_gpu_layers" to 0,
+                    "n_gpu_layers" to cand.gpuLayers,
                     "vocab_only" to false,
                     "lora" to "",
                     "lora_scaled" to 1.0,
@@ -416,25 +456,21 @@ class LlmEngine(private val context: Context) {
                 }
 
                 // Generate random positive context ID
-                val newContextId = kotlin.math.abs(java.util.Random().nextInt()).coerceAtLeast(1)
+                val newContextId = abs(Random().nextInt()).coerceAtLeast(1)
 
-                // Instantiate LlamaContext directly - throws real native exception with full cause if failed!
-                val newContext = LlamaContext(newContextId, params)
-                if (newContext.context == 0L) {
+                // Instantiate LlamaContext directly - no reflection on private fields!
+                val createdContext = LlamaContext(newContextId, params)
+                if (createdContext.context == 0L) {
                     throw IllegalStateException("llama.cpp 네이티브 컨텍스트 핸들(0) 반환 실패")
                 }
 
-                newContext.setTokenCallback(tokenCallback)
+                createdContext.setTokenCallback(tokenCallback)
 
-                // Register into LlamaAndroid.contexts map
-                val contextsMap = getLlamaContextsMap(llama)
-                if (contextsMap != null) {
-                    contextsMap[newContextId] = newContext
-                } else {
-                    Log.w(tag, "contexts 맵 리플렉션 등록 불가")
+                if (cand.ctxLength < contextWindow) {
+                    Log.w(tag, "[주의] 메모리/환경 제약으로 인해 컨텍스트 길이가 ${contextWindow}에서 ${cand.ctxLength}로 축소되어 로드되었습니다.")
                 }
 
-                activeContextId = newContextId
+                newLlamaContext = createdContext
                 loadedWithMmproj = cand.useMmproj && params.containsKey("mmproj_fd")
                 successfulDesc = cand.desc
                 Log.i(tag, "GGUF 로드 성공: contextId=$newContextId, 옵션=${cand.desc}")
@@ -448,7 +484,7 @@ class LlmEngine(private val context: Context) {
             }
         }
 
-        if (activeContextId == null) {
+        if (newLlamaContext == null) {
             unloadCurrentModel()
             val errorMsg = lastError?.localizedMessage ?: lastError?.message ?: "llama.cpp 네이티브 컨텍스트 생성 실패"
             Log.e(tag, "모든 GGUF 로드 전략 실패: $errorMsg", lastError)
@@ -456,7 +492,7 @@ class LlmEngine(private val context: Context) {
             return@withContext "모델 로드 실패: $errorMsg"
         }
 
-        llamaContextId = activeContextId
+        currentLlamaContext = newLlamaContext
         activeModel = model
         isModelLoaded = true
         isVisionTowerLoaded = loadedWithMmproj
@@ -468,33 +504,15 @@ class LlmEngine(private val context: Context) {
         return@withContext resultMsg
     }
 
+    private fun abs(value: Int): Int = if (value < 0) -value else value
+
     private fun unloadCurrentModel() {
-        val llama = llamaAndroid
-        val ctxId = llamaContextId
-        if (llama != null) {
-            if (ctxId != null) {
-                try {
-                    llama.releaseContext(ctxId)
-                } catch (e: Throwable) {
-                    Log.w(tag, "Error releasing llama context $ctxId: ${e.message}")
-                }
-            }
-            // Ensure no contexts remain leaked in LlamaAndroid
-            try {
-                val map = getLlamaContextsMap(llama)
-                map?.forEach { (id, ctx) ->
-                    try {
-                        ctx.release()
-                    } catch (re: Throwable) {
-                        Log.w(tag, "Error releasing leftover context $id: ${re.message}")
-                    }
-                }
-                map?.clear()
-            } catch (e: Throwable) {
-                Log.w(tag, "Error clearing contexts map: ${e.message}")
-            }
+        try {
+            currentLlamaContext?.release()
+        } catch (e: Throwable) {
+            Log.w(tag, "Error releasing currentLlamaContext: ${e.message}")
         }
-        llamaContextId = null
+        currentLlamaContext = null
         onTokenGenerated = null
 
         try {
@@ -547,9 +565,7 @@ class LlmEngine(private val context: Context) {
         var firstTokenTime: Long? = null
         var totalTokens = 0
 
-        val reasoningBuffer = StringBuilder()
-        val contentBuffer = StringBuilder()
-        var isInReasoningMode = false
+        val reasoningParser = ReasoningStreamParser()
 
         if (model.runtimeType == ModelRuntimeType.LITE_RT) {
             val conv = litertConversation
@@ -607,35 +623,17 @@ class LlmEngine(private val context: Context) {
                         val currentTps = totalTokens / elapsedSinceFirstTokenSec
 
                         val promptEvalTimeSec = ((firstTokenTime!! - startTime) / 1000f).coerceAtLeast(0.001f)
-                        val promptSpeed = ((formattedPrompt.length / 3f) / promptEvalTimeSec).coerceIn(10f, 500f)
+                        val estimatedPromptTokens = maxOf(1, formattedPrompt.length / 3)
+                        val promptSpeed = estimatedPromptTokens / promptEvalTimeSec
 
-                        // Track <think> and </think> tags
-                        if (rawChunk.contains("<think>")) {
-                            isInReasoningMode = true
-                            val before = rawChunk.substringBefore("<think>")
-                            val after = rawChunk.substringAfter("<think>")
-                            if (before.isNotEmpty()) contentBuffer.append(before)
-                            if (after.isNotEmpty()) reasoningBuffer.append(after)
-                        } else if (rawChunk.contains("</think>")) {
-                            val before = rawChunk.substringBefore("</think>")
-                            val after = rawChunk.substringAfter("</think>")
-                            if (before.isNotEmpty()) reasoningBuffer.append(before)
-                            isInReasoningMode = false
-                            if (after.isNotEmpty()) contentBuffer.append(after)
-                        } else {
-                            if (isInReasoningMode) {
-                                reasoningBuffer.append(rawChunk)
-                            } else {
-                                contentBuffer.append(rawChunk)
-                            }
-                        }
+                        reasoningParser.processChunk(rawChunk)
 
                         emit(
                             GenerationChunk(
                                 token = rawChunk,
-                                isReasoning = isInReasoningMode,
-                                currentReasoningText = reasoningBuffer.toString(),
-                                currentContentText = contentBuffer.toString(),
+                                isReasoning = reasoningParser.isInReasoningMode,
+                                currentReasoningText = reasoningParser.reasoningBuffer.toString(),
+                                currentContentText = reasoningParser.contentBuffer.toString(),
                                 tps = currentTps,
                                 promptSpeed = promptSpeed,
                                 totalTokens = totalTokens,
@@ -645,17 +643,20 @@ class LlmEngine(private val context: Context) {
                     }
                 }
 
+                reasoningParser.finish()
+
                 val finalElapsedSec = ((System.currentTimeMillis() - (firstTokenTime ?: startTime)) / 1000f).coerceAtLeast(0.001f)
                 val finalTps = if (totalTokens > 0) totalTokens / finalElapsedSec else 0f
                 val promptEvalTimeSec = (((firstTokenTime ?: System.currentTimeMillis()) - startTime) / 1000f).coerceAtLeast(0.001f)
-                val promptSpeed = ((formattedPrompt.length / 3f) / promptEvalTimeSec).coerceIn(10f, 500f)
+                val estimatedPromptTokens = maxOf(1, formattedPrompt.length / 3)
+                val promptSpeed = estimatedPromptTokens / promptEvalTimeSec
 
                 emit(
                     GenerationChunk(
                         token = "",
                         isReasoning = false,
-                        currentReasoningText = reasoningBuffer.toString(),
-                        currentContentText = contentBuffer.toString(),
+                        currentReasoningText = reasoningParser.reasoningBuffer.toString(),
+                        currentContentText = reasoningParser.contentBuffer.toString(),
                         tps = finalTps,
                         promptSpeed = promptSpeed,
                         totalTokens = totalTokens,
@@ -671,11 +672,9 @@ class LlmEngine(private val context: Context) {
             return@flow
         }
 
-        // LLAMA_CPP
-        val llama = llamaAndroid
+        // Native llama.cpp (GGUF)
+        val llamaCtx = currentLlamaContext
             ?: throw IllegalStateException("추론 엔진이 초기화되지 않았습니다.")
-        val ctxId = llamaContextId
-            ?: throw IllegalStateException("컨텍스트가 초기화되지 않았습니다.")
 
         val imagePath = if (attachment?.isImage == true && isVisionTowerLoaded) {
             val raw = attachment.uriString
@@ -685,6 +684,14 @@ class LlmEngine(private val context: Context) {
         val hasImage = imagePath != null
 
         Log.d(tag, "Starting real GGUF inference with prompt length: ${formattedPrompt.length}, isImage: $hasImage")
+
+        // Compute genuine prompt tokens using the actual model tokenizer
+        val realPromptTokens = try {
+            llamaCtx.tokenize(formattedPrompt).size
+        } catch (e: Throwable) {
+            Log.d(tag, "llamaCtx.tokenize failed (${e.message}), estimating")
+            maxOf(1, formattedPrompt.length / 3)
+        }
 
         val completionParams = mutableMapOf<String, Any>(
             "prompt" to formattedPrompt,
@@ -705,7 +712,7 @@ class LlmEngine(private val context: Context) {
 
         val completionJob = scope.launch(Dispatchers.IO) {
             try {
-                llama.launchCompletion(ctxId, completionParams)
+                llamaCtx.completion(completionParams)
             } catch (ce: Throwable) {
                 Log.e(tag, "Error during launchCompletion: ${ce.message}", ce)
             } finally {
@@ -725,35 +732,16 @@ class LlmEngine(private val context: Context) {
                 val currentTps = totalTokens / elapsedSinceFirstTokenSec
 
                 val promptEvalTimeSec = ((firstTokenTime!! - startTime) / 1000f).coerceAtLeast(0.001f)
-                val promptSpeed = ((formattedPrompt.length / 3f) / promptEvalTimeSec).coerceIn(10f, 500f)
+                val promptSpeed = realPromptTokens.toFloat() / promptEvalTimeSec
 
-                // Track <think> and </think> tags from reasoning models (e.g., DeepSeek-R1)
-                if (rawWord.contains("<think>")) {
-                    isInReasoningMode = true
-                    val before = rawWord.substringBefore("<think>")
-                    val after = rawWord.substringAfter("<think>")
-                    if (before.isNotEmpty()) contentBuffer.append(before)
-                    if (after.isNotEmpty()) reasoningBuffer.append(after)
-                } else if (rawWord.contains("</think>")) {
-                    val before = rawWord.substringBefore("</think>")
-                    val after = rawWord.substringAfter("</think>")
-                    if (before.isNotEmpty()) reasoningBuffer.append(before)
-                    isInReasoningMode = false
-                    if (after.isNotEmpty()) contentBuffer.append(after)
-                } else {
-                    if (isInReasoningMode) {
-                        reasoningBuffer.append(rawWord)
-                    } else {
-                        contentBuffer.append(rawWord)
-                    }
-                }
+                reasoningParser.processChunk(rawWord)
 
                 emit(
                     GenerationChunk(
                         token = rawWord,
-                        isReasoning = isInReasoningMode,
-                        currentReasoningText = reasoningBuffer.toString(),
-                        currentContentText = contentBuffer.toString(),
+                        isReasoning = reasoningParser.isInReasoningMode,
+                        currentReasoningText = reasoningParser.reasoningBuffer.toString(),
+                        currentContentText = reasoningParser.contentBuffer.toString(),
                         tps = currentTps,
                         promptSpeed = promptSpeed,
                         totalTokens = totalTokens,
@@ -762,17 +750,19 @@ class LlmEngine(private val context: Context) {
                 )
             }
 
+            reasoningParser.finish()
+
             val finalElapsedSec = ((System.currentTimeMillis() - (firstTokenTime ?: startTime)) / 1000f).coerceAtLeast(0.001f)
             val finalTps = if (totalTokens > 0) totalTokens / finalElapsedSec else 0f
             val promptEvalTimeSec = (((firstTokenTime ?: System.currentTimeMillis()) - startTime) / 1000f).coerceAtLeast(0.001f)
-            val promptSpeed = ((formattedPrompt.length / 3f) / promptEvalTimeSec).coerceIn(10f, 500f)
+            val promptSpeed = realPromptTokens.toFloat() / promptEvalTimeSec
 
             emit(
                 GenerationChunk(
                     token = "",
                     isReasoning = false,
-                    currentReasoningText = reasoningBuffer.toString(),
-                    currentContentText = contentBuffer.toString(),
+                    currentReasoningText = reasoningParser.reasoningBuffer.toString(),
+                    currentContentText = reasoningParser.contentBuffer.toString(),
                     tps = finalTps,
                     promptSpeed = promptSpeed,
                     totalTokens = totalTokens,
@@ -786,12 +776,11 @@ class LlmEngine(private val context: Context) {
     }.flowOn(Dispatchers.Default)
 
     fun stopGeneration() {
-        val llama = llamaAndroid
-        val ctxId = llamaContextId
-        if (llama != null && ctxId != null) {
+        val ctx = currentLlamaContext
+        if (ctx != null) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    llama.stopCompletion(ctxId)
+                    ctx.stopCompletion()
                 } catch (e: Throwable) {
                     Log.w(tag, "Error stopping prediction: ${e.message}")
                 }
@@ -809,5 +798,4 @@ class LlmEngine(private val context: Context) {
     fun release() {
         unloadCurrentModel()
     }
-
 }

@@ -91,8 +91,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val activeModel: StateFlow<LlmModel?> = _activeModel.asStateFlow()
 
     // Active screen: "chat", "models", "settings", "voice_mode"
-    private val _currentScreen = MutableStateFlow("chat")
-    val currentScreen: StateFlow<String> = _currentScreen.asStateFlow()
+    private val _currentScreen = MutableStateFlow(AppScreen.CHAT)
+    val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
 
     // Streaming state
     private val _isGenerating = MutableStateFlow(false)
@@ -134,6 +134,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _localIpAddress = MutableStateFlow("127.0.0.1")
     val localIpAddress: StateFlow<String> = _localIpAddress.asStateFlow()
+
+    private val _apiServerApiKey = MutableStateFlow(OllamaApiServer.generateSecureApiKey())
+    val apiServerApiKey: StateFlow<String> = _apiServerApiKey.asStateFlow()
 
     private var apiServer: OllamaApiServer? = null
     private var modelLoadingJob: Job? = null
@@ -222,8 +225,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun navigateTo(screen: String) {
+    fun navigateTo(screen: AppScreen) {
         _currentScreen.value = screen
+    }
+
+    fun navigateTo(screenRoute: String) {
+        _currentScreen.value = AppScreen.fromRoute(screenRoute)
     }
 
     fun createNewConversation() {
@@ -997,14 +1004,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
+        _apiServerApiKey.value = apiServer?.currentApiKey ?: ""
         refreshLocalIp()
 
         apiServer?.start { isRunning, msg ->
             _isApiModeEnabled.value = isRunning
             _apiServerStatusMessage.value = msg
-            _engineStatusMessage.value = "API 서버 (포트 11434): ${if (isRunning) "실행 중" else "중지됨"}"
+            _engineStatusMessage.value = "보안 API 서버 (포트 11434): ${if (isRunning) "실행 중" else "중지됨"}"
             _apiRequestCount.value = apiServer?.requestCount ?: 0
+            _apiServerApiKey.value = apiServer?.currentApiKey ?: ""
         }
+    }
+
+    fun regenerateApiKey() {
+        val newKey = apiServer?.regenerateApiKey() ?: OllamaApiServer.generateSecureApiKey()
+        _apiServerApiKey.value = newKey
     }
 
     fun stopApiServer() {

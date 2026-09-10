@@ -73,6 +73,7 @@ fun ApiServerScreen(
     val localIpAddress by viewModel.localIpAddress.collectAsState()
     val activeModel by viewModel.activeModel.collectAsState()
     val requestCount by viewModel.apiRequestCount.collectAsState()
+    val apiKey by viewModel.apiServerApiKey.collectAsState()
 
     val baseUrl = "http://$localIpAddress:$apiPort"
     val loopbackUrl = "http://127.0.0.1:$apiPort"
@@ -222,6 +223,14 @@ fun ApiServerScreen(
                         onCopy = { copyToClipboard(context, baseUrl, "네트워크 주소가 복사되었습니다.") }
                     )
 
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    AddressRow(
+                        label = "보안 API 인증 키 (Bearer Token)",
+                        url = apiKey,
+                        onCopy = { copyToClipboard(context, apiKey, "API 키가 복사되었습니다.") }
+                    )
+
                     Spacer(modifier = Modifier.height(12.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                     Spacer(modifier = Modifier.height(12.dp))
@@ -302,6 +311,8 @@ fun ApiServerScreen(
                         )
 
                         val curlCmd = """curl -X POST http://127.0.0.1:11434/api/generate \
+  -H "Authorization: Bearer $apiKey" \
+  -H "Content-Type: application/json" \
   -d '{"prompt": "안녕하세요", "stream": false}'"""
 
                         IconButton(onClick = {
@@ -326,7 +337,7 @@ fun ApiServerScreen(
                             .padding(12.dp)
                     ) {
                         Text(
-                            text = "curl -X POST $baseUrl/api/generate \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"prompt\": \"안녕하세요\", \"stream\": false}'",
+                            text = "curl -X POST $baseUrl/api/generate \\\n  -H \"Authorization: Bearer $apiKey\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"prompt\": \"안녕하세요\", \"stream\": false}'",
                             fontSize = 11.sp,
                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurface

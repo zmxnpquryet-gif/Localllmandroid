@@ -18,16 +18,20 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
+import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Lightweight HTTP server running on port 11434 (compatible with standard Ollama & OpenAI protocols).
- * Connects directly to the real on-device llama.cpp engine (llmEngine.streamGenerate).
- * Supports /api/tags, /api/show, /api/version, /api/generate, /api/chat, /v1/models, /v1/chat/completions.
- * Provides both streaming (SSE / NDJSON chunked) and non-streaming responses, and full CORS headers.
+ * Hardened lightweight HTTP server running on port 11434 (compatible with standard Ollama & OpenAI protocols).
+ * Connects directly to the real on-device inference engine (llmEngine.streamGenerate).
+ * Features:
+ *  - Secure localhost binding by default (127.0.0.1) with optional LAN mode.
+ *  - Token-based authentication (Authorization: Bearer <api_key> / X-API-Key).
+ *  - Strict origin validation instead of wildcard CORS (Access-Control-Allow-Origin: * removed).
+ *  - Supports /api/tags, /api/show, /api/version, /api/generate, /api/chat, /v1/models, /v1/chat/completions.
  */
 class OllamaApiServer(
     private val context: Context,
@@ -39,12 +43,25 @@ class OllamaApiServer(
     companion object {
         const val DEFAULT_PORT = 11434
         private const val TAG = "OllamaApiServer"
+
+        fun generateSecureApiKey(): String {
+            val random = SecureRandom()
+            val bytes = ByteArray(18)
+            random.nextBytes(bytes)
+            return "sk-local-" + android.util.Base64.encodeToString(bytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+        }
     }
 
     private var serverSocket: ServerSocket? = null
     private var isRunning = false
     private var serverJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
+
+    var currentApiKey: String = generateSecureApiKey()
+        private set
+
+    var boundHost: String = "127.0.0.1"
+        private set
 
     // Request statistics for UI
     var requestCount: Int = 0
@@ -58,6 +75,11 @@ class OllamaApiServer(
 
     fun getPort(): Int = DEFAULT_PORT
 
+    fun regenerateApiKey(): String {
+        currentApiKey = generateSecureApiKey()
+        return currentApiKey
+    }
+
     fun start(onStatusChange: (Boolean, String?) -> Unit) {
         if (isRunning) {
             onStatusChange(true, "서버가 이미 포트 $DEFAULT_PORT 에서 실행 중입니다.")
@@ -65,10 +87,15 @@ class OllamaApiServer(
         }
 
         try {
-            // Bind to all interfaces (0.0.0.0) on port 11434
-            serverSocket = ServerSocket(DEFAULT_PORT, 50, InetAddress.getByName("0.0.0.0"))
+            val settings = getSettings()
+            boundHost = if (settings.apiServerBindAddress.isNotBlank()) settings.apiServerBindAddress else "127.0.0.1"
+            val bindAddress = InetAddress.getByName(boundHost)
+
+            serverSocket = ServerSocket(DEFAULT_PORT, 50, bindAddress)
             isRunning = true
-            onStatusChange(true, "API 서버가 포트 $DEFAULT_PORT 에서 시작되었습니다.")
+
+            val hostLabel = if (boundHost == "127.0.0.1") "로컬 루프백(127.0.0.1)" else "전체 인터페이스($boundHost)"
+            onStatusChange(true, "보안 API 서버가 $hostLabel 포트 $DEFAULT_PORT 에서 시작되었습니다.")
 
             serverJob = scope.launch {
                 while (isRunning) {
@@ -85,8 +112,8 @@ class OllamaApiServer(
             }
         } catch (e: Exception) {
             isRunning = false
-            Log.e(TAG, "Failed to start API server on port $DEFAULT_PORT", e)
-            onStatusChange(false, "서버 시작 실패 (포트 $DEFAULT_PORT): ${e.localizedMessage}")
+            Log.e(TAG, "Failed to start API server on $boundHost:$DEFAULT_PORT", e)
+            onStatusChange(false, "서버 시작 실패 ($boundHost:$DEFAULT_PORT): ${e.localizedMessage}")
         }
     }
 
@@ -123,12 +150,39 @@ class OllamaApiServer(
 
             // Read HTTP headers
             var contentLength = 0
+            val headers = mutableMapOf<String, String>()
             var line: String?
             while (reader.readLine().also { line = it } != null) {
-                if (line!!.isEmpty()) break
-                val lower = line!!.lowercase()
-                if (lower.startsWith("content-length:")) {
-                    contentLength = line!!.substringAfter(":").trim().toIntOrNull() ?: 0
+                if (line.isNullOrEmpty()) break
+                val colonIdx = line!!.indexOf(':')
+                if (colonIdx > 0) {
+                    val key = line!!.substring(0, colonIdx).trim().lowercase()
+                    val value = line!!.substring(colonIdx + 1).trim()
+                    headers[key] = value
+                    if (key == "content-length") {
+                        contentLength = value.toIntOrNull() ?: 0
+                    }
+                }
+            }
+
+            val clientOrigin = headers["origin"]
+
+            // Handle CORS Preflight
+            if (method == "OPTIONS") {
+                sendCorsPreflight(output, clientOrigin)
+                return
+            }
+
+            // Authentication Check
+            val settings = getSettings()
+            if (settings.apiServerRequireAuth && uri != "/") {
+                val isAuthorized = checkAuthorization(headers)
+                if (!isAuthorized) {
+                    val unauthorizedJson = JSONObject().apply {
+                        put("error", "인증 실패: 유효한 API 키가 필요합니다. 'Authorization: Bearer <api_key>' 또는 'X-API-Key' 헤더를 전달하세요.")
+                    }.toString()
+                    sendResponse(output, 401, "Unauthorized", "application/json", unauthorizedJson, clientOrigin)
+                    return
                 }
             }
 
@@ -146,58 +200,52 @@ class OllamaApiServer(
                 ""
             }
 
-            // Handle CORS Preflight
-            if (method == "OPTIONS") {
-                sendResponse(output, 204, "No Content", "text/plain", "")
-                return
-            }
-
             // Routing
             when {
                 // Root status check
                 uri == "/" -> {
-                    sendResponse(output, 200, "OK", "text/plain", "Ollama is running on Android (LocalLLM)\n")
+                    sendResponse(output, 200, "OK", "text/plain", "Ollama is running on Android (LocalLLM)\n", clientOrigin)
                 }
 
                 // Ollama /api/tags
                 uri.startsWith("/api/tags") -> {
-                    handleOllamaTags(output)
+                    handleOllamaTags(output, clientOrigin)
                 }
 
                 // OpenAI /v1/models
                 uri.startsWith("/v1/models") -> {
-                    handleOpenAiModels(output)
+                    handleOpenAiModels(output, clientOrigin)
                 }
 
                 // Ollama /api/show
                 uri.startsWith("/api/show") -> {
-                    handleOllamaShow(output, body)
+                    handleOllamaShow(output, body, clientOrigin)
                 }
 
                 // Ollama /api/version
                 uri.startsWith("/api/version") -> {
                     val json = JSONObject().put("version", "0.5.1").toString()
-                    sendResponse(output, 200, "OK", "application/json", json)
+                    sendResponse(output, 200, "OK", "application/json", json, clientOrigin)
                 }
 
                 // Ollama /api/generate
                 uri.startsWith("/api/generate") && method == "POST" -> {
-                    handleGenerate(output, body)
+                    handleGenerate(output, body, clientOrigin)
                 }
 
                 // Ollama /api/chat
                 uri.startsWith("/api/chat") && method == "POST" -> {
-                    handleOllamaChat(output, body)
+                    handleOllamaChat(output, body, clientOrigin)
                 }
 
                 // OpenAI /v1/chat/completions
                 uri.startsWith("/v1/chat/completions") && method == "POST" -> {
-                    handleOpenAiChat(output, body)
+                    handleOpenAiChat(output, body, clientOrigin)
                 }
 
                 else -> {
                     val errorJson = JSONObject().put("error", "Endpoint not found: $uri").toString()
-                    sendResponse(output, 404, "Not Found", "application/json", errorJson)
+                    sendResponse(output, 404, "Not Found", "application/json", errorJson, clientOrigin)
                 }
             }
         } catch (e: Exception) {
@@ -209,7 +257,20 @@ class OllamaApiServer(
         }
     }
 
-    private fun handleOllamaTags(output: OutputStream) {
+    private fun checkAuthorization(headers: Map<String, String>): Boolean {
+        val authHeader = headers["authorization"]
+        if (!authHeader.isNullOrBlank()) {
+            val token = authHeader.removePrefix("Bearer ").removePrefix("bearer ").trim()
+            if (token == currentApiKey) return true
+        }
+        val xApiKey = headers["x-api-key"]
+        if (!xApiKey.isNullOrBlank() && xApiKey.trim() == currentApiKey) {
+            return true
+        }
+        return false
+    }
+
+    private fun handleOllamaTags(output: OutputStream, origin: String?) {
         val models = getAllModels()
         val active = getActiveModel()
         val modelsArray = JSONArray()
@@ -241,10 +302,10 @@ class OllamaApiServer(
         }
 
         val resJson = JSONObject().put("models", modelsArray).toString()
-        sendResponse(output, 200, "OK", "application/json", resJson)
+        sendResponse(output, 200, "OK", "application/json", resJson, origin)
     }
 
-    private fun handleOpenAiModels(output: OutputStream) {
+    private fun handleOpenAiModels(output: OutputStream, origin: String?) {
         val models = getAllModels()
         val active = getActiveModel()
         val dataArray = JSONArray()
@@ -272,10 +333,10 @@ class OllamaApiServer(
             put("data", dataArray)
         }.toString()
 
-        sendResponse(output, 200, "OK", "application/json", resJson)
+        sendResponse(output, 200, "OK", "application/json", resJson, origin)
     }
 
-    private fun handleOllamaShow(output: OutputStream, body: String) {
+    private fun handleOllamaShow(output: OutputStream, body: String, origin: String?) {
         val currentModel = getActiveModel()
         val detailsJson = JSONObject().apply {
             put("license", "Open")
@@ -291,25 +352,24 @@ class OllamaApiServer(
             })
         }.toString()
 
-        sendResponse(output, 200, "OK", "application/json", detailsJson)
+        sendResponse(output, 200, "OK", "application/json", detailsJson, origin)
     }
 
-    private suspend fun handleGenerate(output: OutputStream, body: String) {
+    private suspend fun handleGenerate(output: OutputStream, body: String, origin: String?) {
         val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
         val prompt = json.optString("prompt", "")
-        // In Ollama /api/generate, stream defaults to true if not specified
         val isStream = json.optBoolean("stream", true)
         val currentModel = getActiveModel()
 
         if (prompt.isBlank()) {
             val err = JSONObject().put("error", "Prompt cannot be empty").toString()
-            sendResponse(output, 400, "Bad Request", "application/json", err)
+            sendResponse(output, 400, "Bad Request", "application/json", err, origin)
             return
         }
 
         if (!llmEngine.isModelReady()) {
             val err = JSONObject().put("error", "선택되거나 로드된 로컬 모델이 없습니다. 앱에서 모델을 먼저 로드하세요.").toString()
-            sendResponse(output, 503, "Service Unavailable", "application/json", err)
+            sendResponse(output, 503, "Service Unavailable", "application/json", err, origin)
             return
         }
 
@@ -317,8 +377,7 @@ class OllamaApiServer(
         val modelName = currentModel?.name ?: "local-model"
 
         if (isStream) {
-            // Stream chunked NDJSON
-            sendStreamHeaders(output, "application/x-ndjson")
+            sendStreamHeaders(output, "application/x-ndjson", origin)
             try {
                 llmEngine.streamGenerate(
                     prompt = prompt,
@@ -350,14 +409,13 @@ class OllamaApiServer(
                 put("created_at", getIsoTimestamp())
                 put("response", "")
                 put("done", true)
-                put("total_duration", 1200000000L)
             }
             sendChunk(output, finalObj.toString() + "\n")
             endChunk(output)
 
         } else {
-            // Non-streaming response
             var fullResponse = ""
+            var totalTokens = 0
             try {
                 llmEngine.streamGenerate(
                     prompt = prompt,
@@ -368,6 +426,7 @@ class OllamaApiServer(
                     if (chunk.token.isNotEmpty()) {
                         fullResponse += chunk.token
                     }
+                    totalTokens = chunk.totalTokens
                 }
             } catch (e: Exception) {
                 fullResponse = "추론 중 오류: ${e.localizedMessage}"
@@ -378,16 +437,14 @@ class OllamaApiServer(
                 put("created_at", getIsoTimestamp())
                 put("response", fullResponse)
                 put("done", true)
-                put("total_duration", 1200000000L)
-                put("prompt_eval_count", prompt.length / 3)
-                put("eval_count", fullResponse.length / 3)
+                put("eval_count", totalTokens)
             }.toString()
 
-            sendResponse(output, 200, "OK", "application/json", responseJson)
+            sendResponse(output, 200, "OK", "application/json", responseJson, origin)
         }
     }
 
-    private suspend fun handleOllamaChat(output: OutputStream, body: String) {
+    private suspend fun handleOllamaChat(output: OutputStream, body: String, origin: String?) {
         val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
         val messagesArray = json.optJSONArray("messages") ?: JSONArray()
         val isStream = json.optBoolean("stream", true)
@@ -396,7 +453,7 @@ class OllamaApiServer(
 
         if (!llmEngine.isModelReady()) {
             val err = JSONObject().put("error", "선택되거나 로드된 로컬 모델이 없습니다. 앱에서 모델을 먼저 로드하세요.").toString()
-            sendResponse(output, 503, "Service Unavailable", "application/json", err)
+            sendResponse(output, 503, "Service Unavailable", "application/json", err, origin)
             return
         }
 
@@ -404,7 +461,7 @@ class OllamaApiServer(
         val settings = getSettings()
 
         if (isStream) {
-            sendStreamHeaders(output, "application/x-ndjson")
+            sendStreamHeaders(output, "application/x-ndjson", origin)
             try {
                 llmEngine.streamGenerate(
                     prompt = lastUserPrompt,
@@ -445,13 +502,13 @@ class OllamaApiServer(
                     put("content", "")
                 })
                 put("done", true)
-                put("total_duration", 1500000000L)
             }
             sendChunk(output, finalObj.toString() + "\n")
             endChunk(output)
 
         } else {
             var fullAnswer = ""
+            var totalTokens = 0
             try {
                 llmEngine.streamGenerate(
                     prompt = lastUserPrompt,
@@ -462,6 +519,7 @@ class OllamaApiServer(
                     if (chunk.token.isNotEmpty()) {
                         fullAnswer += chunk.token
                     }
+                    totalTokens = chunk.totalTokens
                 }
             } catch (e: Exception) {
                 fullAnswer = "오류: ${e.localizedMessage}"
@@ -475,14 +533,14 @@ class OllamaApiServer(
                     put("content", fullAnswer)
                 })
                 put("done", true)
-                put("total_duration", 1500000000L)
+                put("eval_count", totalTokens)
             }.toString()
 
-            sendResponse(output, 200, "OK", "application/json", resultJson)
+            sendResponse(output, 200, "OK", "application/json", resultJson, origin)
         }
     }
 
-    private suspend fun handleOpenAiChat(output: OutputStream, body: String) {
+    private suspend fun handleOpenAiChat(output: OutputStream, body: String, origin: String?) {
         val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
         val messagesArray = json.optJSONArray("messages") ?: JSONArray()
         val isStream = json.optBoolean("stream", false)
@@ -492,7 +550,7 @@ class OllamaApiServer(
 
         if (!llmEngine.isModelReady()) {
             val err = JSONObject().put("error", JSONObject().put("message", "선택되거나 로드된 로컬 모델이 없습니다.")).toString()
-            sendResponse(output, 503, "Service Unavailable", "application/json", err)
+            sendResponse(output, 503, "Service Unavailable", "application/json", err, origin)
             return
         }
 
@@ -500,7 +558,7 @@ class OllamaApiServer(
         val settings = getSettings()
 
         if (isStream) {
-            sendStreamHeaders(output, "text/event-stream")
+            sendStreamHeaders(output, "text/event-stream", origin)
             try {
                 llmEngine.streamGenerate(
                     prompt = lastUserPrompt,
@@ -552,6 +610,7 @@ class OllamaApiServer(
 
         } else {
             var fullAnswer = ""
+            var totalTokens = 0
             try {
                 llmEngine.streamGenerate(
                     prompt = lastUserPrompt,
@@ -562,6 +621,7 @@ class OllamaApiServer(
                     if (chunk.token.isNotEmpty()) {
                         fullAnswer += chunk.token
                     }
+                    totalTokens = chunk.totalTokens
                 }
             } catch (e: Exception) {
                 fullAnswer = "오류: ${e.localizedMessage}"
@@ -581,13 +641,12 @@ class OllamaApiServer(
                     put("finish_reason", "stop")
                 }))
                 put("usage", JSONObject().apply {
-                    put("prompt_tokens", (lastUserPrompt.length / 3) + 10)
-                    put("completion_tokens", fullAnswer.length / 3)
-                    put("total_tokens", ((lastUserPrompt.length + fullAnswer.length) / 3) + 10)
+                    put("completion_tokens", totalTokens)
+                    put("total_tokens", totalTokens)
                 })
             }.toString()
 
-            sendResponse(output, 200, "OK", "application/json", resultJson)
+            sendResponse(output, 200, "OK", "application/json", resultJson, origin)
         }
     }
 
@@ -614,15 +673,44 @@ class OllamaApiServer(
         return Pair(historyList, lastUserPrompt)
     }
 
-    private fun sendStreamHeaders(output: OutputStream, contentType: String) {
+    private fun getValidatedCorsOrigin(origin: String?): String? {
+        if (origin.isNullOrBlank()) return null
+        // Restrict CORS to localhost/loopback origins only to prevent drive-by attacks from arbitrary websites
+        return if (origin.startsWith("http://localhost") ||
+            origin.startsWith("http://127.0.0.1") ||
+            origin.startsWith("https://localhost")
+        ) {
+            origin
+        } else null
+    }
+
+    private fun sendCorsPreflight(output: OutputStream, origin: String?) {
+        val allowedOrigin = getValidatedCorsOrigin(origin)
+        val header = buildString {
+            append("HTTP/1.1 204 No Content\r\n")
+            if (allowedOrigin != null) {
+                append("Access-Control-Allow-Origin: $allowedOrigin\r\n")
+                append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
+                append("Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key\r\n")
+            }
+            append("Connection: close\r\n\r\n")
+        }
+        output.write(header.toByteArray(StandardCharsets.UTF_8))
+        output.flush()
+    }
+
+    private fun sendStreamHeaders(output: OutputStream, contentType: String, origin: String?) {
+        val allowedOrigin = getValidatedCorsOrigin(origin)
         val header = buildString {
             append("HTTP/1.1 200 OK\r\n")
             append("Content-Type: $contentType; charset=utf-8\r\n")
             append("Transfer-Encoding: chunked\r\n")
             append("Connection: keep-alive\r\n")
-            append("Access-Control-Allow-Origin: *\r\n")
-            append("Access-Control-Allow-Methods: GET, POST, OPTIONS, HEAD\r\n")
-            append("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept\r\n")
+            if (allowedOrigin != null) {
+                append("Access-Control-Allow-Origin: $allowedOrigin\r\n")
+                append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
+                append("Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key\r\n")
+            }
             append("\r\n")
         }
         output.write(header.toByteArray(StandardCharsets.UTF_8))
@@ -649,17 +737,21 @@ class OllamaApiServer(
         statusCode: Int,
         statusText: String,
         contentType: String,
-        content: String
+        content: String,
+        origin: String?
     ) {
         val contentBytes = content.toByteArray(StandardCharsets.UTF_8)
+        val allowedOrigin = getValidatedCorsOrigin(origin)
         val header = buildString {
             append("HTTP/1.1 $statusCode $statusText\r\n")
             append("Content-Type: $contentType; charset=utf-8\r\n")
             append("Content-Length: ${contentBytes.size}\r\n")
             append("Connection: close\r\n")
-            append("Access-Control-Allow-Origin: *\r\n")
-            append("Access-Control-Allow-Methods: GET, POST, OPTIONS, HEAD\r\n")
-            append("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept\r\n")
+            if (allowedOrigin != null) {
+                append("Access-Control-Allow-Origin: $allowedOrigin\r\n")
+                append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
+                append("Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key\r\n")
+            }
             append("\r\n")
         }
 

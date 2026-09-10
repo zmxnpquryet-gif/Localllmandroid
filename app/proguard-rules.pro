@@ -1,21 +1,37 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ProGuard / R8 rules for LocalLLM Android
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Keep JNI native methods across all classes
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Preserve line numbers and source files for meaningful crash stack traces
+-keepattributes SourceFile,LineNumberTable
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Keep native inference engine wrappers
+-keep class org.nehuatl.llamacpp.** { *; }
+-dontwarn org.nehuatl.llamacpp.**
+
+-keep class com.google.ai.edge.litertlm.** { *; }
+-dontwarn com.google.ai.edge.litertlm.**
+
+# Keep data models used for Room and JSON serialization
+-keep class com.example.model.** { *; }
+-keep class com.example.data.local.** { *; }
+-keep class com.example.data.crypto.** { *; }
+
+# Keep Room generated implementations
+-keep class * extends androidx.room.RoomDatabase
+-dontwarn androidx.room.paging.**
+
+# Keep Moshi JSON adapters
+-keepattributes *JavascriptInterface*
+-keepclassmembers class * {
+    @com.squareup.moshi.Json <fields>;
+}
+
+# OkHttp rules
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn javax.annotation.**

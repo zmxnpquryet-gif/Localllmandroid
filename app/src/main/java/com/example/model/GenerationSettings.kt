@@ -13,6 +13,10 @@ data class GenerationSettings(
     val reasoningEffort: Float = 0.5f, // 0.2 (Low), 0.5 (Medium), 0.8 (High), 1.0 (Max)
     val showPerformanceMetrics: Boolean = true, // Display TPS and PP speed
     val enableIndexingAcceleration: Boolean = true, // KV-cache / Prompt cache
+    val enableGpuAcceleration: Boolean = true, // Hardware GPU/NPU acceleration
+    val gpuLayers: Int = 99, // Offloaded GPU layers for llama.cpp (0 = CPU only, 99 = full offload)
+    val apiServerBindAddress: String = "127.0.0.1", // "127.0.0.1" (secure local) or "0.0.0.0" (LAN)
+    val apiServerRequireAuth: Boolean = true, // Require Bearer API key for OllamaApiServer
     val mcpServerUrl: String = "https://mcp.weather.dev/sse",
     val isMcpEnabled: Boolean = false,
     val darkModePreference: String = "dark", // "system", "dark", "light"

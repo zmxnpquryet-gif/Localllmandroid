@@ -100,10 +100,10 @@ class ModelDownloader {
     }
 
     private val dispatcher = Dispatcher().apply {
-        maxRequests = 64
-        maxRequestsPerHost = 32
+        maxRequests = 16
+        maxRequestsPerHost = 8
     }
-    private val connectionPool = ConnectionPool(16, 5, TimeUnit.MINUTES)
+    private val connectionPool = ConnectionPool(8, 3, TimeUnit.MINUTES)
 
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .dispatcher(dispatcher)
