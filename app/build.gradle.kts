@@ -6,15 +6,15 @@ plugins {
 }
 
 android {
-  namespace = "com.example"
+  namespace = "com.localllm.android"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
     applicationId = "com.localllm.android"
     minSdk = 24
     targetSdk = 36
-    versionCode = 13
-    versionName = "1.3.0"
+    versionCode = 14
+    versionName = "1.3.1"
 
     ndk {
       abiFilters.addAll(listOf("arm64-v8a", "x86_64"))

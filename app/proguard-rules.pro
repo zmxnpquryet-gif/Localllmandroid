@@ -17,9 +17,9 @@
 -dontwarn com.google.ai.edge.litertlm.**
 
 # Keep data models used for Room and JSON serialization
--keep class com.example.model.** { *; }
--keep class com.example.data.local.** { *; }
--keep class com.example.data.crypto.** { *; }
+-keep class com.localllm.android.model.** { *; }
+-keep class com.localllm.android.data.local.** { *; }
+-keep class com.localllm.android.data.crypto.** { *; }
 
 # Keep Room generated implementations
 -keep class * extends androidx.room.RoomDatabase

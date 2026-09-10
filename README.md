@@ -43,7 +43,7 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 1. **Android Keystore 기반 AES-256-GCM 암호화 (`ChatCrypto`)**
    - 하드코딩된 마스터 키를 배제하고 기기별 하드웨어 보안 모듈(Secure Element/TEE)과 연동된 `AndroidKeyStore`에서 256비트 AES 키를 생성·보관합니다.
    - 인증 암호화(AEAD) 방식을 적용하여 데이터 변조를 원천 차단합니다.
-   - 암호화 또는 복호화 실패 시 평문(Base64)으로 폴백하지 않고 명시적인 `SecurityException`을 발생시켜 안전하지 않은 저장을 차단합니다.
+   - 실기기 런타임에서 하드웨어 Keystore 실패 시 하드코딩 키로의 조용한 폴백(Silent Downgrade)을 전면 차단하고 `SecurityException`을 발생시킵니다 (구버전 레거시 키는 과거 대화 복호화 읽기 전용으로만 안전하게 제한).
 
 2. **보안 강화된 API 서버 (`OllamaApiServer`)**
    - 포트 `11434`를 통해 Ollama 및 OpenAI 호환 API를 제공합니다.
@@ -55,10 +55,15 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 
 ## ⚡ 주요 성능 및 신뢰성 기능
 
-- **토크나이저 기반 속도 측정**: 임의의 글자 수 추정치(`length/3`) 대신 네이티브 토크나이저의 실제 토큰 수를 기반으로 정확한 `promptSpeed`(초당 프롬프트 처리 토큰 수) 및 `tps`(생성 속도)를 산출합니다.
+- **이원화 런타임 실측 지표 산출**:
+  - **llama.cpp(GGUF)**: `llamaCtx.tokenize()` 네이티브 토큰화 호출을 통해 실제 토큰 수 기반의 `promptSpeed`(초당 처리 토큰 수) 및 `tps`(생성 속도)를 측정합니다.
+  - **Google LiteRT-LM**: C++ 코어의 `conv.getBenchmarkInfo()` 네이티브 지표(`lastPrefillTokensPerSecond`, `lastDecodeTokensPerSecond`, `lastPrefillTokenCount`, `lastDecodeTokenCount`)를 직접 연동하여 오차 없는 실시간 성능을 표기합니다.
+- **사전 OOM 진단 및 보호 가드 (`checkMemoryDiagnostics`)**: 모델 로딩 전 `ActivityManager.MemoryInfo`를 통해 가용 RAM과 모델 파일 크기를 대조하며, 기기 메모리가 극도로 고갈된 환경에서 네이티브 프로세스 강제 종료(SIGSEGV)를 예방하기 위해 조기 차단 및 명확한 안내를 제공합니다.
+- **타입 안전한 전역 네비게이션 (`AppScreen`)**: 모든 UI 화면 컴포넌트(`ChatScreen`, `ModelManagerScreen`, `SettingsScreen` 등)의 화면 전환 호출부까지 `AppScreen` enum으로 완전 마이그레이션하여 라우팅 오타 및 런타임 결함을 원천 차단했습니다.
 - **스트리밍 추론 상태머신 (`ReasoningStreamParser`)**: DeepSeek-R1 등 추론 모델의 `<think>`, `</think>` 태그가 토큰 스트리밍 단위로 쪼개져 수신되는 경우에도 버퍼 상태머신을 통해 안정적으로 분리 처리합니다.
 - **모바일 친화적 다운로더**: 과도한 동시 소켓 연결을 제한하여 배터리와 네트워크를 보호하며, 이어받기와 무결성 검증을 지원합니다.
 - **R8 / Minify 최적화**: 릴리즈 빌드에 `isMinifyEnabled = true`가 활성화되어 있으며, JNI 및 리플렉션 의존성을 제거하여 크래시 없이 컴팩트한 바이너리를 생성합니다.
+- **일관된 프로덕션 패키지**: `applicationId`, 빌드 `namespace`, 소스 코드 패키지 구조 모두 `com.localllm.android`로 일관성 있게 정비되었습니다.
 
 ---
 
