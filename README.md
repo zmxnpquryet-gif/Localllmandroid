@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/actions/workflows/android.yml"><img src="https://github.com/zmxnpquryet-gif/Localllmandroid/actions/workflows/android.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License" /></a>
   <img src="https://img.shields.io/badge/Kotlin-2.0-purple.svg" alt="Kotlin" />
   <img src="https://img.shields.io/badge/Platform-Android%2024%2B-green.svg" alt="Platform" />
