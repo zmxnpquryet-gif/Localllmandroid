@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Local LLM Android - Offline on-device AI chat</title>
+<meta name="description" content="Privacy-first, fully offline on-device LLM chat and server for Android. Powered by llama.cpp (GGUF) and Google LiteRT-LM. No cloud, no telemetry.">
+<style>
+  :root{
+    --bg:#0b0b14; --bg2:#12121f; --card:#161626; --border:#262640;
+    --text:#e8e8f4; --muted:#9a9ab8; --accent:#8b5cf6; --accent2:#a78bfa;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,'Segoe UI',Roboto,'Noto Sans KR',sans-serif;line-height:1.6}
+  a{color:var(--accent2);text-decoration:none}
+  .container{max-width:1080px;margin:0 auto;padding:0 24px}
+  nav{display:flex;justify-content:space-between;align-items:center;padding:20px 0}
+  nav .logo{font-weight:700;font-size:1.1rem}
+  nav .links a{margin-left:20px;color:var(--muted);font-size:.95rem}
+  nav .links a:hover{color:var(--text)}
+  .hero{text-align:center;padding:72px 0 48px}
+  .hero h1{font-size:2.8rem;font-weight:800;letter-spacing:-.02em}
+  .hero h1 span{background:linear-gradient(90deg,var(--accent),#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p{max-width:640px;margin:20px auto 0;color:var(--muted);font-size:1.15rem}
+  .badges{margin-top:22px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+  .badge{background:var(--card);border:1px solid var(--border);border-radius:999px;padding:4px 14px;font-size:.82rem;color:var(--muted)}
+  .cta{margin-top:34px;display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+  .btn{display:inline-block;padding:13px 28px;border-radius:12px;font-weight:600;font-size:1rem;transition:transform .15s}
+  .btn:hover{transform:translateY(-2px)}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-ghost{background:var(--card);border:1px solid var(--border);color:var(--text)}
+  .shots{padding:30px 0 60px}
+  .shots-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}
+  .shots-grid img{width:100%;border-radius:16px;border:1px solid var(--border)}
+  section{padding:64px 0}
+  section h2{font-size:1.9rem;font-weight:700;margin-bottom:10px}
+  section .sub{color:var(--muted);margin-bottom:36px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px}
+  .card h3{font-size:1.05rem;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:.93rem}
+  .card .icon{font-size:1.5rem;margin-bottom:10px}
+  .engines{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:720px){.engines{grid-template-columns:1fr}.hero h1{font-size:2rem}}
+  .engine{background:linear-gradient(160deg,#1a1430,#12121f);border:1px solid var(--border);border-radius:16px;padding:28px}
+  .engine h3{font-size:1.2rem;margin-bottom:12px}
+  .engine ul{list-style:none;color:var(--muted);font-size:.95rem}
+  .engine li{padding:5px 0}
+  .engine li::before{content:"\2022";color:var(--accent);font-weight:700;margin-right:10px}
+  .steps{counter-reset:step;max-width:720px;margin:0 auto}
+  .step{display:flex;gap:18px;padding:14px 0;color:var(--muted)}
+  .step::before{counter-increment:step;content:counter(step);flex:0 0 34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .step b{color:var(--text)}
+  pre{background:#0d0d18;border:1px solid var(--border);border-radius:12px;padding:16px 20px;overflow-x:auto;font-size:.88rem;color:#c9c9e8;margin-top:16px}
+  footer{border-top:1px solid var(--border);padding:36px 0;color:var(--muted);font-size:.9rem;text-align:center}
+</style>
+</head>
+<body>
+<div class="container">
+  <nav>
+    <div class="logo">Local LLM Android</div>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#build">Build</a>
+      <a href="https://github.com/zmxnpquryet-gif/Localllmandroid">GitHub</a>
+    </div>
+  </nav>
+
+  <div class="hero">
+    <h1>Your AI. <span>On your phone.</span> Offline.</h1>
+    <p>A privacy-first, fully offline on-device LLM chat and server for Android.
+       Run state-of-the-art models directly on your CPU, GPU and NPU - no cloud, no API keys, no telemetry.</p>
+    <div class="badges">
+      <span class="badge">llama.cpp + LiteRT-LM</span>
+      <span class="badge">GGUF compatible</span>
+      <span class="badge">Ollama / OpenAI API</span>
+      <span class="badge">100% offline</span>
+      <span class="badge">Apache-2.0</span>
+    </div>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/zmxnpquryet-gif/Localllmandroid/releases/latest">Download APK</a>
+      <a class="btn btn-ghost" href="https://github.com/zmxnpquryet-gif/Localllmandroid">View source</a>
+    </div>
+  </div>
+
+  <div class="shots">
+    <div class="shots-grid">
+      <img src="screenshots/chat_screen.png" alt="On-device chat with live metrics">
+      <img src="screenshots/model_manager.png" alt="Model hub and download manager">
+      <img src="screenshots/api_server.png" alt="Ollama / OpenAI compatible API server">
+      <img src="screenshots/voice_mode.png" alt="Hands-free voice conversation">
+    </div>
+  </div>
+
+  <section id="features">
+    <h2>Why it's different</h2>
+    <p class="sub">Most "local LLM" apps give you one engine. Local LLM Android runs two, behind one interface.</p>
+    <div class="engines">
+      <div class="engine">
+        <h3>llama.cpp runtime</h3>
+        <ul>
+          <li>Any GGUF model from Hugging Face (Q4_K_M, Q8_0...)</li>
+          <li>Qwen, Llama 3, DeepSeek-R1 and more</li>
+          <li>CPU multi-threading + GPU layer offload</li>
+          <li>Reasoning (think tags) and multimodal support</li>
+        </ul>
+      </div>
+      <div class="engine">
+        <h3>Google LiteRT-LM runtime</h3>
+        <ul>
+          <li>Native NPU / GPU acceleration (OpenCL, Vulkan)</li>
+          <li>Gemma 2 / 3 and mobile-optimized binaries</li>
+          <li>Low power draw, tuned for Snapdragon / Tensor / MediaTek</li>
+          <li>Real benchmark metrics from the native core</li>
+        </ul>
+      </div>
+    </div>
+    <div class="grid" style="margin-top:18px">
+      <div class="card"><div class="icon">🔒</div><h3>Hardware-backed encryption</h3><p>Chats are AES-256-GCM encrypted with keys generated in the Android Keystore (TEE / Secure Element). No silent fallbacks.</p></div>
+      <div class="card"><div class="icon">🌐</div><h3>Ollama / OpenAI-compatible server</h3><p>Port 11434 server on-device. Loopback-only by default, optional LAN binding with bearer-token auth. Drop-in for your existing tools.</p></div>
+      <div class="card"><div class="icon">📊</div><h3>Real-time benchmarking</h3><p>Token-level prompt speed and generation speed (tokens/s) measured via native tokenizers, shown on every message.</p></div>
+      <div class="card"><div class="icon">🎙️</div><h3>Voice mode</h3><p>Hands-free loop: on-device speech-to-text, LLM generation, text-to-speech. Animated voice orb, zero cloud round-trips.</p></div>
+      <div class="card"><div class="icon">🧠</div><h3>Reasoning-aware streaming</h3><p>DeepSeek-R1 style think tags are parsed reliably even when split across streaming chunks.</p></div>
+      <div class="card"><div class="icon">🛡️</div><h3>OOM protection</h3><p>Available RAM is checked before model load to prevent native crashes. Downloads pause/resume with integrity checks.</p></div>
+    </div>
+  </section>
+
+  <section id="build">
+    <h2>Build from source</h2>
+    <p class="sub">Apache-2.0 licensed. Clone, build, ship.</p>
+    <div class="steps">
+      <div class="step"><div><b>Install</b> Android Studio Ladybug+ with JDK 17 (SDK 36, min SDK 24)</div></div>
+      <div class="step"><div><b>Clone</b> the repository and open it in Android Studio</div></div>
+      <div class="step"><div><b>Run</b> on an arm64-v8a or x86_64 device or emulator</div></div>
+      <div class="step"><div><b>Download</b> a GGUF or LiteRT model in the built-in model hub and start chatting</div></div>
+    </div>
+    <pre>git clone https://github.com/zmxnpquryet-gif/Localllmandroid.git
+./gradlew assembleDebug      # build
+./gradlew testDebugUnitTest  # test</pre>
+  </section>
+
+  <footer>
+    <div>Local LLM Android - Apache-2.0 - built for people who want AI that stays on their device.</div>
+    <div style="margin-top:8px"><a href="https://github.com/zmxnpquryet-gif/Localllmandroid">GitHub</a> · <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/releases">Releases</a> · <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/issues">Issues</a></div>
+  </footer>
+</div>
+</body>
+</html>
