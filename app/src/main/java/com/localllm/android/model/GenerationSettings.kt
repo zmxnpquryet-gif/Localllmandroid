@@ -1,4 +1,4 @@
-﻿package com.localllm.android.model
+package com.localllm.android.model
 
 data class GenerationSettings(
     val runtime: ModelRuntimeType = ModelRuntimeType.LLAMA_CPP,
@@ -23,6 +23,9 @@ data class GenerationSettings(
     val themeColorName: String = "artistic", // "artistic", "chatgpt", "cyber", "obsidian", "amber", "frost"
     val hfToken: String = "" // Optional Hugging Face Access Token for gated/private models
 ) {
+    val isApiExternalAccessEnabled: Boolean
+        get() = apiServerBindAddress == "0.0.0.0"
+
     val reasoningEffortLabel: String
         get() = when {
             reasoningEffort <= 0.25f -> "낮음 (Low)"

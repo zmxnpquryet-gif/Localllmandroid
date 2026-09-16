@@ -1,4 +1,4 @@
-﻿package com.localllm.android.ui
+package com.localllm.android.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -77,6 +77,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             enableMtp = settingsPrefs.getBoolean("enable_mtp", true),
             enableIndexingAcceleration = settingsPrefs.getBoolean("enable_indexing", true),
             showPerformanceMetrics = settingsPrefs.getBoolean("show_metrics", true),
+            apiServerBindAddress = settingsPrefs.getString("api_server_bind_address", "127.0.0.1") ?: "127.0.0.1",
+            apiServerRequireAuth = settingsPrefs.getBoolean("api_server_require_auth", true),
             mcpServerUrl = settingsPrefs.getString("mcp_server_url", "") ?: "",
             isMcpEnabled = settingsPrefs.getBoolean("is_mcp_enabled", false)
         )
@@ -384,6 +386,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putBoolean("enable_mtp", newSettings.enableMtp)
             putBoolean("enable_indexing", newSettings.enableIndexingAcceleration)
             putBoolean("show_metrics", newSettings.showPerformanceMetrics)
+            putString("api_server_bind_address", newSettings.apiServerBindAddress)
+            putBoolean("api_server_require_auth", newSettings.apiServerRequireAuth)
             putString("mcp_server_url", newSettings.mcpServerUrl)
             putBoolean("is_mcp_enabled", newSettings.isMcpEnabled)
             apply()
@@ -1008,6 +1012,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _apiServerApiKey.value = apiServer?.currentApiKey ?: ""
         refreshLocalIp()
 
+        apiServer?.onRequestProcessed = { count ->
+            _apiRequestCount.value = count
+        }
+
         apiServer?.start { isRunning, msg ->
             _isApiModeEnabled.value = isRunning
             _apiServerStatusMessage.value = msg
@@ -1028,6 +1036,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _apiServerStatusMessage.value = msg
             _engineStatusMessage.value = "API 서버가 중지되었습니다."
         }
+    }
+
+    fun setApiServerExternalAccess(enabled: Boolean) {
+        val bindAddr = if (enabled) "0.0.0.0" else "127.0.0.1"
+        val updated = _settings.value.copy(apiServerBindAddress = bindAddr)
+        _settings.value = updated
+        settingsPrefs.edit().putString("api_server_bind_address", bindAddr).apply()
+
+        if (_isApiModeEnabled.value) {
+            restartApiServer()
+        }
+    }
+
+    fun restartApiServer() {
+        stopApiServer()
+        startApiServer()
     }
 
     fun refreshLocalIp() {

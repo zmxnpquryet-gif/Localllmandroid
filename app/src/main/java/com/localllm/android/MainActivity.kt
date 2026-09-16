@@ -1,7 +1,8 @@
-﻿package com.localllm.android
+package com.localllm.android
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -31,6 +32,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by viewModel.settings.collectAsState()
             val currentScreen by viewModel.currentScreen.collectAsState()
+
+            BackHandler(enabled = currentScreen != AppScreen.CHAT) {
+                viewModel.navigateTo(AppScreen.CHAT)
+            }
 
             LocalLlmTheme(
                 darkModePreference = settings.darkModePreference,

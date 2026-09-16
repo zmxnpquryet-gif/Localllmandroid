@@ -1,4 +1,4 @@
-﻿package com.localllm.android.ui.api
+package com.localllm.android.ui.api
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -68,6 +68,7 @@ fun ApiServerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val settings by viewModel.settings.collectAsState()
     val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsState()
     val apiServerStatusMessage by viewModel.apiServerStatusMessage.collectAsState()
     val apiPort by viewModel.apiServerPort.collectAsState()
@@ -78,6 +79,7 @@ fun ApiServerScreen(
 
     val baseUrl = "http://$localIpAddress:$apiPort"
     val loopbackUrl = "http://127.0.0.1:$apiPort"
+    val effectiveUrl = if (settings.isApiExternalAccessEnabled) baseUrl else loopbackUrl
 
     Scaffold(
         topBar = {
@@ -196,7 +198,84 @@ fun ApiServerScreen(
                 }
             }
 
-            // 2. Server Status & Network Address Card
+            // 2. External Network Access (LAN) Toggle Card
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (settings.isApiExternalAccessEnabled)
+                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+                    else
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (settings.isApiExternalAccessEnabled) MaterialTheme.colorScheme.secondary
+                                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lan,
+                                    contentDescription = null,
+                                    tint = if (settings.isApiExternalAccessEnabled) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = "외부 네트워크(LAN) 접근 허용",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (settings.isApiExternalAccessEnabled)
+                                        "외부 접속 가능 (0.0.0.0 바인딩)"
+                                    else
+                                        "보안 격리 모드 (127.0.0.1 로컬 전용)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (settings.isApiExternalAccessEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = settings.isApiExternalAccessEnabled,
+                            onCheckedChange = { viewModel.setApiServerExternalAccess(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.secondary
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = if (settings.isApiExternalAccessEnabled)
+                            "동일한 Wi-Fi 또는 로컬 네트워크(LAN)에 연결된 다른 PC나 기기에서 이 기기의 IP($localIpAddress:$apiPort)로 API를 직접 호출할 수 있습니다."
+                        else
+                            "보안을 위해 외부 기기의 API 접근이 차단되어 있습니다. 이 기기 내부(127.0.0.1)의 앱 및 프로세스에서만 접속할 수 있습니다.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // 3. Server Status & Network Address Card
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
@@ -213,6 +292,8 @@ fun ApiServerScreen(
                     AddressRow(
                         label = "기기 내 로컬 접속 (Loopback)",
                         url = loopbackUrl,
+                        isEnabled = true,
+                        statusBadge = "항상 접근 가능",
                         onCopy = { copyToClipboard(context, loopbackUrl, "루프백 주소가 복사되었습니다.") }
                     )
 
@@ -220,8 +301,16 @@ fun ApiServerScreen(
 
                     AddressRow(
                         label = "같은 Wi-Fi / 로컬 네트워크 접속",
-                        url = baseUrl,
-                        onCopy = { copyToClipboard(context, baseUrl, "네트워크 주소가 복사되었습니다.") }
+                        url = if (settings.isApiExternalAccessEnabled) baseUrl else "$baseUrl (외부 접근 비활성화됨)",
+                        isEnabled = settings.isApiExternalAccessEnabled,
+                        statusBadge = if (settings.isApiExternalAccessEnabled) "외부 접속 허용됨" else "외부 접근 차단됨",
+                        onCopy = {
+                            if (settings.isApiExternalAccessEnabled) {
+                                copyToClipboard(context, baseUrl, "네트워크 주소가 복사되었습니다.")
+                            } else {
+                                Toast.makeText(context, "외부 접근이 꺼져 있습니다. 위의 '외부 네트워크(LAN) 접근 허용' 스위치를 켜주세요.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -229,6 +318,7 @@ fun ApiServerScreen(
                     AddressRow(
                         label = "보안 API 인증 키 (Bearer Token)",
                         url = apiKey,
+                        isEnabled = true,
                         onCopy = { copyToClipboard(context, apiKey, "API 키가 복사되었습니다.") }
                     )
 
@@ -311,7 +401,7 @@ fun ApiServerScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
 
-                        val curlCmd = """curl -X POST http://127.0.0.1:11434/api/generate \
+                        val curlCmd = """curl -X POST $effectiveUrl/api/generate \
   -H "Authorization: Bearer $apiKey" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "안녕하세요", "stream": false}'"""
@@ -338,7 +428,7 @@ fun ApiServerScreen(
                             .padding(12.dp)
                     ) {
                         Text(
-                            text = "curl -X POST $baseUrl/api/generate \\\n  -H \"Authorization: Bearer $apiKey\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"prompt\": \"안녕하세요\", \"stream\": false}'",
+                            text = "curl -X POST $effectiveUrl/api/generate \\\n  -H \"Authorization: Bearer $apiKey\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"prompt\": \"안녕하세요\", \"stream\": false}'",
                             fontSize = 11.sp,
                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurface
@@ -354,20 +444,38 @@ fun ApiServerScreen(
 private fun AddressRow(
     label: String,
     url: String,
+    isEnabled: Boolean = true,
+    statusBadge: String? = null,
     onCopy: () -> Unit
 ) {
     Column {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (statusBadge != null) {
+                Text(
+                    text = statusBadge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(4.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surface)
+                .background(
+                    if (isEnabled) MaterialTheme.colorScheme.surface
+                    else MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                )
                 .clickable { onCopy() }
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -377,12 +485,12 @@ private fun AddressRow(
                 text = url,
                 fontSize = 12.sp,
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.primary
+                color = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
             Icon(
                 imageVector = Icons.Default.ContentCopy,
                 contentDescription = "복사",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (isEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(16.dp)
             )
         }

@@ -1,4 +1,4 @@
-﻿package com.localllm.android.ui.settings
+package com.localllm.android.ui.settings
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -506,7 +506,10 @@ fun SettingsScreen(
                             color = if (isApiModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = if (isApiModeEnabled) "http://$localIpAddress:$apiPort" else "포트 11434 수신 대기",
+                            text = if (isApiModeEnabled) {
+                                if (settings.isApiExternalAccessEnabled) "http://$localIpAddress:$apiPort (외부 허용)"
+                                else "http://127.0.0.1:$apiPort (로컬 전용)"
+                            } else "포트 11434 수신 대기",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -515,6 +518,30 @@ fun SettingsScreen(
                     androidx.compose.material3.Switch(
                         checked = isApiModeEnabled,
                         onCheckedChange = { viewModel.setApiModeEnabled(it) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("외부 네트워크(LAN) 접근 허용", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = if (settings.isApiExternalAccessEnabled)
+                                "전체 인터페이스(0.0.0.0) 바인딩 활성화"
+                            else
+                                "기기 내부 루프백(127.0.0.1) 격리",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = settings.isApiExternalAccessEnabled,
+                        onCheckedChange = { viewModel.setApiServerExternalAccess(it) }
                     )
                 }
 

@@ -1,4 +1,4 @@
-﻿package com.localllm.android.server
+package com.localllm.android.server
 
 import android.content.Context
 import android.util.Log
@@ -15,6 +15,7 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
@@ -70,6 +71,7 @@ class OllamaApiServer(
         private set
     var lastEndpoint: String? = null
         private set
+    var onRequestProcessed: ((Int) -> Unit)? = null
 
     fun isServerRunning(): Boolean = isRunning
 
@@ -91,7 +93,10 @@ class OllamaApiServer(
             boundHost = if (settings.apiServerBindAddress.isNotBlank()) settings.apiServerBindAddress else "127.0.0.1"
             val bindAddress = InetAddress.getByName(boundHost)
 
-            serverSocket = ServerSocket(DEFAULT_PORT, 50, bindAddress)
+            serverSocket = ServerSocket().apply {
+                reuseAddress = true
+                bind(InetSocketAddress(bindAddress, DEFAULT_PORT), 50)
+            }
             isRunning = true
 
             val hostLabel = if (boundHost == "127.0.0.1") "로컬 루프백(127.0.0.1)" else "전체 인터페이스($boundHost)"
@@ -147,6 +152,7 @@ class OllamaApiServer(
             lastClientIp = socket.inetAddress?.hostAddress
             lastEndpoint = "$method $uri"
             requestCount++
+            onRequestProcessed?.invoke(requestCount)
 
             // Read HTTP headers
             var contentLength = 0
