@@ -1,12 +1,39 @@
 # Local LLM Android
 
-완전 오프라인 환경에서 동작하는 고성능 안드로이드 온디바이스 LLM(대형 언어 모델) 애플리케이션입니다. 외부 클라우드나 API 통신 없이, 기기의 CPU, GPU, NPU 하드웨어를 직접 활용하여 안전하게 인공지능 모델을 구동합니다.
+<p align="center">
+  <img src="docs/screenshots/chat_screen.png" alt="Local LLM Android" width="45%" />
+  <img src="docs/screenshots/model_manager.png" alt="Model Manager" width="45%" />
+</p>
+
+<p align="center">
+  <strong>English</strong> | <a href="README.ko.md">한국어</a>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License" /></a>
+  <img src="https://img.shields.io/badge/Kotlin-2.0-purple.svg" alt="Kotlin" />
+  <img src="https://img.shields.io/badge/Platform-Android%2024%2B-green.svg" alt="Platform" />
+  <img src="https://img.shields.io/badge/Runtime-llama.cpp%20%7C%20LiteRT--LM-orange.svg" alt="Runtime" />
+  <img src="https://img.shields.io/badge/API-Ollama%20%7C%20OpenAI%20Port%2011434-blueviolet.svg" alt="API" />
+</p>
+
+**Local LLM Android** is a privacy-first, fully offline on-device Large Language Model (LLM) application and server for Android. Powered by a **hybrid dual-runtime architecture** combining **llama.cpp** and **Google LiteRT-LM**, it executes state-of-the-art AI models directly on your device's CPU, GPU, and NPU—without requiring internet connectivity or cloud servers.
 
 ---
 
-## 🏛️ 하이브리드 이원화 런타임 아키텍처 (Hybrid Runtime Architecture)
+## 📱 Screenshots
 
-Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Google LiteRT-LM** 두 가지 런타임을 모두 지원하는 하이브리드 엔진 아키텍처를 채택하고 있습니다.
+| On-Device Chat & Live Metrics | Model Hub & Download Manager |
+| :---: | :---: |
+| <img src="docs/screenshots/chat_screen.png" width="100%" /> | <img src="docs/screenshots/model_manager.png" width="100%" /> |
+| **Ollama / OpenAI API Server Mode** | **Hands-Free Voice Conversation** |
+| <img src="docs/screenshots/api_server.png" width="100%" /> | <img src="docs/screenshots/voice_mode.png" width="100%" /> |
+
+---
+
+## 🏛️ Dual-Runtime Hybrid Architecture
+
+Rather than being tied to a single engine, Local LLM Android integrates both **llama.cpp** and **Google LiteRT-LM** behind a unified inference abstraction.
 
 ```
                   ┌────────────────────────────────────────┐
@@ -19,69 +46,99 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
                                 │            │
                 ┌───────────────┘            └───────────────┐
                 ▼                                            ▼
-      [ llama.cpp 런타임 ]                          [ Google LiteRT-LM 런타임 ]
-   • GGUF 범용 모델 포맷 지원                     • 구글 모바일 최적화 바이너리
-   • Qwen, DeepSeek-R1, Llama 3 등               • Gemma-2, 모바일 NPU 가속 타깃
-   • CPU 멀티스레딩 & GPU 레이어 오프로딩          • GPU(OpenCL/Vulkan) & NPU 가속
-   • mmproj 비전타워 연동 (멀티모달)              • 저전력 / 고효율 모바일 추론
+      [ llama.cpp Runtime ]                        [ Google LiteRT-LM Runtime ]
+   • Universal GGUF format support               • Google mobile-optimized binaries
+   • Qwen, DeepSeek-R1, Llama 3, etc.            • Gemma-2, FunctionGemma mobile models
+   • CPU multi-threading & GPU layer offload     • Hardware GPU (OpenCL/Vulkan) & NPU delegates
+   • mmproj vision tower support (Multimodal)    • Ultra-low power mobile inference
 ```
 
-### 왜 두 엔진을 함께 사용하는가? (Dual-Runtime Rationale)
+### Why Dual Runtimes?
 
-1. **최대 모델 생태계 호환성 (llama.cpp GGUF)**
-   - 허깅페이스(Hugging Face)에 존재하는 수만 개의 오픈소스 커뮤니티 GGUF 양자화 모델(Q4_K_M, Q8_0 등)을 즉시 다운로드하여 실행할 수 있습니다.
-   - DeepSeek-R1 등의 최신 추론(Reasoning) 모델, Jinja 템플릿, 멀티모달 mmproj 비전 타워를 폭넓게 지원합니다.
+1. **Universal Model Compatibility (`llama.cpp` / GGUF)**
+   - Download and run tens of thousands of community quantized models (Q4_K_M, Q8_0, etc.) directly from Hugging Face.
+   - Comprehensive support for reasoning models (DeepSeek-R1), custom Jinja chat templates, and vision towers (`mmproj`).
 
-2. **안드로이드 네이티브 하드웨어 가속 (Google LiteRT-LM)**
-   - Google의 온디바이스 AI 런타임으로 모바일 SoC(Snapdragon, MediaTek, Tensor)의 GPU 및 NPU 델리게이트와 가장 긴밀하게 최적화되어 있습니다.
-   - 전력 소모와 발열을 최소화하면서 고효율 추론을 제공합니다.
-
----
-
-## 🔒 보안 아키텍처 (Security Design)
-
-1. **Android Keystore 기반 AES-256-GCM 암호화 (`ChatCrypto`)**
-   - 하드코딩된 마스터 키를 배제하고 기기별 하드웨어 보안 모듈(Secure Element/TEE)과 연동된 `AndroidKeyStore`에서 256비트 AES 키를 생성·보관합니다.
-   - 인증 암호화(AEAD) 방식을 적용하여 데이터 변조를 원천 차단합니다.
-   - 실기기 런타임에서 하드웨어 Keystore 실패 시 하드코딩 키로의 조용한 폴백(Silent Downgrade)을 전면 차단하고 `SecurityException`을 발생시킵니다 (구버전 레거시 키는 과거 대화 복호화 읽기 전용으로만 안전하게 제한).
-
-2. **보안 강화된 API 서버 (`OllamaApiServer`)**
-   - 포트 `11434`를 통해 Ollama 및 OpenAI 호환 API를 제공합니다.
-   - **바인드 주소**: 기본값으로 로컬 루프백(`127.0.0.1`)에만 바인딩되어 동일 Wi-Fi 망의 무단 접근을 방지합니다.
-   - **인증 토큰**: 서버 구동 시 무작위 고강도 API 키(`sk-local-...`)가 발급되며, 모든 요청에 `Authorization: Bearer <token>` 헤더를 필수로 요구합니다.
-   - **CORS 제한**: 브라우저 기반 무단 호출을 방지하기 위해 와일드카드(`*`) 헤더를 제거하고 로컬호스트 출처로 제한합니다.
+2. **Native Mobile Hardware Acceleration (`Google LiteRT-LM`)**
+   - Direct integration with Google's on-device AI runtime, deeply optimized for mobile SoCs (Snapdragon, MediaTek, Tensor, Exynos).
+   - High-throughput, thermal-efficient inference utilizing specialized NPU and GPU delegates.
 
 ---
 
-## ⚡ 주요 성능 및 신뢰성 기능
+## 🌐 On-Device Ollama / OpenAI API Server (Port 11434)
 
-- **이원화 런타임 실측 지표 산출**:
-  - **llama.cpp(GGUF)**: `llamaCtx.tokenize()` 네이티브 토큰화 호출을 통해 실제 토큰 수 기반의 `promptSpeed`(초당 처리 토큰 수) 및 `tps`(생성 속도)를 측정합니다.
-  - **Google LiteRT-LM**: C++ 코어의 `conv.getBenchmarkInfo()` 네이티브 지표(`lastPrefillTokensPerSecond`, `lastDecodeTokensPerSecond`, `lastPrefillTokenCount`, `lastDecodeTokenCount`)를 직접 연동하여 오차 없는 실시간 성능을 표기합니다.
-- **사전 OOM 진단 및 보호 가드 (`checkMemoryDiagnostics`)**: 모델 로딩 전 `ActivityManager.MemoryInfo`를 통해 가용 RAM과 모델 파일 크기를 대조하며, 기기 메모리가 극도로 고갈된 환경에서 네이티브 프로세스 강제 종료(SIGSEGV)를 예방하기 위해 조기 차단 및 명확한 안내를 제공합니다.
-- **타입 안전한 전역 네비게이션 (`AppScreen`)**: 모든 UI 화면 컴포넌트(`ChatScreen`, `ModelManagerScreen`, `SettingsScreen` 등)의 화면 전환 호출부까지 `AppScreen` enum으로 완전 마이그레이션하여 라우팅 오타 및 런타임 결함을 원천 차단했습니다.
-- **스트리밍 추론 상태머신 (`ReasoningStreamParser`)**: DeepSeek-R1 등 추론 모델의 `<think>`, `</think>` 태그가 토큰 스트리밍 단위로 쪼개져 수신되는 경우에도 버퍼 상태머신을 통해 안정적으로 분리 처리합니다.
-- **모바일 친화적 다운로더**: 과도한 동시 소켓 연결을 제한하여 배터리와 네트워크를 보호하며, 이어받기와 무결성 검증을 지원합니다.
-- **R8 / Minify 최적화**: 릴리즈 빌드에 `isMinifyEnabled = true`가 활성화되어 있으며, JNI 및 리플렉션 의존성을 제거하여 크래시 없이 컴팩트한 바이너리를 생성합니다.
-- **일관된 프로덕션 패키지**: `applicationId`, 빌드 `namespace`, 소스 코드 패키지 구조 모두 `com.localllm.android`로 일관성 있게 정비되었습니다.
+Turn your Android phone or tablet into an autonomous, on-device AI server accessible from desktop applications, IDEs (VS Code, Cursor, Continue), and other local network devices.
+
+- **Full Protocol Compatibility**:
+  - `GET /api/tags` - List installed on-device models
+  - `POST /api/generate` - Single-turn completion (Ollama spec)
+  - `POST /api/chat` - Multi-turn conversational completion (Ollama spec)
+  - `POST /v1/chat/completions` - OpenAI API compatible endpoint
+- **Flexible Network & Access Controls**:
+  - **Local Loopback (`127.0.0.1`) Isolation**: Secure default mode preventing unauthorized external access.
+  - **External Network (LAN) Toggle**: Instantly bind to `0.0.0.0` with live socket rebinding, enabling access from any computer or device on your local Wi-Fi / LAN network.
+  - **Bearer Token Authentication**: Enforces secure `sk-local-...` API keys to protect endpoints against unauthorized requests.
+- **cURL Usage**:
+  ```bash
+  curl -X POST http://<YOUR_DEVICE_IP>:11434/api/generate \
+    -H "Authorization: Bearer <API_KEY>" \
+    -H "Content-Type: application/json" \
+    -d '{"prompt": "Hello from my terminal!", "stream": false}'
+  ```
 
 ---
 
-## 🛠️ 빌드 및 테스트
+## 🔒 Enterprise-Grade Security & Privacy
 
-### 요구 사항
-- Android Studio Ladybug 이상 / JDK 17
-- Android SDK 36, Min SDK 24
-- NDK 지원 기기 (ARM64-v8a, x86_64)
+1. **Hardware-Backed AES-256-GCM Encryption (`ChatCrypto`)**
+   - Cryptographic keys are generated and stored in the hardware **Android KeyStore** (Secure Element / TEE).
+   - Authenticated Encryption (AEAD) ensures conversational data cannot be intercepted or tampered with.
+   - Strict prevention of silent downgrades to insecure hardcoded keys.
 
-### 명령어
+2. **100% Offline & Private**
+   - Zero telemetry, zero analytics, zero external API dependencies.
+   - Conversations and prompts remain strictly on your physical device in an encrypted Room SQLite database.
+
+---
+
+## ⚡ Key Highlights
+
+- **Real-Time Hardware Benchmarking**:
+  - Displays prompt prefill speed (`promptSpeed` tokens/sec), generation decode speed (`tps`), and active context token counts on every message.
+- **Interactive Voice Mode**:
+  - Hands-free conversational loop: On-device Speech-to-Text (STT) → LLM generation → Text-to-Speech (TTS) response.
+  - Visualized with an animated reactive Voice Orb.
+- **Streaming Reasoning State Machine (`ReasoningStreamParser`)**:
+  - Elegantly parses `<think>` ... `</think>` tags across token streaming chunks for reasoning models like DeepSeek-R1.
+- **Smart Out-of-Memory (OOM) Protection**:
+  - Inspects `ActivityManager.MemoryInfo` before model allocation to prevent native memory exhaustion crashes (`SIGSEGV`).
+- **Resilient Mobile Downloader**:
+  - Background foreground-service downloads with pause/resume support and integrity verification.
+
+---
+
+## 🛠️ Build & Installation
+
+### Prerequisites
+- Android Studio Ladybug (2024.2.1+) or newer
+- JDK 17
+- Android SDK 36 (Min SDK 24)
+- Target device with 64-bit ARM architecture (`arm64-v8a`) or `x86_64`
+
+### Gradle Commands
 ```bash
-# 디버그 컴파일
+# Compile Kotlin sources
 ./gradlew compileDebugKotlin
 
-# 로컬 유닛 테스트 실행
+# Run unit test suite
 ./gradlew testDebugUnitTest
 
-# 릴리즈 번들 / APK 빌드
+# Assemble Release APK
 ./gradlew assembleRelease
 ```
+
+---
+
+## 📄 License
+
+This project is licensed under the [Apache License 2.0](LICENSE).
