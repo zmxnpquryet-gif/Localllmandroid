@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a problem with the app
+labels: [ bug ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the details below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected to happen.
+      placeholder: Model download fails / app crashes when loading GGUF / ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Model loading (llama.cpp / GGUF)
+        - Model loading (LiteRT-LM)
+        - Model download / Model manager
+        - Chat / streaming output
+        - Voice mode
+        - API server (Ollama / OpenAI port 11434)
+        - UI / navigation
+        - Crash / ANR
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device model and Android version
+      placeholder: e.g. Galaxy S24, Android 15
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model used (if related)
+      placeholder: e.g. Qwen2.5-3B-Instruct Q4_K_M
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: If available, adb logcat output or error messages.
+      render: shell
