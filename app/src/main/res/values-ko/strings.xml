@@ -1,0 +1,139 @@
+<resources>
+    <!-- General & App -->
+    <string name="app_name">Local LLM</string>
+    <string name="app_tagline">로컬 실행 • 기기 내 저장</string>
+    <string name="confirm">확인</string>
+    <string name="cancel">취소</string>
+    <string name="close">닫기</string>
+    <string name="delete">삭제</string>
+    <string name="copy">복사</string>
+    <string name="copied">클립보드에 복사되었습니다.</string>
+    <string name="save">저장</string>
+    <string name="details">상세</string>
+    <string name="retry">재시도</string>
+
+    <!-- Navigation & Drawer -->
+    <string name="nav_chat">대화</string>
+    <string name="nav_models">모델 관리</string>
+    <string name="nav_settings">설정</string>
+    <string name="nav_api_mode">API 서버</string>
+    <string name="nav_voice_mode">음성 대화 모드</string>
+    <string name="nav_back">뒤로 가기</string>
+    <string name="new_chat">새로운 대화</string>
+    <string name="conversations">대화 목록</string>
+    <string name="clear_all_chats">대화 내역 전체 삭제</string>
+    <string name="clear_all_chats_confirm_title">대화 내역 전체 삭제</string>
+    <string name="clear_all_chats_confirm_desc">로컬 SQLite에 암호화 저장된 모든 대화 기록을 완전히 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</string>
+    <string name="chats_cleared">대화 기록이 삭제되었습니다.</string>
+    <string name="no_conversations">대화 기록이 없습니다</string>
+
+    <!-- Chat Screen -->
+    <string name="input_placeholder">메시지 입력...</string>
+    <string name="send">전송</string>
+    <string name="stop">중지</string>
+    <string name="model_loading">모델 로딩 중: %1$s</string>
+    <string name="model_loading_default">모델 로딩 중...</string>
+    <string name="model_loaded">모델 준비 완료</string>
+    <string name="no_model_selected">선택된 모델 없음</string>
+    <string name="no_model_downloaded">다운로드된 모델이 없습니다. 모델 관리자에서 모델을 먼저 다운로드해 주세요.</string>
+    <string name="prompt_suggestion_1">오늘 저녁 메뉴 추천해줘</string>
+    <string name="prompt_suggestion_2">주말에 읽을 만한 책 추천해줘</string>
+    <string name="prompt_suggestion_3">하루 일정 정리하는 방법 알려줘</string>
+    <string name="reasoning_thinking">사고 과정 (생각 중...)</string>
+    <string name="reasoning_finished">사고 과정 (완료)</string>
+    <string name="metrics_tps">TPS</string>
+    <string name="metrics_prefill">프롬프트 속도</string>
+    <string name="metrics_context">토큰</string>
+    <string name="engine_status">엔진 상태 정보</string>
+    <string name="engine_error_details">엔진 오류 상세 정보</string>
+    <string name="api_banner_running">보안 API 서버 동작 중 (포트 11434)</string>
+    <string name="attach_file">사진/파일 첨부</string>
+    <string name="voice_input">음성 입력</string>
+    <string name="stop_generation">생성 중지</string>
+
+    <!-- Model Manager -->
+    <string name="model_manager_title">모델 관리</string>
+    <string name="model_manager_subtitle">메인 모델, 비전 타워, 드래프터 관리</string>
+    <string name="tab_all">전체</string>
+    <string name="tab_downloaded">다운로드 완료</string>
+    <string name="tab_gguf">GGUF</string>
+    <string name="tab_litert">LiteRT</string>
+    <string name="import_device_model">기기 모델 가져오기</string>
+    <string name="add_custom_download_url">다운로드 링크 추가</string>
+    <string name="storage_usage">앱 모델 실제 사용 용량</string>
+    <string name="storage_available">기기 여유</string>
+    <string name="download">다운로드</string>
+    <string name="downloading">다운로드 중...</string>
+    <string name="download_paused">일시 중지됨</string>
+    <string name="run_model">실행</string>
+    <string name="active_model">사용 중</string>
+    <string name="delete_model">모델 삭제</string>
+    <string name="delete_model_confirm">기기 저장소에서 이 모델 파일을 삭제하시겠습니까?</string>
+
+    <!-- API Server Mode -->
+    <string name="api_mode_title">API 전용 모드</string>
+    <string name="api_mode_subtitle">포트 %1$d • Ollama / OpenAI 호환 엔드포인트</string>
+    <string name="api_server_running">API 모드 실행 중</string>
+    <string name="api_server_stopped">API 모드 비활성화</string>
+    <string name="api_server_waiting">포트 %1$d 에서 외부 요청 대기 중</string>
+    <string name="api_server_switch_hint">스위치를 켜서 API 서버를 구동하세요</string>
+    <string name="api_external_access_title">외부 네트워크(LAN) 접근 허용</string>
+    <string name="api_external_access_enabled">외부 접속 가능 (0.0.0.0 바인딩)</string>
+    <string name="api_external_access_disabled">보안 격리 모드 (127.0.0.1 로컬 전용)</string>
+    <string name="api_external_access_desc_on">동일한 Wi-Fi 또는 로컬 네트워크(LAN)에 연결된 다른 PC나 기기에서 이 기기의 IP(%1$s:%2$d)로 API를 직접 호출할 수 있습니다.</string>
+    <string name="api_external_access_desc_off">보안을 위해 외부 기기의 API 접근이 차단되어 있습니다. 이 기기 내부(127.0.0.1)의 앱 및 프로세스에서만 접속할 수 있습니다.</string>
+    <string name="api_address_info">접속 주소 정보</string>
+    <string name="api_loopback_label">기기 내 로컬 접속 (Loopback)</string>
+    <string name="api_lan_label">같은 Wi-Fi / 로컬 네트워크 접속</string>
+    <string name="api_key_label">보안 API 인증 키 (Bearer Token)</string>
+    <string name="api_status_always_available">항상 접근 가능</string>
+    <string name="api_status_allowed">외부 접속 허용됨</string>
+    <string name="api_status_blocked">외부 접근 차단됨</string>
+    <string name="api_connected_model">현재 연결 모델</string>
+    <string name="api_processed_requests">처리된 API 요청 수</string>
+    <string name="api_supported_endpoints">지원되는 API 규격 (포트 11434)</string>
+    <string name="api_curl_example">cURL 호출 예시 (Ollama 형식)</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">설정 및 커스텀 테마</string>
+    <string name="settings_language_title">다국어 설정 (Language)</string>
+    <string name="settings_language_desc">애플리케이션 표시 언어를 선택하세요.</string>
+    <string name="settings_language_system">시스템 기본값</string>
+    <string name="settings_language_en">English</string>
+    <string name="settings_language_ko">한국어</string>
+    <string name="settings_runtime_title">추론 백엔드 런타임</string>
+    <string name="settings_runtime_desc">추론 엔진 런타임을 선택하세요.</string>
+    <string name="settings_performance_title">인덱싱 및 성능 가속 옵션</string>
+    <string name="settings_mtp_title">MTP (Multi-Token Prediction) 자동 적용</string>
+    <string name="settings_mtp_desc">모델이 MTP를 지원할 때 스펙큘레이티브 2x 토큰 디코딩 가속</string>
+    <string name="settings_indexing_title">KV-Cache 및 프롬프트 인덱싱 가속</string>
+    <string name="settings_indexing_desc">Flash-Attention v2 및 프롬프트 캐시 최적화</string>
+    <string name="settings_metrics_title">실시간 TPS &amp; PP 속도 표시</string>
+    <string name="settings_metrics_desc">메시지 하단에 토큰 생성 속도 및 프롬프트 처리 지표 표시</string>
+    <string name="settings_params_title">세부 추론 파라미터</string>
+    <string name="settings_context_window">컨텍스트 창 크기 (Context Window)</string>
+    <string name="settings_temperature">온도 (Temperature)</string>
+    <string name="settings_top_p">Top-P</string>
+    <string name="settings_top_k">Top-K</string>
+    <string name="settings_system_prompt_title">기본 시스템 프롬프트</string>
+    <string name="settings_mcp_title">MCP (Model Context Protocol) 서버</string>
+    <string name="settings_theme_title">외관 및 커스텀 테마</string>
+    <string name="settings_theme_dark_mode">다크 모드 설정</string>
+    <string name="settings_theme_dark_system">시스템 설정</string>
+    <string name="settings_theme_dark_on">다크 모드</string>
+    <string name="settings_theme_dark_off">라이트 모드</string>
+    <string name="settings_storage_title">로컬 SQLite 암호화 저장소</string>
+    <string name="settings_storage_desc">모든 대화 기록 및 메타데이터는 AES-256-GCM 알고리즘으로 기기 내 안전하게 암호화되어 보관됩니다.</string>
+    <string name="settings_storage_delete_all">모든 암호화 대화 데이터 영구 삭제</string>
+
+    <!-- Voice Mode Screen -->
+    <string name="voice_mode_title">음성 대화 모드</string>
+    <string name="voice_state_idle">음성 대화 준비 완료</string>
+    <string name="voice_state_listening">음성을 듣고 있습니다...</string>
+    <string name="voice_state_processing">생각 중...</string>
+    <string name="voice_state_speaking">답변 중...</string>
+    <string name="voice_stop_dialogue">대화 중지</string>
+    <string name="voice_start_dialogue">음성 시작</string>
+    <string name="voice_permission_required">음성 대화 모드를 사용하려면 마이크 권한이 필요합니다.</string>
+    <string name="voice_grant_permission">권한 허용</string>
+</resources>

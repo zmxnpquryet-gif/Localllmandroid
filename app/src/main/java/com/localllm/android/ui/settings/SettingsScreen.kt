@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
@@ -38,8 +39,10 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import com.localllm.android.R
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -482,6 +485,36 @@ fun SettingsScreen(
                 }
             }
 
+            // 6.5 Language Selection
+            SettingsCard(
+                title = stringResource(R.string.settings_language_title),
+                icon = Icons.Default.Language
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_language_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val languages = listOf(
+                        "system" to stringResource(R.string.settings_language_system),
+                        "en" to stringResource(R.string.settings_language_en),
+                        "ko" to stringResource(R.string.settings_language_ko)
+                    )
+                    languages.forEach { (code, label) ->
+                        FilterChip(
+                            selected = settings.languagePreference == code,
+                            onClick = { viewModel.setLanguagePreference(code) },
+                            label = { Text(label) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
 
             // 7. API Dedicated Mode (Port 11434 Ollama / OpenAI Server)
             SettingsCard(

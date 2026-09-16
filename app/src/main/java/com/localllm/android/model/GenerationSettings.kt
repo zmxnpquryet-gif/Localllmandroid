@@ -21,6 +21,7 @@ data class GenerationSettings(
     val isMcpEnabled: Boolean = false,
     val darkModePreference: String = "dark", // "system", "dark", "light"
     val themeColorName: String = "artistic", // "artistic", "chatgpt", "cyber", "obsidian", "amber", "frost"
+    val languagePreference: String = "system", // "system", "en", "ko"
     val hfToken: String = "" // Optional Hugging Face Access Token for gated/private models
 ) {
     val isApiExternalAccessEnabled: Boolean

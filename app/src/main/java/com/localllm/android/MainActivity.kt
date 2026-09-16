@@ -1,5 +1,6 @@
 package com.localllm.android
 
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -9,9 +10,13 @@ import androidx.activity.viewModels
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
 import com.localllm.android.ui.api.ApiServerScreen
@@ -20,6 +25,7 @@ import com.localllm.android.ui.models.ModelManagerScreen
 import com.localllm.android.ui.settings.SettingsScreen
 import com.localllm.android.ui.theme.LocalLlmTheme
 import com.localllm.android.ui.voice.VoiceModeScreen
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
@@ -37,17 +43,38 @@ class MainActivity : ComponentActivity() {
                 viewModel.navigateTo(AppScreen.CHAT)
             }
 
-            LocalLlmTheme(
-                darkModePreference = settings.darkModePreference,
-                themeColorName = settings.themeColorName
+            val currentLocale = remember(settings.languagePreference) {
+                when (settings.languagePreference) {
+                    "ko" -> Locale.KOREAN
+                    "en" -> Locale.ENGLISH
+                    else -> Locale.getDefault()
+                }
+            }
+
+            val baseContext = LocalContext.current
+            val localizedContext = remember(currentLocale, baseContext) {
+                val config = Configuration(baseContext.resources.configuration).apply {
+                    setLocale(currentLocale)
+                }
+                baseContext.createConfigurationContext(config)
+            }
+
+            CompositionLocalProvider(
+                LocalContext provides localizedContext,
+                LocalConfiguration provides localizedContext.resources.configuration
             ) {
-                Crossfade(targetState = currentScreen, label = "screenTransition") { screen ->
-                    when (screen) {
-                        AppScreen.MODELS -> ModelManagerScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                        AppScreen.SETTINGS -> SettingsScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                        AppScreen.VOICE_MODE -> VoiceModeScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                        AppScreen.API_MODE -> ApiServerScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                        AppScreen.CHAT -> ChatScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                LocalLlmTheme(
+                    darkModePreference = settings.darkModePreference,
+                    themeColorName = settings.themeColorName
+                ) {
+                    Crossfade(targetState = currentScreen, label = "screenTransition") { screen ->
+                        when (screen) {
+                            AppScreen.MODELS -> ModelManagerScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                            AppScreen.SETTINGS -> SettingsScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                            AppScreen.VOICE_MODE -> VoiceModeScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                            AppScreen.API_MODE -> ApiServerScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                            AppScreen.CHAT -> ChatScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                        }
                     }
                 }
             }

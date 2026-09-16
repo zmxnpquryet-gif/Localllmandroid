@@ -1,4 +1,4 @@
-﻿package com.localllm.android.ui.chat
+package com.localllm.android.ui.chat
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,6 +41,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.res.stringResource
+import com.localllm.android.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -254,7 +256,7 @@ fun ChatInputBar(
                 onValueChange = onInputTextChanged,
                 placeholder = {
                     Text(
-                        text = if (activeModel == null) "모델을 먼저 다운로드하세요" else "메시지 입력...",
+                        text = if (activeModel == null) stringResource(R.string.no_model_downloaded) else stringResource(R.string.input_placeholder),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
@@ -287,7 +289,7 @@ fun ChatInputBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Stop,
-                        contentDescription = "중지",
+                        contentDescription = stringResource(R.string.stop),
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -304,7 +306,7 @@ fun ChatInputBar(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = "전송",
+                        contentDescription = stringResource(R.string.send),
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(20.dp)
                     )
@@ -317,7 +319,7 @@ fun ChatInputBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Mic,
-                        contentDescription = "음성 입력",
+                        contentDescription = stringResource(R.string.voice_input),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -329,7 +331,7 @@ fun ChatInputBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Headphones,
-                        contentDescription = "대화형 음성 모드",
+                        contentDescription = stringResource(R.string.nav_voice_mode),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }

@@ -79,6 +79,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showPerformanceMetrics = settingsPrefs.getBoolean("show_metrics", true),
             apiServerBindAddress = settingsPrefs.getString("api_server_bind_address", "127.0.0.1") ?: "127.0.0.1",
             apiServerRequireAuth = settingsPrefs.getBoolean("api_server_require_auth", true),
+            languagePreference = settingsPrefs.getString("language_preference", "system") ?: "system",
             mcpServerUrl = settingsPrefs.getString("mcp_server_url", "") ?: "",
             isMcpEnabled = settingsPrefs.getBoolean("is_mcp_enabled", false)
         )
@@ -388,6 +389,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putBoolean("show_metrics", newSettings.showPerformanceMetrics)
             putString("api_server_bind_address", newSettings.apiServerBindAddress)
             putBoolean("api_server_require_auth", newSettings.apiServerRequireAuth)
+            putString("language_preference", newSettings.languagePreference)
             putString("mcp_server_url", newSettings.mcpServerUrl)
             putBoolean("is_mcp_enabled", newSettings.isMcpEnabled)
             apply()
@@ -401,6 +403,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _engineStatusMessage.value = "설정 적용 오류: ${t.localizedMessage ?: t.message}"
             }
         }
+    }
+
+    fun setLanguagePreference(pref: String) {
+        val updated = _settings.value.copy(languagePreference = pref)
+        updateSettings(updated)
     }
 
     fun setReasoningEffort(effort: Float) {

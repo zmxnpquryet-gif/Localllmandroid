@@ -1,4 +1,4 @@
-﻿package com.localllm.android.ui.drawer
+package com.localllm.android.ui.drawer
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,6 +39,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.ui.res.stringResource
+import com.localllm.android.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -110,7 +112,7 @@ fun ChatDrawer(
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = "새로운 대화",
+                    text = stringResource(R.string.new_chat),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -296,18 +298,18 @@ fun ChatDrawer(
             ) {
                 Icon(
                     imageVector = Icons.Default.Storage,
-                    contentDescription = "모델 관리",
+                    contentDescription = stringResource(R.string.nav_models),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "모델 관리",
+                        text = stringResource(R.string.nav_models),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
-                        text = "모델 다운로드 및 구성",
+                        text = "GGUF / LiteRT LM",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -325,18 +327,18 @@ fun ChatDrawer(
             ) {
                 Icon(
                     imageVector = Icons.Default.Headphones,
-                    contentDescription = "대화형 음성 모드",
+                    contentDescription = stringResource(R.string.nav_voice_mode),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "대화형 음성 모드",
+                        text = stringResource(R.string.nav_voice_mode),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
-                        text = "실시간 음성 대화 (STT + TTS)",
+                        text = "STT + TTS",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -354,18 +356,18 @@ fun ChatDrawer(
             ) {
                 Icon(
                     imageVector = Icons.Default.Dns,
-                    contentDescription = "API 전용 모드",
+                    contentDescription = stringResource(R.string.nav_api_mode),
                     tint = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "API 전용 모드",
+                        text = stringResource(R.string.nav_api_mode),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
-                        text = "포트 11434 Ollama/OpenAI 서버",
+                        text = "Port 11434 Ollama/OpenAI",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -383,13 +385,13 @@ fun ChatDrawer(
             ) {
                 Icon(
                     imageVector = Icons.Default.Settings,
-                    contentDescription = "설정",
+                    contentDescription = stringResource(R.string.nav_settings),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = "설정 및 테마",
+                    text = stringResource(R.string.nav_settings),
                     style = MaterialTheme.typography.bodyMedium
                 )
             }

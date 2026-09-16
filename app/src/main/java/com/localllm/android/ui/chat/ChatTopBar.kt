@@ -1,4 +1,4 @@
-﻿package com.localllm.android.ui.chat
+package com.localllm.android.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +34,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
+import com.localllm.android.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -80,7 +82,7 @@ fun ChatTopBar(
         IconButton(onClick = onOpenDrawer) {
             Icon(
                 imageVector = Icons.Default.Menu,
-                contentDescription = "대화 목록",
+                contentDescription = stringResource(R.string.conversations),
                 tint = MaterialTheme.colorScheme.onSurface
             )
         }
@@ -271,7 +273,7 @@ fun ChatTopBar(
             IconButton(onClick = onNewChat) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "새 대화",
+                    contentDescription = stringResource(R.string.new_chat),
                     tint = MaterialTheme.colorScheme.onSurface
                 )
             }
@@ -279,7 +281,7 @@ fun ChatTopBar(
             IconButton(onClick = { isMoreMenuExpanded = true }) {
                 Icon(
                     imageVector = Icons.Default.MoreVert,
-                    contentDescription = "더보기",
+                    contentDescription = stringResource(R.string.details),
                     tint = MaterialTheme.colorScheme.onSurface
                 )
             }
@@ -290,7 +292,7 @@ fun ChatTopBar(
             ) {
                 DropdownMenuItem(
                     text = {
-                        Text("모델 관리")
+                        Text(stringResource(R.string.nav_models))
                     },
                     leadingIcon = {
                         Icon(Icons.Default.CloudDownload, contentDescription = null)
@@ -318,7 +320,7 @@ fun ChatTopBar(
 
                 DropdownMenuItem(
                     text = {
-                        Text("API 모드 (포트 11434)")
+                        Text(stringResource(R.string.nav_api_mode))
                     },
                     leadingIcon = {
                         Icon(Icons.Default.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -330,7 +332,7 @@ fun ChatTopBar(
                 )
 
                 DropdownMenuItem(
-                    text = { Text("설정") },
+                    text = { Text(stringResource(R.string.nav_settings)) },
                     leadingIcon = {
                         Icon(Icons.Default.Tune, contentDescription = null)
                     },
