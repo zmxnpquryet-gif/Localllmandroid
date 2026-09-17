@@ -2,11 +2,13 @@
 
 import android.util.Log
 import com.localllm.android.model.LlmModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
@@ -19,6 +21,8 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
+import java.io.RandomAccessFile
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
@@ -69,7 +73,7 @@ data class DownloadStatus(
  * Uses HTTP Range requests and parallel part files merged with kernel zero-copy transferTo.
  * Supports resume, cancellation, ETA, and per-segment progress monitoring.
  */
-class ModelDownloader {
+class ModelDownloader(client: OkHttpClient? = null) {
 
     private val tag = "ModelDownloader"
 
@@ -105,7 +109,7 @@ class ModelDownloader {
     }
     private val connectionPool = ConnectionPool(8, 3, TimeUnit.MINUTES)
 
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
+    private val httpClient: OkHttpClient = client ?: OkHttpClient.Builder()
         .dispatcher(dispatcher)
         .connectionPool(connectionPool)
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -401,6 +405,17 @@ class ModelDownloader {
         val errorMsg: String? = null
     )
 
+    private data class ContentRange(val start: Long, val end: Long, val total: Long)
+
+    private fun parseContentRange(value: String?): ContentRange? {
+        val match = Regex("bytes ([0-9]+)-([0-9]+)/([0-9]+)", RegexOption.IGNORE_CASE)
+            .matchEntire(value?.trim() ?: return null) ?: return null
+        val start = match.groupValues[1].toLongOrNull() ?: return null
+        val end = match.groupValues[2].toLongOrNull() ?: return null
+        val total = match.groupValues[3].toLongOrNull() ?: return null
+        return if (start <= end && end < total) ContentRange(start, end, total) else null
+    }
+
     private fun probeUrl(initialUrl: String, fallbackSize: Long, token: String? = null): ProbeResult {
         var resolvedUrl = initialUrl
         var totalBytes = fallbackSize
@@ -427,11 +442,12 @@ class ModelDownloader {
                 } else if (resp.code == 404) {
                     errorReason = "모델 파일을 찾을 수 없습니다 (404 Not Found). 다운로드 링크를 확인하세요."
                 } else if (resp.code == 206) {
-                    supportsRange = true
-                    val cr = resp.header("Content-Range")
-                    if (cr != null && cr.contains("/")) {
-                        val parsed = cr.substringAfter("/").trim().toLongOrNull()
-                        if (parsed != null && parsed > 1000L) totalBytes = parsed
+                    val range = parseContentRange(resp.header("Content-Range"))
+                    if (range != null && range.start == 0L && range.end == 0L) {
+                        supportsRange = true
+                        totalBytes = range.total
+                    } else {
+                        errorReason = "Invalid Content-Range on probe"
                     }
                 } else if (resp.isSuccessful) {
                     val cl = resp.header("Content-Length")?.toLongOrNull()
@@ -595,7 +611,10 @@ class ModelDownloader {
                         while (isActive && attempt < maxAttempts) {
                             attempt++
                             val currentPartLen = if (partFile.exists()) partFile.length() else 0L
-                            if (currentPartLen >= segTotal) {
+                            if (currentPartLen > segTotal) {
+                                throw IOException("Oversized part on segment $i")
+                            }
+                            if (currentPartLen == segTotal) {
                                 segmentDownloaded[i].set(segTotal)
                                 return@async
                             }
@@ -613,30 +632,49 @@ class ModelDownloader {
                                     token
                                 ).build()
 
-                                val resp = httpClient.newCall(req).execute()
-                                if (!resp.isSuccessful && resp.code != 206 && resp.code != 200) {
-                                    resp.close()
-                                    throw RuntimeException("HTTP ${resp.code} on segment $i")
-                                }
-
-                                val body = resp.body ?: throw RuntimeException("Empty body on segment $i")
-                                body.byteStream().use { input ->
-                                    BufferedOutputStream(FileOutputStream(partFile, currentPartLen > 0), BUFFER_SIZE).use { output ->
-                                        val buf = ByteArray(BUFFER_SIZE)
-                                        var readLen = 0
-                                        while (isActive && input.read(buf).also { readLen = it } != -1) {
-                                            output.write(buf, 0, readLen)
-                                            val newLen = segmentDownloaded[i].addAndGet(readLen.toLong())
-                                            if (newLen >= segTotal) break
+                                httpClient.newCall(req).execute().use { resp ->
+                                    if (resp.code != 206) {
+                                        throw IOException("Expected HTTP 206 on segment $i, got ${resp.code}")
+                                    }
+                                    val range = parseContentRange(resp.header("Content-Range"))
+                                    if (range != ContentRange(reqStart, reqEnd, totalSize)) {
+                                        throw IOException("Invalid Content-Range on segment $i")
+                                    }
+                                    val body = resp.body ?: throw IOException("Empty body on segment $i")
+                                    val expectedLength = reqEnd - reqStart + 1L
+                                    if (body.contentLength() != -1L && body.contentLength() != expectedLength) {
+                                        throw IOException("Invalid Content-Length on segment $i")
+                                    }
+                                    try {
+                                        body.byteStream().use { input ->
+                                            BufferedOutputStream(FileOutputStream(partFile, currentPartLen > 0), BUFFER_SIZE).use { output ->
+                                                val buf = ByteArray(BUFFER_SIZE)
+                                                var remaining = expectedLength
+                                                while (remaining > 0L) {
+                                                    ensureActive()
+                                                    val readLen = input.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
+                                                    if (readLen == -1) throw IOException("Short body on segment $i")
+                                                    output.write(buf, 0, readLen)
+                                                    remaining -= readLen
+                                                    segmentDownloaded[i].addAndGet(readLen.toLong())
+                                                }
+                                                ensureActive()
+                                                if (input.read() != -1) throw IOException("Oversized body on segment $i")
+                                            }
                                         }
-                                        output.flush()
+                                        if (partFile.length() != segTotal) {
+                                            throw IOException("Invalid part length on segment $i")
+                                        }
+                                    } catch (e: Exception) {
+                                        RandomAccessFile(partFile, "rw").use { it.setLength(currentPartLen) }
+                                        segmentDownloaded[i].set(currentPartLen)
+                                        throw e
                                     }
                                 }
-
-                                if (partFile.length() >= segTotal) {
-                                    segmentDownloaded[i].set(segTotal)
-                                    return@async
-                                }
+                                segmentDownloaded[i].set(segTotal)
+                                return@async
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (e: Exception) {
                                 Log.w(tag, "Segment $i attempt $attempt failed: ${e.message}")
                                 if (attempt >= maxAttempts) throw e
@@ -655,7 +693,7 @@ class ModelDownloader {
 
             // Verify all parts are complete
             val allComplete = (0 until segmentCount).all { i ->
-                partFiles[i].exists() && partFiles[i].length() >= segmentTotals[i]
+                partFiles[i].exists() && partFiles[i].length() == segmentTotals[i]
             }
 
             if (allComplete) {
@@ -666,6 +704,8 @@ class ModelDownloader {
                 downloadFailed = true
                 failureReason = "일부 분할 청크 다운로드 불완전"
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             downloadFailed = true
             failureReason = e.localizedMessage ?: "분할 다운로드 네트워크 실패"
@@ -692,7 +732,7 @@ class ModelDownloader {
                     val size = inChannel.size()
                     while (transferred < size) {
                         val count = inChannel.transferTo(transferred, size - transferred, outChannel)
-                        if (count <= 0) break
+                        if (count <= 0) throw IOException("Incomplete merge of ${part.name}")
                         transferred += count
                     }
                 }
@@ -701,7 +741,7 @@ class ModelDownloader {
         }
 
         if (targetFile.exists()) targetFile.delete()
-        tempMerged.renameTo(targetFile)
+        if (!tempMerged.renameTo(targetFile)) throw IOException("Failed to publish merged download")
         partFiles.forEach { it.delete() }
     }
 

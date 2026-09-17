@@ -90,13 +90,7 @@ class ChatRepository(private val chatDao: ChatDao) {
             attachedFilePath = message.attachment?.uriString,
             attachedFileType = message.attachment?.mimeType
         )
-        chatDao.insertMessage(entity)
-
-        // Update conversation timestamp
-        val conv = chatDao.getConversationById(message.conversationId)
-        if (conv != null) {
-            chatDao.updateConversation(conv.copy(updatedAt = System.currentTimeMillis()))
-        }
+        chatDao.insertMessageAndUpdateConversationTimestamp(entity, System.currentTimeMillis())
     }
 
     suspend fun deleteConversation(id: String) = withContext(Dispatchers.IO) {

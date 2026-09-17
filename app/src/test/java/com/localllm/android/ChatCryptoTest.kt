@@ -1,6 +1,11 @@
 ﻿package com.localllm.android
 
+import android.util.Base64
 import com.localllm.android.data.crypto.ChatCrypto
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -30,6 +35,42 @@ class ChatCryptoTest {
 
         val decrypted = ChatCrypto.decrypt(encrypted)
         assertEquals(original, decrypted)
+    }
+
+    @Test
+    fun `cipher generated IVs are unique and preserve the ciphertext format`() {
+        val plaintext = "같은 메시지"
+        val payloads = List(16) { Base64.decode(ChatCrypto.encrypt(plaintext), Base64.NO_WRAP) }
+        val ivs = payloads.map { Base64.encodeToString(it.copyOfRange(0, 12), Base64.NO_WRAP) }
+
+        assertEquals(payloads.size, ivs.toSet().size)
+        val key = SecretKeySpec(
+            MessageDigest.getInstance("SHA-256")
+                .digest("LocalLLM_SQLite_Encrypted_Keystore_2026_Key".toByteArray(Charsets.UTF_8)),
+            "AES"
+        )
+        payloads.forEach { payload ->
+            assertEquals(12 + plaintext.toByteArray(Charsets.UTF_8).size + 16, payload.size)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, payload.copyOfRange(0, 12)))
+            assertEquals(plaintext, String(cipher.doFinal(payload.copyOfRange(12, payload.size)), Charsets.UTF_8))
+        }
+    }
+
+    @Test
+    fun `decrypt accepts legacy ciphertext with an explicit IV`() {
+        val plaintext = "legacy conversation"
+        val key = SecretKeySpec(
+            MessageDigest.getInstance("SHA-256")
+                .digest("LocalLLM_SQLite_Encrypted_Keystore_2026_Key".toByteArray(Charsets.UTF_8)),
+            "AES"
+        )
+        val iv = ByteArray(12) { it.toByte() }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, iv))
+        val ciphertext = Base64.encodeToString(iv + cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+
+        assertEquals(plaintext, ChatCrypto.decrypt(ciphertext))
     }
 
     @Test

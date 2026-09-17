@@ -7,7 +7,6 @@ import android.util.Log
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import java.security.MessageDigest
-import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -29,8 +28,6 @@ object ChatCrypto {
 
     // Legacy seed preserved strictly for backward-compatible migration of legacy database entries
     private const val LEGACY_MASTER_SEED = "LocalLLM_SQLite_Encrypted_Keystore_2026_Key"
-
-    private val secureRandom = SecureRandom()
 
     private val legacySecretKey: SecretKeySpec by lazy {
         val sha = MessageDigest.getInstance("SHA-256")
@@ -105,11 +102,9 @@ object ChatCrypto {
         try {
             val key = getSecretKey()
             val cipher = Cipher.getInstance(ALGORITHM)
-            val iv = ByteArray(IV_LENGTH_BYTE)
-            secureRandom.nextBytes(iv)
-
-            val spec = GCMParameterSpec(TAG_LENGTH_BIT, iv)
-            cipher.init(Cipher.ENCRYPT_MODE, key, spec)
+            cipher.init(Cipher.ENCRYPT_MODE, key)
+            val iv = cipher.iv
+            require(iv != null && iv.size == IV_LENGTH_BYTE) { "Invalid cipher-generated IV length" }
 
             val encrypted = cipher.doFinal(plaintext.toByteArray(StandardCharsets.UTF_8))
             val combined = ByteArray(iv.size + encrypted.size)

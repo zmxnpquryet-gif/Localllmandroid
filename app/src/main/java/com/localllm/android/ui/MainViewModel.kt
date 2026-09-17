@@ -1012,7 +1012,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 llmEngine = llmEngine,
                 getActiveModel = { _activeModel.value },
                 getAllModels = { _models.value.filter { it.isDownloaded } },
-                getSettings = { _settings.value }
+                getSettings = { _settings.value },
+                initialApiKey = _apiServerApiKey.value
             )
         }
 

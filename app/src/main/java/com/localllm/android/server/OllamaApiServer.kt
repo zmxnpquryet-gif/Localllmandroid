@@ -11,8 +11,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.EOFException
+import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -39,11 +41,36 @@ class OllamaApiServer(
     private val llmEngine: LlmEngine,
     private val getActiveModel: () -> LlmModel?,
     private val getAllModels: () -> List<LlmModel>,
-    private val getSettings: () -> GenerationSettings
+    private val getSettings: () -> GenerationSettings,
+    initialApiKey: String = generateSecureApiKey()
 ) {
     companion object {
         const val DEFAULT_PORT = 11434
         private const val TAG = "OllamaApiServer"
+        private const val MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024
+
+        internal fun readHttpLine(input: InputStream): String? {
+            val bytes = ByteArrayOutputStream()
+            while (true) {
+                val next = input.read()
+                if (next == -1) {
+                    if (bytes.size() == 0) return null
+                    throw EOFException("Incomplete HTTP header")
+                }
+                if (next == '\n'.code) {
+                    return bytes.toString(StandardCharsets.US_ASCII.name()).removeSuffix("\r")
+                }
+                require(bytes.size() < 8192) { "HTTP header line too long" }
+                bytes.write(next)
+            }
+        }
+
+        internal fun readHttpBody(input: InputStream, contentLength: Int): String {
+            require(contentLength in 0..MAX_REQUEST_BODY_BYTES) { "Invalid body length" }
+            val bytes = ByteArray(contentLength)
+            DataInputStream(input).readFully(bytes)
+            return String(bytes, StandardCharsets.UTF_8)
+        }
 
         fun generateSecureApiKey(): String {
             val random = SecureRandom()
@@ -58,7 +85,7 @@ class OllamaApiServer(
     private var serverJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    var currentApiKey: String = generateSecureApiKey()
+    var currentApiKey: String = initialApiKey
         private set
 
     var boundHost: String = "127.0.0.1"
@@ -139,10 +166,10 @@ class OllamaApiServer(
     private suspend fun handleClientSocket(socket: Socket) {
         try {
             socket.soTimeout = 120000
-            val reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
+            val input = socket.getInputStream().buffered()
             val output = socket.getOutputStream()
 
-            val requestLine = reader.readLine() ?: return
+            val requestLine = readHttpLine(input) ?: return
             val parts = requestLine.split(" ")
             if (parts.size < 2) return
 
@@ -158,7 +185,7 @@ class OllamaApiServer(
             var contentLength = 0
             val headers = mutableMapOf<String, String>()
             var line: String?
-            while (reader.readLine().also { line = it } != null) {
+            while (readHttpLine(input).also { line = it } != null) {
                 if (line.isNullOrEmpty()) break
                 val colonIdx = line!!.indexOf(':')
                 if (colonIdx > 0) {
@@ -193,18 +220,11 @@ class OllamaApiServer(
             }
 
             // Read Body if any
-            val body = if (contentLength > 0) {
-                val chars = CharArray(contentLength)
-                var readTotal = 0
-                while (readTotal < contentLength) {
-                    val read = reader.read(chars, readTotal, contentLength - readTotal)
-                    if (read == -1) break
-                    readTotal += read
-                }
-                String(chars, 0, readTotal)
-            } else {
-                ""
+            if (contentLength !in 0..MAX_REQUEST_BODY_BYTES) {
+                sendResponse(output, 413, "Content Too Large", "application/json", "{\"error\":\"Request body too large\"}", clientOrigin)
+                return
             }
+            val body = readHttpBody(input, contentLength)
 
             // Routing
             when {

@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -32,6 +33,15 @@ interface ChatDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity)
+
+    @Query("UPDATE conversations SET updatedAt = :updatedAt WHERE id = :conversationId")
+    suspend fun updateConversationTimestamp(conversationId: String, updatedAt: Long)
+
+    @Transaction
+    suspend fun insertMessageAndUpdateConversationTimestamp(message: MessageEntity, updatedAt: Long) {
+        insertMessage(message)
+        updateConversationTimestamp(message.conversationId, updatedAt)
+    }
 
     @Query("DELETE FROM messages WHERE conversationId = :conversationId")
     suspend fun deleteMessagesForConversation(conversationId: String)
