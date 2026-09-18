@@ -995,6 +995,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val hasDrafter = detected.hasDrafter
                 val isLiteRt = detected.detectedRuntime == ModelRuntimeType.LITE_RT
 
+                // First-party engine peek (additive only): verify the container with the
+                // new GGUF reader. Never overrides the shipping detector on failure.
+                val engineNote = try {
+                    com.localllm.engine.GgufReader.open(destFile).use { reader ->
+                        "Engine 구조 확인(${reader.tensors.size} 텐서)"
+                    }
+                } catch (_: Throwable) {
+                    null
+                }
+
                 val cleanName = targetFileName
                     .removeSuffix(".gguf")
                     .removeSuffix(".bin")
@@ -1025,6 +1035,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             if (hasVision) append(" • 내장 비전타워")
                             if (hasDrafter) append(" • 내장 드래프터")
                         }
+                        if (engineNote != null) append(" • $engineNote")
                     },
                     quantization = if (isLiteRt) "LiteRT" else "GGUF",
                     hasMmproj = hasVision,
