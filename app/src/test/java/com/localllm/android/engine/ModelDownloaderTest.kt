@@ -9,7 +9,9 @@ import okhttp3.Request
 import okhttp3.Response
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -96,6 +98,38 @@ class ModelDownloaderTest {
         assertTrue(statuses.last().isCompleted)
         dir.deleteRecursively()
         Unit
+    }
+
+    @Test
+    fun `hf token is attached only to exact huggingface hosts over https`() {
+        fun authFor(url: String): String? =
+            ModelDownloader.withHfAuth(Request.Builder().url("https://huggingface.co/x"), url, "hf_secret")
+                .build().header("Authorization")
+
+        // Legitimate API hosts receive the token.
+        assertEquals("Bearer hf_secret", authFor("https://huggingface.co/gemma/model/resolve/main/model.gguf"))
+        assertEquals("Bearer hf_secret", authFor("https://cas-bridge.xethub.huggingface.co/xet-bridge/file"))
+        assertEquals("Bearer hf_secret", authFor("https://huggingface.co:443/model.gguf"))
+
+        // Attacker host embedding the brand string in path/query must NOT receive it.
+        assertNull(authFor("https://evil.example/download?next=huggingface.co/model.gguf"))
+        assertNull(authFor("https://evil.example/huggingface.co/model.gguf"))
+        assertNull(authFor("https://huggingface.co.evil.example/model.gguf"))
+        assertNull(authFor("https://not-huggingface.co/model.gguf"))
+        assertNull(authFor("https://evil-huggingface.co.evil.example/x"))
+
+        // Plain HTTP and CDN pre-signed targets must NOT receive it.
+        assertNull(authFor("http://huggingface.co/model.gguf"))
+        assertNull(authFor("https://cdn-lfs.huggingface.co/large-file"))
+        assertNull(authFor("https://d1234.cloudfront.net/signed-file"))
+        assertNull(authFor("https://bucket.s3.amazonaws.com/signed-file"))
+
+        // Blank token / malformed URL never attach anything.
+        assertNull(
+            ModelDownloader.withHfAuth(Request.Builder().url("https://huggingface.co/x"), "https://huggingface.co/x", "  ")
+                .build().header("Authorization")
+        )
+        assertFalse(ModelDownloader.isHuggingFaceApiHost("not a url"))
     }
 
     @Test

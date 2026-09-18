@@ -20,12 +20,16 @@ import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.SamplerConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.nehuatl.llamacpp.LlamaAndroid
 import org.nehuatl.llamacpp.LlamaContext
@@ -60,6 +64,16 @@ class LlmEngine(private val context: Context) {
 
     private var litertEngine: Engine? = null
     private var litertConversation: Conversation? = null
+
+    /**
+     * Serializes all inference and model-swap operations. The native runtimes expose
+     * a single shared context/conversation plus one global token callback, so two
+     * concurrent generations would overwrite each other's callbacks and race on
+     * release. UI/API callers fail fast with BUSY_INFERENCE instead of queuing.
+     */
+    private val inferenceMutex = Mutex()
+    private var activeCompletionJob: Job? = null
+    private var activeLitertConversation: Conversation? = null
 
     private var activeModel: LlmModel? = null
     private var isVisionTowerLoaded: Boolean = false
@@ -115,8 +129,46 @@ class LlmEngine(private val context: Context) {
 
     /**
      * Loads a model into memory from local disk (LiteRT or llama.cpp GGUF).
+     *
+     * Holds [inferenceMutex] for the whole swap so a generation can never run
+     * against a half-released native context.
      */
     suspend fun loadModel(
+        model: LlmModel?,
+        settings: GenerationSettings,
+        onStageUpdate: ((stage: String, progress: Float) -> Unit)? = null
+    ): String {
+        inferenceMutex.lock()
+        try {
+            return withContext(Dispatchers.IO) {
+                loadModelLocked(model, settings, onStageUpdate)
+            }
+        } finally {
+            inferenceMutex.unlock()
+        }
+    }
+
+    @OptIn(ExperimentalApi::class)
+    private fun createConfiguredConversation(engine: Engine, settings: GenerationSettings): Conversation {
+        return try {
+            val sampler = SamplerConfig(
+                topK = settings.topK.coerceAtLeast(1),
+                topP = settings.topP.toDouble().coerceIn(0.01, 1.0),
+                temperature = settings.temperature.toDouble().coerceAtLeast(0.01),
+                seed = 0
+            )
+            val convConfig = ConversationConfig(
+                systemInstruction = if (settings.systemPrompt.isNotBlank()) Contents.of(Content.Text(settings.systemPrompt)) else null,
+                samplerConfig = sampler
+            )
+            engine.createConversation(convConfig)
+        } catch (ce: Throwable) {
+            Log.w(tag, "LiteRT createConversation with SamplerConfig failed, fallback to default: ${ce.message}")
+            engine.createConversation()
+        }
+    }
+
+    private suspend fun loadModelLocked(
         model: LlmModel?,
         settings: GenerationSettings,
         onStageUpdate: ((stage: String, progress: Float) -> Unit)? = null
@@ -288,22 +340,7 @@ class LlmEngine(private val context: Context) {
                     onStageUpdate?.invoke("LiteRT 가중치 매핑 및 모델 초기화...", 0.70f)
                     engine.initialize()
 
-                    val conv = try {
-                        val sampler = SamplerConfig(
-                            topK = settings.topK.coerceAtLeast(1),
-                            topP = settings.topP.toDouble().coerceIn(0.01, 1.0),
-                            temperature = settings.temperature.toDouble().coerceAtLeast(0.01),
-                            seed = 0
-                        )
-                        val convConfig = ConversationConfig(
-                            systemInstruction = if (settings.systemPrompt.isNotBlank()) Contents.of(Content.Text(settings.systemPrompt)) else null,
-                            samplerConfig = sampler
-                        )
-                        engine.createConversation(convConfig)
-                    } catch (ce: Throwable) {
-                        Log.w(tag, "LiteRT createConversation with SamplerConfig failed, fallback to default: ${ce.message}")
-                        engine.createConversation()
-                    }
+                    val conv = createConfiguredConversation(engine, settings)
 
                     successEngine = engine
                     successConv = conv
@@ -557,6 +594,11 @@ class LlmEngine(private val context: Context) {
 
     /**
      * Executes real on-device token generation and streams tokens.
+     *
+     * Only one generation may run at a time (the native runtimes share a single
+     * context and a single global token callback). A second concurrent request
+     * fails fast with `BUSY_INFERENCE` so callers can answer 429 instead of
+     * interleaving two answers into one stream.
      */
     @OptIn(ExperimentalApi::class)
     fun streamGenerate(
@@ -564,7 +606,48 @@ class LlmEngine(private val context: Context) {
         history: List<Pair<String, String>>,
         settings: GenerationSettings,
         attachment: ChatAttachment?,
-        mcpToolsContext: String? = null
+        mcpToolsContext: String? = null,
+        numPredictOverride: Int? = null
+    ): Flow<GenerationChunk> = flow {
+        if (!inferenceMutex.tryLock()) {
+            throw IllegalStateException("BUSY_INFERENCE: 다른 추론 요청이 진행 중입니다. 잠시 후 다시 시도하세요.")
+        }
+        try {
+            emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride))
+        } finally {
+            clearActiveInferenceState()
+            inferenceMutex.unlock()
+        }
+    }.flowOn(Dispatchers.Default)
+
+    private fun clearActiveInferenceState() {
+        onTokenGenerated = null
+        try {
+            activeCompletionJob?.cancel()
+        } catch (_: Throwable) {}
+        activeCompletionJob = null
+        val conv = activeLitertConversation
+        activeLitertConversation = null
+        if (conv != null) {
+            try {
+                conv.cancelProcess()
+            } catch (_: Throwable) {}
+            try {
+                conv.close()
+            } catch (e: Throwable) {
+                Log.w(tag, "Error closing LiteRT conversation: ${e.message}")
+            }
+        }
+    }
+
+    @OptIn(ExperimentalApi::class)
+    private fun inferenceFlow(
+        prompt: String,
+        history: List<Pair<String, String>>,
+        settings: GenerationSettings,
+        attachment: ChatAttachment?,
+        mcpToolsContext: String?,
+        numPredictOverride: Int?
     ): Flow<GenerationChunk> = flow {
         val model = activeModel
             ?: throw IllegalStateException("선택된 로컬 모델이 없습니다. 모델 관리자에서 모델을 먼저 로드하세요.")
@@ -591,8 +674,18 @@ class LlmEngine(private val context: Context) {
         val reasoningParser = ReasoningStreamParser()
 
         if (model.runtimeType == ModelRuntimeType.LITE_RT) {
-            val conv = litertConversation
-                ?: throw IllegalStateException("LiteRT 대화 세션이 준비되지 않았습니다.")
+            // Fresh conversation per request: the app always passes the full formatted
+            // history inside the prompt, so reusing one stateful runtime conversation
+            // would duplicate context and leak one chat's state into another.
+            // Per-request sampler also honors temperature/topP/topK without a reload.
+            val engine = litertEngine
+                ?: throw IllegalStateException("LiteRT 엔진이 준비되지 않았습니다.")
+            val conv = try {
+                createConfiguredConversation(engine, settings)
+            } catch (e: Throwable) {
+                throw IllegalStateException("LiteRT 대화 세션을 준비하지 못했습니다: ${e.localizedMessage ?: e.message}")
+            }
+            activeLitertConversation = conv
 
             var tempVisionFile: File? = null
             val localImagePath: String? = if (attachment?.isImage == true && isVisionTowerLoaded) {
@@ -713,6 +806,12 @@ class LlmEngine(private val context: Context) {
                 Log.e(tag, "LiteRT inference error", e)
                 throw RuntimeException("LiteRT 추론 오류: ${e.localizedMessage ?: e.message}")
             } finally {
+                if (activeLitertConversation === conv) activeLitertConversation = null
+                try {
+                    conv.close()
+                } catch (ce: Throwable) {
+                    Log.w(tag, "Error closing LiteRT conversation: ${ce.message}")
+                }
                 tempVisionFile?.delete()
             }
             return@flow
@@ -745,7 +844,7 @@ class LlmEngine(private val context: Context) {
             "temperature" to settings.temperature.toDouble().coerceAtLeast(0.01),
             "top_k" to settings.topK.coerceAtLeast(1),
             "top_p" to settings.topP.toDouble().coerceIn(0.01, 1.0),
-            "n_predict" to -1
+            "n_predict" to (numPredictOverride?.coerceIn(1, 16384) ?: -1)
         )
         if (imagePath != null) {
             completionParams["image_path"] = imagePath
@@ -765,6 +864,7 @@ class LlmEngine(private val context: Context) {
                 tokenChannel.close()
             }
         }
+        activeCompletionJob = completionJob
 
         try {
             for (rawWord in tokenChannel) {
@@ -817,11 +917,22 @@ class LlmEngine(private val context: Context) {
             )
         } finally {
             onTokenGenerated = null
+            if (activeCompletionJob === completionJob) activeCompletionJob = null
             completionJob.cancel()
         }
     }.flowOn(Dispatchers.Default)
 
+    /**
+     * Requests cancellation of an in-flight generation. Wired to the native stop
+     * primitives — cancelling only the UI collector coroutine never stopped the
+     * native loop, leaving CPU/GPU work running in the background.
+     */
     fun stopGeneration() {
+        try {
+            activeLitertConversation?.cancelProcess()
+        } catch (e: Throwable) {
+            Log.w(tag, "Error cancelling LiteRT process: ${e.message}")
+        }
         val ctx = currentLlamaContext
         if (ctx != null) {
             scope.launch(Dispatchers.IO) {
@@ -832,16 +943,20 @@ class LlmEngine(private val context: Context) {
                 }
             }
         }
-        try {
-            if (activeModel?.runtimeType == ModelRuntimeType.LITE_RT) {
-                litertConversation = litertEngine?.createConversation()
-            }
-        } catch (e: Throwable) {
-            Log.w(tag, "Error resetting LiteRT conversation: ${e.message}")
-        }
     }
 
     fun release() {
-        unloadCurrentModel()
+        if (inferenceMutex.tryLock()) {
+            try {
+                unloadCurrentModel()
+            } finally {
+                inferenceMutex.unlock()
+            }
+        } else {
+            // An inference owns the mutex: ask the native loop to stop instead of
+            // releasing a context it is actively using.
+            stopGeneration()
+            Log.w(tag, "release() deferred while inference is running")
+        }
     }
 }

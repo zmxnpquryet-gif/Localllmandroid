@@ -78,6 +78,8 @@ import com.localllm.android.model.GenerationSettings
 import com.localllm.android.model.ModelRuntimeType
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
+import com.localllm.android.ui.theme.GlassCard
+import com.localllm.android.ui.theme.LiquidBackground
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,14 +120,19 @@ fun SettingsScreen(
         },
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            LiquidBackground()
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             // 1. Runtime Selection (LiteRT LM vs llama.cpp)
             SettingsCard(
                 title = "추론 백엔드 런타임",
@@ -320,11 +327,11 @@ fun SettingsScreen(
 
             // 5. MCP (Model Context Protocol) URL Integration
             SettingsCard(
-                title = "MCP (Model Context Protocol) 연동",
+                title = "MCP (Model Context Protocol) 연결 확인 (실험적)",
                 icon = Icons.Default.Hub
             ) {
                 Text(
-                    text = "MCP 서버 URL(SSE 또는 HTTP)을 입력하면 실시간 외부 도구가 즉시 적용됩니다.",
+                    text = "MCP 서버 URL에 대한 연결 가능 여부만 확인하는 실험적 기능입니다. 실제 도구 조회·호출 연동은 아직 지원하지 않으며, 채팅에는 URL 문자열만 문맥으로 전달됩니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -434,6 +441,7 @@ fun SettingsScreen(
 
                 val themes = listOf(
                     Triple("artistic", "Artistic Purple", Color(0xFFD0BCFF)),
+                    Triple("liquid", "Liquid Glass", Color(0xFF7DD3FC)),
                     Triple("chatgpt", "Emerald Green", Color(0xFF10A37F)),
                     Triple("cyber", "Cyber Neon", Color(0xFF00FF9D)),
                     Triple("obsidian", "Obsidian Violet", Color(0xFFA855F7)),
@@ -619,6 +627,7 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+            }
         }
     }
 
@@ -653,29 +662,27 @@ private fun SettingsCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     content: @Composable () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
-            .padding(16.dp)
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 18.dp
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            content()
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        content()
     }
 }

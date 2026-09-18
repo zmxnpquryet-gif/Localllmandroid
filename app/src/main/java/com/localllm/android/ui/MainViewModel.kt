@@ -373,6 +373,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateSettings(newSettings: GenerationSettings) {
+        val previous = _settings.value
         _settings.value = newSettings
         settingsPrefs.edit().apply {
             putString("hf_token", newSettings.hfToken)
@@ -394,6 +395,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putBoolean("is_mcp_enabled", newSettings.isMcpEnabled)
             apply()
         }
+        // Sampling options (temperature/topP/topK/system prompt) apply per request,
+        // so only runtime-affecting changes justify a full weight reload. Reloading on
+        // every slider tick used to thrash the native context dozens of times per drag.
+        val needsReload = previous.runtime != newSettings.runtime ||
+                previous.contextWindow != newSettings.contextWindow ||
+                previous.enableGpuAcceleration != newSettings.enableGpuAcceleration ||
+                previous.gpuLayers != newSettings.gpuLayers
+        if (!needsReload) return
         viewModelScope.launch {
             try {
                 val status = llmEngine.loadModel(_activeModel.value, newSettings)
@@ -858,6 +867,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stopGeneration() {
         currentStreamJob?.cancel()
         currentStreamJob = null
+        // Propagate to the native loop: cancelling the collector alone left
+        // llama.cpp / LiteRT still generating in the background.
+        try {
+            llmEngine.stopGeneration()
+        } catch (t: Throwable) {
+            android.util.Log.w("MainViewModel", "Engine stop error", t)
+        }
         val cur = _streamingMessage.value
         if (cur != null) {
             viewModelScope.launch {
@@ -889,9 +905,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     // Stream or generate response
                     val answerBuilder = StringBuilder()
+                    val voiceHistory = _messages.value.takeLast(6).map { it.role.name to it.content }
                     llmEngine.streamGenerate(
                         prompt = userSpokenText,
-                        history = emptyList(),
+                        history = voiceHistory,
                         settings = _settings.value,
                         attachment = null
                     ).collect { chunk ->

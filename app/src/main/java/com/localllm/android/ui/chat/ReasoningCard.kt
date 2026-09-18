@@ -50,7 +50,7 @@ fun ReasoningCard(
         }
     }
 
-    val containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+    val containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
     val accentColor = MaterialTheme.colorScheme.primary
 
     Column(
@@ -58,7 +58,16 @@ fun ReasoningCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(containerColor)
-            .border(1.dp, accentColor.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+            .border(
+                1.dp,
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.30f),
+                        accentColor.copy(alpha = 0.30f)
+                    )
+                ),
+                RoundedCornerShape(12.dp)
+            )
             .padding(10.dp)
     ) {
         Row(

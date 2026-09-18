@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.BufferedOutputStream
@@ -89,17 +90,40 @@ class ModelDownloader(client: OkHttpClient? = null) {
             return if (f.isNaN() || f.isInfinite()) 0f else f.coerceIn(0f, 1f)
         }
 
+        /**
+         * Attaches the Hugging Face bearer token only when the *actual request host*
+         * is Hugging Face infrastructure over HTTPS. String-matching the URL is not
+         * sufficient: an attacker-controlled host could embed "huggingface.co" in its
+         * path/query (e.g. https://evil.example/?next=huggingface.co) and harvest the
+         * token. CDN pre-signed redirect targets carry their own auth, so the token
+         * is withheld there as well.
+         */
         fun withHfAuth(builder: Request.Builder, requestUrl: String, token: String?): Request.Builder {
             val trimmed = token?.trim()
-            if (!trimmed.isNullOrBlank() &&
-                requestUrl.contains("huggingface.co", ignoreCase = true) &&
-                !requestUrl.contains(".cdn.", ignoreCase = true) &&
-                !requestUrl.contains("cloudfront.net", ignoreCase = true) &&
-                !requestUrl.contains("amazonaws.com", ignoreCase = true)
-            ) {
-                builder.header("Authorization", "Bearer $trimmed")
-            }
+            if (trimmed.isNullOrBlank()) return builder
+            if (!isHuggingFaceApiHost(requestUrl)) return builder
+            builder.header("Authorization", "Bearer $trimmed")
             return builder
+        }
+
+        internal fun isHuggingFaceApiHost(requestUrl: String): Boolean {
+            val httpUrl = try {
+                requestUrl.toHttpUrlOrNull()
+            } catch (_: Throwable) {
+                null
+            } ?: return false
+            if (!httpUrl.isHttps) return false
+            val host = httpUrl.host.lowercase()
+            val isHfInfra = host == "huggingface.co" ||
+                    host.endsWith(".huggingface.co") ||
+                    host == "hf.co" ||
+                    host.endsWith(".hf.co")
+            if (!isHfInfra) return false
+            // Redirect targets / CDN endpoints embed their own pre-signed auth.
+            // Never forward the user's token there.
+            if (host.startsWith("cdn-") || ".cdn." in host) return false
+            if (host.endsWith(".cloudfront.net") || host.endsWith(".amazonaws.com")) return false
+            return true
         }
     }
 

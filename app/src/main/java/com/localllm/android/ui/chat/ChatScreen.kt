@@ -69,6 +69,8 @@ import com.localllm.android.model.LlmModel
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
 import com.localllm.android.ui.drawer.ChatDrawer
+import com.localllm.android.ui.theme.GlassCard
+import com.localllm.android.ui.theme.LiquidBackground
 import kotlinx.coroutines.launch
 
 @Composable
@@ -284,19 +286,28 @@ fun ChatScreen(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             modifier = modifier.fillMaxSize()
         ) { innerPadding ->
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
+                LiquidBackground()
+                Column(
+                    modifier = Modifier.fillMaxSize()
+                ) {
                 // Model Loading Progress Bar (Visible during loading, disappears when loading finishes)
                 AnimatedVisibility(visible = isModelLoading) {
-                    Column(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
+                        GlassCard(cornerRadius = 16.dp) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -343,6 +354,8 @@ fun ChatScreen(
                                 trackColor = MaterialTheme.colorScheme.surfaceVariant
                             )
                         }
+                            }
+                        }
                     }
                 }
 
@@ -351,10 +364,15 @@ fun ChatScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
-                            .clickable { viewModel.navigateTo(AppScreen.API_MODE) }
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
                     ) {
+                        GlassCard(cornerRadius = 16.dp) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.navigateTo(AppScreen.API_MODE) }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -380,6 +398,8 @@ fun ChatScreen(
                                 color = MaterialTheme.colorScheme.secondary
                             )
                         }
+                            }
+                        }
                     }
                 }
 
@@ -389,12 +409,6 @@ fun ChatScreen(
                             engineStatus?.contains("실패") == true ||
                             engineStatus?.contains("Error") == true ||
                             engineStatus?.contains("Failed") == true
-
-                    val bannerBg = if (isErrorStatus) {
-                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f)
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                    }
 
                     val bannerTextColor = if (isErrorStatus) {
                         MaterialTheme.colorScheme.onErrorContainer
@@ -408,10 +422,19 @@ fun ChatScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(bannerBg)
-                            .clickable { showStatusDetailDialog = true }
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
                     ) {
+                        GlassCard(cornerRadius = 16.dp) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        if (isErrorStatus) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                                        else Color.Transparent
+                                    )
+                                    .clickable { showStatusDetailDialog = true }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
@@ -437,6 +460,8 @@ fun ChatScreen(
                                 color = bannerIconTint,
                                 style = MaterialTheme.typography.labelSmall
                             )
+                        }
+                            }
                         }
                     }
                 }
@@ -577,6 +602,7 @@ fun ChatScreen(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -758,10 +784,10 @@ private fun EmptyChatPlaceholder(
                         .fillMaxWidth()
                         .padding(vertical = 5.dp)
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
                         .border(
                             1.dp,
-                            MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
                             androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
                         )
                         .clickable { onSampleClick(prompt) }

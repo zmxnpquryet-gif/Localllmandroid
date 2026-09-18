@@ -38,12 +38,16 @@ object ChatCrypto {
     @Volatile
     private var cachedKey: SecretKey? = null
 
+    /**
+     * True only under Robolectric unit tests. A missing Keystore provider on a real
+     * device must NOT be mistaken for "running a test" — that confusion silently
+     * downgraded release builds to a hard-coded key. Fail closed instead.
+     */
     private fun isRunningInUnitTest(): Boolean {
         return try {
-            android.os.Build.FINGERPRINT.contains("robolectric", ignoreCase = true) ||
-                    java.security.Security.getProvider(ANDROID_KEYSTORE) == null
+            android.os.Build.FINGERPRINT.contains("robolectric", ignoreCase = true)
         } catch (_: Throwable) {
-            true
+            false
         }
     }
 

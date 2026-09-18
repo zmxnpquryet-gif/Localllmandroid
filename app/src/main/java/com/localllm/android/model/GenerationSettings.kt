@@ -20,7 +20,7 @@ data class GenerationSettings(
     val mcpServerUrl: String = "https://mcp.weather.dev/sse",
     val isMcpEnabled: Boolean = false,
     val darkModePreference: String = "dark", // "system", "dark", "light"
-    val themeColorName: String = "artistic", // "artistic", "chatgpt", "cyber", "obsidian", "amber", "frost"
+    val themeColorName: String = "artistic", // "artistic", "liquid", "chatgpt", "cyber", "obsidian", "amber", "frost"
     val languagePreference: String = "system", // "system", "en", "ko"
     val hfToken: String = "" // Optional Hugging Face Access Token for gated/private models
 ) {

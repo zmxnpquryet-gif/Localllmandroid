@@ -122,6 +122,9 @@ class VoiceManager(private val context: Context) {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ko-KR")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            // Prefer the on-device pack so voice input stays offline when available.
+            // Devices without an offline pack fall back to the system service.
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         }
         speechRecognizer?.startListening(intent)
     }

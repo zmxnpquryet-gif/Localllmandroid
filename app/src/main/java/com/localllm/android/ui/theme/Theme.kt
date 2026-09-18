@@ -121,8 +121,7 @@ fun getThemeColorScheme(
         )
     }
 
-    "frost" -> if (isDark) {
-        darkColorScheme(
+    "frost" -> if (isDark) {        darkColorScheme(
             primary = ArcticBlue,
             onPrimary = Color.Black,
             primaryContainer = ArcticSurfaceDark,
@@ -176,6 +175,44 @@ fun getThemeColorScheme(
             surfaceVariant = ChatGptLightCard,
             onSurfaceVariant = ChatGptLightTextMuted,
             outline = ChatGptLightBorder
+        )
+    }
+
+    "liquid", "glass" -> if (isDark) {
+        darkColorScheme(
+            primary = LiquidPrimaryDark,
+            onPrimary = LiquidOnPrimaryDark,
+            primaryContainer = LiquidPrimaryContainerDark,
+            onPrimaryContainer = LiquidOnPrimaryContainerDark,
+            secondary = LiquidSecondaryDark,
+            onSecondary = LiquidOnPrimaryDark,
+            secondaryContainer = LiquidSurfaceVariantDark,
+            onSecondaryContainer = LiquidTextDark,
+            tertiary = LiquidTertiaryDark,
+            background = LiquidBgDark,
+            onBackground = LiquidTextDark,
+            surface = LiquidSurfaceDark,
+            onSurface = LiquidTextDark,
+            surfaceVariant = LiquidSurfaceVariantDark,
+            onSurfaceVariant = LiquidTextMutedDark,
+            outline = LiquidBorderDark
+        )
+    } else {
+        lightColorScheme(
+            primary = LiquidPrimaryLight,
+            onPrimary = LiquidOnPrimaryLight,
+            primaryContainer = LiquidPrimaryContainerLight,
+            onPrimaryContainer = LiquidOnPrimaryContainerLight,
+            secondary = LiquidPrimaryLight,
+            onSecondary = LiquidOnPrimaryLight,
+            tertiary = Color(0xFF0D9488),
+            background = LiquidBgLight,
+            onBackground = LiquidTextLight,
+            surface = LiquidSurfaceLight,
+            onSurface = LiquidTextLight,
+            surfaceVariant = LiquidSurfaceVariantLight,
+            onSurfaceVariant = LiquidTextMutedLight,
+            outline = LiquidBorderLight
         )
     }
 

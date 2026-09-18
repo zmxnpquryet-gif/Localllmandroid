@@ -82,7 +82,7 @@ fun ChatDrawer(
         modifier = modifier
             .fillMaxHeight()
             .width(310.dp)
-            .background(MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.82f))
             .statusBarsPadding()
             .padding(vertical = 12.dp)
     ) {

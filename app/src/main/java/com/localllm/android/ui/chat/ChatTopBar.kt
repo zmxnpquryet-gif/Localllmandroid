@@ -87,11 +87,11 @@ fun ChatTopBar(
             )
         }
 
-        // Center Model Selector Pill
+        // Center Model Selector Pill (liquid glass)
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(22.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
                 .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(22.dp))
                 .clickable { isModelMenuExpanded = true }
                 .padding(horizontal = 14.dp, vertical = 6.dp),
