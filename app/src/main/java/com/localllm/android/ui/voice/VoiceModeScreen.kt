@@ -46,6 +46,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,6 +79,15 @@ fun VoiceModeScreen(
     val voiceTemplates by viewModel.voiceManager.installedVoiceTemplates.collectAsState()
 
     var isMicMuted by remember { mutableStateOf(false) }
+
+    // Leaving this screen (back gesture included) must break the hands-free loop:
+    // otherwise the TTS completion callback would restart listening after exit.
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.voiceManager.stopListening()
+            viewModel.voiceManager.stopSpeaking()
+        }
+    }
 
     // Audio recording permission launcher
     val micPermissionLauncher = rememberLauncherForActivityResult(
@@ -138,6 +148,33 @@ fun VoiceModeScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
+        // Aurora depth washes (theme-tinted, dark immersive base preserved)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                            Color.Transparent
+                        ),
+                        radius = 800f
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.secondary.copy(alpha = 0.10f),
+                            Color.Transparent
+                        ),
+                        radius = 1000f
+                    )
+                )
+        )
         // Top Bar: Exit button & Mode indicator
         Row(
             modifier = Modifier
@@ -288,14 +325,19 @@ fun VoiceModeScreen(
 
                 Button(
                     onClick = {
-                        val hasMic = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (hasMic) {
-                            viewModel.startInteractiveVoiceSession()
+                        if (voiceState != InteractiveVoiceState.IDLE) {
+                            viewModel.voiceManager.stopListening()
+                            viewModel.voiceManager.stopSpeaking()
                         } else {
-                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            val hasMic = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasMic) {
+                                viewModel.startInteractiveVoiceSession()
+                            } else {
+                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),

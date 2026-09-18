@@ -851,6 +851,16 @@ class LlmEngine(private val context: Context) {
         }
 
         val tokenChannel = Channel<String>(Channel.UNLIMITED)
+        // Belt and braces with inferenceMutex: if a cancelled run's native loop is
+        // still winding down, ask it to stop before starting a new decode.
+        // (llamacpp-kotlin 0.4.0 exposes no KV/session reset API — verified via
+        // javap — so prompts stay fully self-contained: the whole history is
+        // formatted into every request and LiteRT uses a fresh session per call.)
+        try {
+            if (llamaCtx.isPredicting()) llamaCtx.stopCompletion()
+        } catch (e: Throwable) {
+            Log.w(tag, "Pre-generation stop request failed: ${e.message}")
+        }
         onTokenGenerated = { token ->
             tokenChannel.trySend(token)
         }

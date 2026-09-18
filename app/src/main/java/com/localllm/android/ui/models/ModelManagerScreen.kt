@@ -82,6 +82,7 @@ import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelRuntimeType
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
+import com.localllm.android.ui.theme.LiquidBackground
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -176,11 +177,13 @@ fun ModelManagerScreen(
         },
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            LiquidBackground()
+            Column(modifier = Modifier.fillMaxSize()) {
             // Active FDM Download Monitor Widget (if downloading)
             val downloadingModel = models.firstOrNull { it.isDownloading }
             if (downloadingModel != null && activeDownloadStatus != null) {
@@ -335,6 +338,7 @@ fun ModelManagerScreen(
                 item {
                     Spacer(modifier = Modifier.height(24.dp))
                 }
+            }
             }
         }
     }

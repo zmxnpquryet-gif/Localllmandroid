@@ -90,6 +90,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
     val mcpStatusText by viewModel.mcpStatusText.collectAsState()
+    val mcpTools by viewModel.mcpTools.collectAsState()
     val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsState()
     val apiPort by viewModel.apiServerPort.collectAsState()
     val localIpAddress by viewModel.localIpAddress.collectAsState()
@@ -327,11 +328,11 @@ fun SettingsScreen(
 
             // 5. MCP (Model Context Protocol) URL Integration
             SettingsCard(
-                title = "MCP (Model Context Protocol) 연결 확인 (실험적)",
+                title = "MCP (Model Context Protocol) 도구 연동",
                 icon = Icons.Default.Hub
             ) {
                 Text(
-                    text = "MCP 서버 URL에 대한 연결 가능 여부만 확인하는 실험적 기능입니다. 실제 도구 조회·호출 연동은 아직 지원하지 않으며, 채팅에는 URL 문자열만 문맥으로 전달됩니다.",
+                    text = "MCP 서버에 JSON-RPC로 연결해 도구 목록을 조회하고, 그 정의를 채팅 프롬프트에 전달합니다. 모델의 자동 도구 실행(에이전틱 호출)은 아직 지원하지 않습니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -359,6 +360,14 @@ fun SettingsScreen(
                     Button(onClick = { viewModel.connectMcp(mcpUrlInput) }) {
                         Text("연결 및 적용")
                     }
+                }
+                if (mcpTools.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "연결된 도구: " + mcpTools.joinToString(", ") { it.name },
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
