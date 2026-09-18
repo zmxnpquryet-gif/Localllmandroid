@@ -5,32 +5,43 @@ plugins {
   alias(libs.plugins.roborazzi)
 }
 
+val releaseKeystoreFile = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
+val releaseStorePassword = System.getenv("STORE_PASSWORD")
+val releaseKeyPassword = System.getenv("KEY_PASSWORD")
+val hasReleaseSigning = releaseKeystoreFile.isFile &&
+  !releaseStorePassword.isNullOrBlank() && !releaseKeyPassword.isNullOrBlank()
+
+val validateReleaseCredentials = tasks.register("validateReleaseCredentials") {
+  doLast {
+    check(hasReleaseSigning) {
+      "Release signing requires a keystore (KEYSTORE_PATH or my-upload-key.jks), STORE_PASSWORD and KEY_PASSWORD. Debug signing is never used for release builds."
+    }
+  }
+}
+
+tasks.configureEach {
+  if (name == "preReleaseBuild") dependsOn(validateReleaseCredentials)
+}
+
 android {
   namespace = "com.localllm.android"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
-
   defaultConfig {
     applicationId = "com.localllm.android"
     minSdk = 24
     targetSdk = 36
     versionCode = 14
     versionName = "1.3.1"
-
-    ndk {
-      abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
-    }
-
+    ndk { abiFilters.addAll(listOf("arm64-v8a", "x86_64")) }
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
-
   signingConfigs {
-    val releaseKeystoreFile = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
-    if (releaseKeystoreFile.exists()) {
+    if (hasReleaseSigning) {
       create("release") {
         storeFile = releaseKeystoreFile
-        storePassword = System.getenv("STORE_PASSWORD")
+        storePassword = releaseStorePassword
         keyAlias = "upload"
-        keyPassword = System.getenv("KEY_PASSWORD")
+        keyPassword = releaseKeyPassword
       }
     }
     create("debugConfig") {
@@ -40,17 +51,12 @@ android {
       keyPassword = "android"
     }
   }
-
   buildTypes {
     release {
       isCrunchPngs = false
       isMinifyEnabled = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = if (signingConfigs.findByName("release") != null) {
-        signingConfigs.getByName("release")
-      } else {
-        signingConfigs.getByName("debugConfig")
-      }
+      signingConfig = signingConfigs.findByName("release")
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }

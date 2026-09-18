@@ -1,8 +1,10 @@
-﻿package com.localllm.android.voice
+package com.localllm.android.voice
 
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -16,33 +18,26 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
 enum class InteractiveVoiceState {
-    IDLE,
-    LISTENING,
-    PROCESSING,
-    SPEAKING
+    IDLE, LISTENING, PROCESSING, SPEAKING
 }
 
 class VoiceManager(private val context: Context) {
-
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
     private var isTtsInitialized = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val completion = SpeechCompletionTracker()
 
     private val _voiceState = MutableStateFlow(InteractiveVoiceState.IDLE)
     val voiceState: StateFlow<InteractiveVoiceState> = _voiceState.asStateFlow()
-
     private val _recognizedText = MutableStateFlow("")
     val recognizedText: StateFlow<String> = _recognizedText.asStateFlow()
-
     private val _audioAmplitude = MutableStateFlow(0f)
     val audioAmplitude: StateFlow<Float> = _audioAmplitude.asStateFlow()
-
     private val _installedVoiceTemplates = MutableStateFlow(VoiceTemplates.templates)
     val installedVoiceTemplates: StateFlow<List<VoiceModelTemplate>> = _installedVoiceTemplates.asStateFlow()
 
-    init {
-        initTts()
-    }
+    init { initTts() }
 
     private fun initTts() {
         try {
@@ -56,16 +51,13 @@ class VoiceManager(private val context: Context) {
                         isTtsInitialized = true
                         textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                             override fun onStart(utteranceId: String?) {
-                                _voiceState.value = InteractiveVoiceState.SPEAKING
+                                mainHandler.post {
+                                    if (completion.isCurrent(utteranceId)) _voiceState.value = InteractiveVoiceState.SPEAKING
+                                }
                             }
-
-                            override fun onDone(utteranceId: String?) {
-                                _voiceState.value = InteractiveVoiceState.IDLE
-                            }
-
-                            override fun onError(utteranceId: String?) {
-                                _voiceState.value = InteractiveVoiceState.IDLE
-                            }
+                            override fun onDone(utteranceId: String?) = finishSpeech(utteranceId, true)
+                            override fun onError(utteranceId: String?) = finishSpeech(utteranceId, false)
+                            override fun onStop(utteranceId: String?, interrupted: Boolean) = finishSpeech(utteranceId, false)
                         })
                     }
                 } catch (t: Throwable) {
@@ -77,35 +69,30 @@ class VoiceManager(private val context: Context) {
         }
     }
 
+    private fun finishSpeech(id: String?, successful: Boolean) {
+        // TTS callbacks are not guaranteed to run on the main thread. Revalidate
+        // after posting so a queued completion cannot restart a stopped session.
+        mainHandler.post {
+            if (completion.isCurrent(id)) {
+                _voiceState.value = InteractiveVoiceState.IDLE
+                completion.finish(id, successful)
+            }
+        }
+    }
+
     fun startListening(onResult: (String) -> Unit, onError: (String) -> Unit) {
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             onError("음성 인식을 지원하지 않는 기기입니다.")
             return
         }
-
         stopListening()
-
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
             setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {
-                    _voiceState.value = InteractiveVoiceState.LISTENING
-                }
-
-                override fun onBeginningOfSpeech() {
-                    _voiceState.value = InteractiveVoiceState.LISTENING
-                }
-
-                override fun onRmsChanged(rmsdB: Float) {
-                    // Amplitude between 0.0 and 1.0
-                    val normalized = ((rmsdB + 2f) / 12f).coerceIn(0.1f, 1f)
-                    _audioAmplitude.value = normalized
-                }
-
+                override fun onReadyForSpeech(params: Bundle?) { _voiceState.value = InteractiveVoiceState.LISTENING }
+                override fun onBeginningOfSpeech() { _voiceState.value = InteractiveVoiceState.LISTENING }
+                override fun onRmsChanged(rmsdB: Float) { _audioAmplitude.value = ((rmsdB + 2f) / 12f).coerceIn(0.1f, 1f) }
                 override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {
-                    _audioAmplitude.value = 0f
-                }
-
+                override fun onEndOfSpeech() { _audioAmplitude.value = 0f }
                 override fun onError(error: Int) {
                     _voiceState.value = InteractiveVoiceState.IDLE
                     val msg = when (error) {
@@ -116,28 +103,20 @@ class VoiceManager(private val context: Context) {
                     }
                     onError(msg)
                 }
-
                 override fun onResults(results: Bundle?) {
                     _voiceState.value = InteractiveVoiceState.IDLE
-                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    val text = matches?.firstOrNull() ?: ""
+                    val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
                     _recognizedText.value = text
-                    if (text.isNotBlank()) {
-                        onResult(text)
-                    }
+                    if (text.isNotBlank()) onResult(text)
                 }
-
                 override fun onPartialResults(partialResults: Bundle?) {
-                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    matches?.firstOrNull()?.let {
+                    partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let {
                         _recognizedText.value = it
                     }
                 }
-
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
         }
-
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
@@ -156,47 +135,44 @@ class VoiceManager(private val context: Context) {
     }
 
     fun speak(text: String, onComplete: (() -> Unit)? = null) {
-        if (!isTtsInitialized || textToSpeech == null) {
-            onComplete?.invoke()
-            return
-        }
-
         stopSpeaking()
-        _voiceState.value = InteractiveVoiceState.SPEAKING
-
-        // Strip markdown and thinking tags for TTS speech
+        if (!isTtsInitialized || textToSpeech == null) return
         val cleanSpeech = text
             .replace(Regex("<think>[\\s\\S]*?</think>"), "")
             .replace(Regex("`{1,3}[^`]*`{1,3}"), "코드 블록")
             .replace(Regex("[#*_\\[\\]()]"), "")
             .trim()
-
-        val params = Bundle()
-        params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "LocalLlmSpeech_${System.currentTimeMillis()}")
-
-        textToSpeech?.speak(cleanSpeech, TextToSpeech.QUEUE_FLUSH, params, "LocalLlmSpeech")
+        // Failure or empty output must not start another microphone session.
+        if (cleanSpeech.isBlank()) return
+        val id = completion.begin(onComplete)
+        _voiceState.value = InteractiveVoiceState.SPEAKING
+        try {
+            val result = textToSpeech?.speak(cleanSpeech, TextToSpeech.QUEUE_FLUSH, Bundle(), id)
+            if (result != TextToSpeech.SUCCESS) finishSpeech(id, false)
+        } catch (e: Exception) {
+            finishSpeech(id, false)
+            android.util.Log.w("VoiceManager", "TTS speak failed", e)
+        }
     }
 
     fun stopSpeaking() {
+        completion.cancel()
         textToSpeech?.stop()
         _voiceState.value = InteractiveVoiceState.IDLE
     }
 
-    fun setVoiceState(state: InteractiveVoiceState) {
-        _voiceState.value = state
-    }
+    fun setVoiceState(state: InteractiveVoiceState) { _voiceState.value = state }
 
     fun toggleVoiceModelInstall(templateId: String) {
         _installedVoiceTemplates.value = _installedVoiceTemplates.value.map { item ->
-            if (item.id == templateId) {
-                item.copy(isInstalled = !item.isInstalled)
-            } else item
+            if (item.id == templateId) item.copy(isInstalled = !item.isInstalled) else item
         }
     }
 
     fun release() {
         stopListening()
         stopSpeaking()
+        isTtsInitialized = false
         textToSpeech?.shutdown()
         textToSpeech = null
     }
