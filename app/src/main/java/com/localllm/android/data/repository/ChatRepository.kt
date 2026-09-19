@@ -113,4 +113,14 @@ class ChatRepository(private val chatDao: ChatDao) {
     suspend fun clearAll() = withContext(Dispatchers.IO) {
         chatDao.clearAllConversations()
     }
+
+    /** Deletes conversations that never received a message. Returns removed count. */
+    suspend fun pruneEmptyConversations(): Int = withContext(Dispatchers.IO) {
+        val emptyIds = chatDao.getEmptyConversationIds()
+        for (id in emptyIds) {
+            chatDao.deleteMessagesForConversation(id)
+            chatDao.deleteConversationById(id)
+        }
+        emptyIds.size
+    }
 }

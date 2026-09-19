@@ -1,3 +1,4 @@
+// SDengine — TEST BUILD. EXPERIMENTAL. See SDEngine.ADVISORIES.
 package com.localllm.engine
 
 import kotlin.math.exp

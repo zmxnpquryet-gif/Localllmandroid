@@ -36,7 +36,10 @@ import com.localllm.android.ui.glass.GIcon
 import com.localllm.android.ui.glass.GIconButton
 import com.localllm.android.ui.glass.GIcons
 import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GTextButton
 import com.localllm.android.ui.glass.GlassTheme
+import com.localllm.android.voice.LocalSttEngine
+import com.localllm.android.voice.SttEngine
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -290,6 +293,11 @@ fun VoiceModeScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // On-device STT status (Whisper tiny multilingual, ~75MB one-time)
+            SttStatusRow(viewModel = viewModel)
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Bottom action buttons: Mic Mute, Orb Trigger
             Row(
                 modifier = Modifier
@@ -339,6 +347,53 @@ fun VoiceModeScreen(
                     GText(text = if (voiceState == InteractiveVoiceState.IDLE) "대화 시작" else "대화 중지")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SttStatusRow(viewModel: MainViewModel) {
+    val sttState by viewModel.voiceManager.localStt.modelState.collectAsState()
+    val lastEngine by viewModel.voiceManager.lastSttEngine.collectAsState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            GText(
+                text = "온디바이스 STT (Whisper tiny • 다국어)",
+                style = GlassTheme.type.labelSmall,
+                color = Color.White.copy(alpha = 0.9f)
+            )
+            val engineNote = when (lastEngine) {
+                SttEngine.LOCAL_WHISPER -> "마지막 인식: 로컬 (오프라인)"
+                SttEngine.SYSTEM -> "마지막 인식: 시스템"
+                null -> null
+            }
+            GText(
+                text = when (val s = sttState) {
+                    is LocalSttEngine.ModelState.Missing -> "시스템 인식기 사용 중" + (engineNote?.let { " • $it" } ?: "")
+                    is LocalSttEngine.ModelState.Downloading -> "모델 다운로드 중 ${(s.progress * 100).toInt()}%"
+                    is LocalSttEngine.ModelState.Ready -> "로컬 모델 준비됨" + (engineNote?.let { " • $it" } ?: "")
+                    is LocalSttEngine.ModelState.Failed -> "다운로드 실패: ${s.message}"
+                },
+                style = GlassTheme.type.labelSmall,
+                color = Color.White.copy(alpha = 0.6f)
+            )
+        }
+        when (sttState) {
+            is LocalSttEngine.ModelState.Missing, is LocalSttEngine.ModelState.Failed -> {
+                GTextButton(onClick = { viewModel.downloadLocalStt() }) {
+                    GText(
+                        text = if (sttState is LocalSttEngine.ModelState.Failed) "재시도 (75MB)" else "받기 (75MB)",
+                        color = Color.White
+                    )
+                }
+            }
+            is LocalSttEngine.ModelState.Downloading, is LocalSttEngine.ModelState.Ready -> {}
         }
     }
 }

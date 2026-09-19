@@ -1,6 +1,8 @@
 package com.localllm.android
 
 import com.localllm.android.model.GenerationSettings
+import com.localllm.android.model.LlmModel
+import com.localllm.android.model.ModelRuntimeType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -32,5 +34,22 @@ class GenerationSettingsTest {
 
         val disabled = enabled.copy(apiServerBindAddress = "127.0.0.1")
         assertFalse(disabled.isApiExternalAccessEnabled)
+    }
+
+    @Test
+    fun sdEngine_isLabeledTestEverywhere() {
+        assertEquals("SDengine (TEST)", ModelRuntimeType.SD_ENGINE.label)
+        assertEquals("SDengine (TEST)", ModelRuntimeType.SD_ENGINE.badge)
+        val probe = LlmModel(
+            id = "probe",
+            name = "probe",
+            repoId = "",
+            fileName = "probe.gguf",
+            runtimeType = ModelRuntimeType.SD_ENGINE,
+            sizeBytes = 1L
+        )
+        assertEquals("SDengine (TEST)", probe.runtimeBadge)
+        val sdSettings = GenerationSettings().copy(runtime = ModelRuntimeType.SD_ENGINE)
+        assertEquals(ModelRuntimeType.SD_ENGINE, sdSettings.runtime)
     }
 }

@@ -56,6 +56,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()
 
+    /**
+     * Unsaved draft conversation. Empty chats live in memory only and hit the
+     * database with their first message — the drawer never fills with blanks.
+     */
+    private var pendingConversation: Conversation? = null
+
     // Messages for active conversation
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -161,6 +167,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _mcpToolsContext = MutableStateFlow<String?>(null)
 
     private var currentStreamJob: Job? = null
+    private var lastVoiceInput: String? = null
     private var messageCollectionJob: Job? = null
 
     init {
@@ -189,13 +196,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             settingsPrefs.edit().putBoolean("is_mcp_enabled", false).apply()
         }
 
-        // Auto-create initial conversation if empty
+        // Auto-create initial conversation if empty (in-memory until first message).
+        // Stale empty rows from older versions are pruned first.
         viewModelScope.launch {
+            repository.pruneEmptyConversations()
             conversations.collect { list ->
-                if (list.isEmpty() && _currentConversationId.value == null) {
-                    createNewConversation()
-                } else if (_currentConversationId.value == null && list.isNotEmpty()) {
-                    selectConversation(list.first().id)
+                if (_currentConversationId.value == null) {
+                    if (list.isEmpty()) {
+                        createNewConversation()
+                    } else {
+                        selectConversation(list.first().id)
+                    }
                 }
             }
         }
@@ -254,23 +265,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createNewConversation() {
         stopGeneration()
-        viewModelScope.launch {
-            val newId = UUID.randomUUID().toString()
-            val newConv = Conversation(
-                id = newId,
-                title = "새로운 대화",
-                modelId = _activeModel.value?.id ?: "",
-                systemPrompt = _settings.value.systemPrompt
-            )
-            repository.saveConversation(newConv)
-            selectConversation(newId)
+        setCurrentToPending(newPendingConversation())
+    }
+
+    private fun newPendingConversation(): Conversation {
+        return Conversation(
+            id = UUID.randomUUID().toString(),
+            title = "새로운 대화",
+            modelId = _activeModel.value?.id ?: "",
+            systemPrompt = _settings.value.systemPrompt
+        )
+    }
+
+    private fun setCurrentToPending(pending: Conversation) {
+        pendingConversation = pending
+        _currentConversationId.value = pending.id
+        messageCollectionJob?.cancel()
+        _messages.value = emptyList()
+        messageCollectionJob = viewModelScope.launch {
+            repository.getMessagesForConversation(pending.id).collect { msgList ->
+                _messages.value = msgList
+            }
+        }
+    }
+
+    /** Current conversation id, materializing an in-memory draft when none exists. */
+    private fun ensureConversationId(): String {
+        _currentConversationId.value?.let { return it }
+        val pending = newPendingConversation()
+        setCurrentToPending(pending)
+        return pending.id
+    }
+
+    /** Persists the in-memory draft exactly once, on its first message. */
+    private suspend fun persistPendingIfNeeded(convId: String) {
+        val pending = pendingConversation
+        if (pending != null && pending.id == convId) {
+            repository.saveConversation(pending)
+            pendingConversation = null
         }
     }
 
     fun selectConversation(conversationId: String) {
+        pendingConversation?.let { pending ->
+            if (pending.id == conversationId) {
+                if (_currentConversationId.value == conversationId && messageCollectionJob != null) return
+                stopGeneration()
+                setCurrentToPending(pending)
+                return
+            }
+            // Switching away discards the unsent draft (it holds no messages by definition).
+            pendingConversation = null
+        }
         if (_currentConversationId.value == conversationId && messageCollectionJob != null) return
-        // Never let a generation span a conversation switch: the streamed answer
-        // would otherwise be saved into the chat that is being left.
         stopGeneration()
         _currentConversationId.value = conversationId
         messageCollectionJob?.cancel()
@@ -283,6 +330,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteConversation(id: String) {
         stopGeneration()
+        if (pendingConversation?.id == id) pendingConversation = null
         viewModelScope.launch {
             repository.deleteConversation(id)
             if (_currentConversationId.value == id) {
@@ -298,6 +346,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearAllHistory() {
         stopGeneration()
+        pendingConversation = null
         viewModelScope.launch {
             database.chatDao().clearAllConversations()
             _messages.value = emptyList()
@@ -307,6 +356,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun renameConversation(id: String, newTitle: String) {
+        pendingConversation?.let {
+            if (it.id == id) {
+                pendingConversation = it.copy(title = newTitle)
+                return
+            }
+        }
         viewModelScope.launch {
             repository.renameConversation(id, newTitle)
         }
@@ -387,7 +442,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     android.util.Log.w("MainViewModel", "Model unload error", t)
                 }
             }
-            _engineStatusMessage.value = "${if (runtime == ModelRuntimeType.LLAMA_CPP) "llama.cpp" else "LiteRT LM"} 형식의 다운로드된 모델이 없습니다. 모델 관리자에서 다운로드하세요."
+            _engineStatusMessage.value = when (runtime) {
+                ModelRuntimeType.LLAMA_CPP -> "llama.cpp 형식의 다운로드된 모델이 없습니다. 모델 관리자에서 다운로드하세요."
+                ModelRuntimeType.LITE_RT -> "LiteRT LM 형식의 다운로드된 모델이 없습니다. 모델 관리자에서 다운로드하세요."
+                ModelRuntimeType.SD_ENGINE -> com.localllm.engine.SDEngine.advisoryText()
+            }
         }
     }
 
@@ -448,8 +507,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _settings.value = _settings.value.copy(reasoningEffort = effort)
     }
 
-    fun connectMcp(url: String) {
+    /** Downloads the on-device Whisper tiny STT model (~75MB, one time). */
+    fun downloadLocalStt() {
         viewModelScope.launch {
+            voiceManager.localStt.downloadModel()
+        }
+    }
+
+    fun connectMcp(url: String) {        viewModelScope.launch {
             _mcpStatusText.value = "연결 확인 중..."
             val result = mcpClient.connectServer(url)
             if (result.isSuccess) {
@@ -774,7 +839,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val attachment = _pendingAttachment.value
         if (trimmed.isEmpty() && attachment == null) return
 
-        val convId = _currentConversationId.value ?: return
+        val convId = _currentConversationId.value ?: ensureConversationId()
 
         // 1. Create and save user message
         val userMessage = ChatMessage(
@@ -786,6 +851,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _pendingAttachment.value = null
 
         viewModelScope.launch {
+            persistPendingIfNeeded(convId)
             repository.saveMessage(userMessage)
 
             // Auto-generate title if this is the first message
@@ -925,44 +991,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * User speaks -> Local LLM generates response -> TTS speaks back
      */
     fun startInteractiveVoiceSession() {
+        if (_settings.value.runtime == ModelRuntimeType.SD_ENGINE) {
+            voiceManager.speak(com.localllm.engine.SDEngine.advisoryText())
+            return
+        }
         if (_activeModel.value == null || !_activeModel.value!!.isDownloaded) {
             voiceManager.speak("다운로드된 로컬 모델이 없습니다. 모델 관리자에서 모델을 먼저 다운로드해 주세요.")
             return
         }
         voiceManager.startListening(
             onResult = { userSpokenText ->
+                // Anti-feedback guard: silence hallucinations and TTS echo would
+                // otherwise loop forever (blank or repeated input ends the session).
+                if (userSpokenText.isBlank() || userSpokenText == lastVoiceInput) {
+                    voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                    return@startListening
+                }
+                lastVoiceInput = userSpokenText
                 voiceManager.setVoiceState(InteractiveVoiceState.PROCESSING)
                 viewModelScope.launch {
-                    val convId = _currentConversationId.value ?: return@launch
-                    val userMsg = ChatMessage(conversationId = convId, role = MessageRole.USER, content = userSpokenText)
-                    repository.saveMessage(userMsg)
+                    try {
+                        // The engine (unlike the chat path) may hold no loaded model
+                        // after a cold start — load on demand instead of crashing.
+                        if (!llmEngine.isModelReady()) {
+                            val target = _activeModel.value
+                            if (target == null || !target.isDownloaded) {
+                                voiceManager.speak("다운로드된 로컬 모델이 없습니다. 모델 관리자에서 모델을 먼저 다운로드해 주세요.")
+                                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                                return@launch
+                            }
+                            _engineStatusMessage.value = "${target.name} 메모리 로드 중..."
+                            val loadResult = try {
+                                llmEngine.loadModel(target, _settings.value)
+                            } catch (t: Throwable) {
+                                "모델 로드 예외: ${t.localizedMessage ?: t.message}"
+                            }
+                            if (!llmEngine.isModelReady()) {
+                                voiceManager.speak("모델 로드 실패: $loadResult")
+                                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                                return@launch
+                            }
+                            _engineStatusMessage.value = loadResult
+                        }
+                        val convId = _currentConversationId.value ?: ensureConversationId()
+                        val userMsg = ChatMessage(conversationId = convId, role = MessageRole.USER, content = userSpokenText)
+                        persistPendingIfNeeded(convId)
+                        repository.saveMessage(userMsg)
 
-                    // Stream or generate response
-                    val answerBuilder = StringBuilder()
-                    val voiceHistory = _messages.value.takeLast(6).map { it.role.name to it.content }
-                    llmEngine.streamGenerate(
-                        prompt = userSpokenText,
-                        history = voiceHistory,
-                        settings = _settings.value,
-                        attachment = null
-                    ).collect { chunk ->
-                        if (chunk.isComplete) {
-                            val assistantMsg = ChatMessage(
-                                conversationId = convId,
-                                role = MessageRole.ASSISTANT,
-                                content = chunk.currentContentText,
-                                reasoning = chunk.currentReasoningText.ifBlank { null },
-                                tps = chunk.tps,
-                                promptSpeed = chunk.promptSpeed
-                            )
-                            repository.saveMessage(assistantMsg)
+                        // Stream or generate response
+                        val voiceHistory = _messages.value.takeLast(6).map { it.role.name to it.content }
+                        llmEngine.streamGenerate(
+                            prompt = userSpokenText,
+                            history = voiceHistory,
+                            settings = _settings.value,
+                            attachment = null
+                        ).collect { chunk ->
+                            if (chunk.isComplete) {
+                                val assistantMsg = ChatMessage(
+                                    conversationId = convId,
+                                    role = MessageRole.ASSISTANT,
+                                    content = chunk.currentContentText,
+                                    reasoning = chunk.currentReasoningText.ifBlank { null },
+                                    tps = chunk.tps,
+                                    promptSpeed = chunk.promptSpeed
+                                )
+                                repository.saveMessage(assistantMsg)
 
-                            // Speak response back
-                            voiceManager.speak(chunk.currentContentText) {
-                                // Once done speaking, listen again for natural dialogue
-                                startInteractiveVoiceSession()
+                                // Speak response back
+                                voiceManager.speak(chunk.currentContentText) {
+                                    // Once done speaking, listen again for natural dialogue
+                                    startInteractiveVoiceSession()
+                                }
                             }
                         }
+                    } catch (e: Exception) {
+                        android.util.Log.w("MainViewModel", "Voice session error", e)
+                        voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                        voiceManager.speak("음성 대화 중 오류가 발생했습니다.")
                     }
                 }
             },

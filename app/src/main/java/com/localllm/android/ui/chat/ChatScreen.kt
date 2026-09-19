@@ -84,6 +84,7 @@ fun ChatScreen(
     val isGenerating by viewModel.isGenerating.collectAsState()
     val streamingMessage by viewModel.streamingMessage.collectAsState()
     val pendingAttachment by viewModel.pendingAttachment.collectAsState()
+    val voiceState by viewModel.voiceManager.voiceState.collectAsState()
     val engineStatus by viewModel.engineStatusMessage.collectAsState()
     val isModelLoading by viewModel.isModelLoading.collectAsState()
     val modelLoadingProgress by viewModel.modelLoadingProgress.collectAsState()
@@ -262,17 +263,22 @@ fun ChatScreen(
                     reasoningEffort = settings.reasoningEffort,
                     onReasoningEffortChanged = { viewModel.setReasoningEffort(it) },
                     onStartVoiceInput = {
-                        val hasMic = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (hasMic) {
-                            viewModel.voiceManager.startListening(
-                                onResult = { text -> inputText = text },
-                                onError = { err -> Toast.makeText(context, err, Toast.LENGTH_SHORT).show() }
-                            )
+                        // Local recording toggles: tap again to stop & transcribe on-device.
+                        if (voiceState == com.localllm.android.voice.InteractiveVoiceState.LISTENING) {
+                            viewModel.voiceManager.stopListening()
                         } else {
-                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            val hasMic = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasMic) {
+                                viewModel.voiceManager.startListening(
+                                    onResult = { text -> inputText = text },
+                                    onError = { err -> Toast.makeText(context, err, Toast.LENGTH_SHORT).show() }
+                                )
+                            } else {
+                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
                         }
                     },
                     onOpenVoiceMode = { viewModel.navigateTo(AppScreen.VOICE_MODE) }
@@ -396,8 +402,47 @@ fun ChatScreen(
                         }
                     }
 
-                    // Engine Status Pill Banner
-                    if (!engineStatus.isNullOrBlank()) {
+                // SDengine TEST Banner (shows whenever the experimental engine is selected)
+                if (settings.runtime == com.localllm.android.model.ModelRuntimeType.SD_ENGINE) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        GCard(cornerRadius = 16.dp) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(GlassTheme.colors.errorContainer.copy(alpha = 0.45f))
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    GIcon(
+                                        imageVector = GIcons.ErrorOutline,
+                                        contentDescription = null,
+                                        tint = GlassTheme.colors.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    GText(
+                                        text = "⚠ SDengine (TEST) — 자체 엔진 실험체. " +
+                                                com.localllm.engine.SDEngine.advisoryText(),
+                                        fontSize = 11.sp,
+                                        color = GlassTheme.colors.onErrorContainer,
+                                        maxLines = 5,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Engine Status Pill Banner
+                if (!engineStatus.isNullOrBlank()) {
                         val isErrorStatus = engineStatus?.contains("오류") == true ||
                                 engineStatus?.contains("실패") == true ||
                                 engineStatus?.contains("Error") == true ||

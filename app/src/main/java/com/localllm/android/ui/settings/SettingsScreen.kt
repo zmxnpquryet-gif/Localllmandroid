@@ -133,6 +133,21 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f)
                     )
                 }
+                Spacer(modifier = Modifier.height(10.dp))
+                GFilterChip(
+                    selected = settings.runtime == ModelRuntimeType.SD_ENGINE,
+                    onClick = { viewModel.switchRuntime(ModelRuntimeType.SD_ENGINE) },
+                    label = { GText("⚠ SDengine (TEST) — 자체 엔진 실험체") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (settings.runtime == ModelRuntimeType.SD_ENGINE) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    GText(
+                        text = com.localllm.engine.SDEngine.advisoryText(),
+                        style = GlassTheme.type.bodySmall,
+                        color = GlassTheme.colors.error
+                    )
+                }
             }
 
             // 2. Hardware Acceleration & MTP Options

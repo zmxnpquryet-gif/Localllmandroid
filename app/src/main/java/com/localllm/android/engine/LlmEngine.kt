@@ -132,12 +132,22 @@ class LlmEngine(private val context: Context) {
      *
      * Holds [inferenceMutex] for the whole swap so a generation can never run
      * against a half-released native context.
+     *
+     * SDengine gate: the first-party engine is TEST-stage and cannot run models
+     * on-device yet. Selecting it unloads everything and refuses loudly instead
+     * of silently falling back to another backend.
      */
     suspend fun loadModel(
         model: LlmModel?,
         settings: GenerationSettings,
         onStageUpdate: ((stage: String, progress: Float) -> Unit)? = null
     ): String {
+        if (settings.runtime == ModelRuntimeType.SD_ENGINE) {
+            release()
+            onStageUpdate?.invoke("SDengine (TEST)", 0f)
+            return com.localllm.engine.SDEngine.advisoryText() +
+                    " 모델 로드가 거부되었습니다. llama.cpp 또는 LiteRT LM을 선택하세요."
+        }
         inferenceMutex.lock()
         try {
             return withContext(Dispatchers.IO) {
@@ -609,6 +619,11 @@ class LlmEngine(private val context: Context) {
         mcpToolsContext: String? = null,
         numPredictOverride: Int? = null
     ): Flow<GenerationChunk> = flow {
+        if (settings.runtime == ModelRuntimeType.SD_ENGINE) {
+            throw IllegalStateException(
+                com.localllm.engine.SDEngine.advisoryText() + " 추론 요청이 거부되었습니다."
+            )
+        }
         if (!inferenceMutex.tryLock()) {
             throw IllegalStateException("BUSY_INFERENCE: 다른 추론 요청이 진행 중입니다. 잠시 후 다시 시도하세요.")
         }

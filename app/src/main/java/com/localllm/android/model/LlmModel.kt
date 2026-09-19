@@ -2,7 +2,9 @@
 
 enum class ModelRuntimeType(val label: String, val badge: String) {
     LLAMA_CPP("llama.cpp", "GGUF"),
-    LITE_RT("LiteRT LM", "LiteRT")
+    LITE_RT("LiteRT LM", "LiteRT"),
+    /** SDengine: first-party experimental engine (TEST — refuses on-device inference). */
+    SD_ENGINE("SDengine (TEST)", "SDengine (TEST)")
 }
 
 enum class PromptTemplateType(val id: String, val displayName: String) {
@@ -69,6 +71,7 @@ data class LlmModel(
         get() = when (runtimeType) {
             ModelRuntimeType.LLAMA_CPP -> "llama.cpp (GGUF)"
             ModelRuntimeType.LITE_RT -> "LiteRT"
+            ModelRuntimeType.SD_ENGINE -> "SDengine (TEST)"
         }
 }
 

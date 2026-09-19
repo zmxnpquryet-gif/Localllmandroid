@@ -48,4 +48,11 @@ interface ChatDao {
 
     @Query("DELETE FROM conversations")
     suspend fun clearAllConversations()
+
+    /**
+     * IDs of conversations that hold zero messages. Used to avoid persisting
+     * chats the user never wrote in (empty chats are kept in memory only).
+     */
+    @Query("SELECT c.id FROM conversations c LEFT JOIN messages m ON m.conversationId = c.id WHERE m.id IS NULL")
+    suspend fun getEmptyConversationIds(): List<String>
 }

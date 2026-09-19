@@ -96,6 +96,8 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(project(":engine"))
+  // On-device speech recognition (sherpa-onnx, official AAR — no Maven artifact exists)
+  implementation(files("libs/sherpa-onnx.aar"))
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)

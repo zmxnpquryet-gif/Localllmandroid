@@ -22,3 +22,8 @@ android {
 dependencies {
   testImplementation(libs.junit)
 }
+
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+  // Real-model tests (opt-in via LOCALENGINE_MODEL) decode hundreds of MB.
+  maxHeapSize = "5g"
+}
