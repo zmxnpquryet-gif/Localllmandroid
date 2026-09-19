@@ -122,5 +122,62 @@ Verified: `compileDebugKotlin` + `compileDebugUnitTestKotlin` green, `testDebugU
 3. **Status text is not re-localized at runtime** on language switch until reassigned (snapshot strings in `MainViewModel`).
 4. **P2 test-health item is obsolete**: `RealModelTest`/`RealMoETest` do not exist in the repo.
 5. ~~No instrumented/on-device test.~~ **Resolved:** `connectedDebugAndroidTest` on a Pixel API 35 x86_64 emulator now runs 13 tests — real Android Keystore crypto round-trip, hardcoded-legacy-key rejection, tampered-ciphertext rejection, on-device Room encryption, corrupt-row skipping, atomic prune, and sherpa native-library loading. Caveat: backup *transport* behaviour is still only verified at the config level (`BackupRulesTest` parses the shipped XML), not by a real device restore.
+6. **v1.5.0 GitHub Release is not published yet.** The commit and tag are pushed; the release object needs a signed `app-release.apk`, which requires the upload-keystore credentials. Local `keystore.properties` support now exists (gitignored) — see Session State below.
+7. **SDengine warnings deliberately kept.** The engine is not wired up as a usable runtime yet (see Session State → SDengine verdict).
+
+---
+
+## Session State — 2026-09-20 (handoff)
+
+### Git
+- Branch `main`, pushed to `origin`, working tree clean.
+- `fb3c141` — `fix(security): drop hardcoded chat key, encrypt tokens, harden storage; localize UI` (44 files, +1831/−541)
+- `089092f` — `chore: release 1.5.0 (16)` (versionCode 16 / versionName 1.5.0)
+- `3220ef3` — `build: support local keystore.properties for release signing`
+- Tag `v1.5.0` pushed (previous release tag: `v1.4.0`, which has an `app-release.apk` asset signed with the upload key).
+- No GitHub Release object created yet for v1.5.0.
+
+### Verification (all green)
+- Unit: `gradlew testDebugUnitTest` → 15 suites / **50 tests, 0 failures, 0 skipped**.
+- Instrumented: `gradlew connectedDebugAndroidTest` on `Pixel_API35(AVD) - 15` (x86_64 emulator) → **13 tests, 0 failures**, exit code 0.
+- `gradlew assembleDebug` → SUCCESSFUL (`app-debug.apk`).
+
+### Implemented this session (on top of the Audit Correction section)
+**Security / stability**
+- `ChatCrypto`: hardcoded legacy AES key and silent decrypt fallback deleted; fail closed with `SecurityException`; Robolectric key is random per process.
+- Backup: `file` domain excluded from cloud backup + device transfer (`backup_rules.xml`, `data_extraction_rules.xml`).
+- `ModelStorageManager`: HF token encrypted at rest (`encryptTokenOrEmpty` / `decryptStoredToken`, legacy `hf_` plaintext tolerated); `sanitizeFileName` applied to imports and all custom bundle names.
+- `ApiServerScreen`: API key masked with reveal toggle (copy uses the real key, including cURL).
+- `MainViewModel`: 32 KiB message cap; `localizedString` helper.
+- `ChatRepository`: undecryptable rows skipped (CancellationException rethrown); write `Mutex`; atomic rename + prune in `ChatDao`.
+- `ModelDownloader`: `downloadSingleStream` fully `.use{}`-wrapped.
+- Dead code removed: `activeDownloadJob`, `ArtisticCardDark/Light`, `GLabelWithDot`, `colors.xml`, material3/material-icons catalog entries, two orphaned DAO methods.
+
+**UI / i18n / a11y**
+- All hardcoded UI strings moved to `values/strings.xml` + `values-ko/strings.xml` (**343 keys each**, exact parity); `ChatScreen` error detection made language-independent.
+- `GSwitch` → `toggleable` + `Role.Switch`; `GSlider` → progress semantics; `GIconButton` 48dp; drawer/sheet scrims have `contentDescription`; `glassHighlight()` replaces hardcoded white.
+
+**Build / repo hygiene**
+- `app/libs/sherpa-onnx.aar` (~50 MB) untracked. New Gradle task `fetchSherpaAar` downloads the official v1.13.8 asset (SHA-256 pinned) into `app/libs` and is wired into `preBuild`; CI caches it. Verified by deleting the local file and rebuilding.
+- Release signing can now read a gitignored `keystore.properties` (env vars still win). Verified both paths.
+
+**Tests added**
+- Unit: `BackupRulesTest`, `ModelFileNameTest`, `StringResourceParityTest`; `ChatCryptoTest` updated for the fail-closed policy.
+- Instrumented: `ChatCryptoInstrumentedTest`, `ChatRepositoryInstrumentedTest`, `SherpaNativeLibInstrumentedTest`.
+
+### Pending — needs the project owner
+1. **Publish the v1.5.0 release with the signed APK.** Create `C:\Users\user\Downloads\Localllmandroid\keystore.properties` (gitignored) with the real upload-key values, then:
+   ```properties
+   storeFile=my-upload-key.jks
+   storePassword=<real store password>
+   keyAlias=upload
+   keyPassword=<real key password>
+   ```
+   Then `gradlew assembleRelease` → `app/build/outputs/apk/release/app-release.apk` → attach to a `v1.5.0` GitHub Release. (Release builds are never debug-signed.)
+2. **SDengine verdict: NOT settled — keep the warnings.** Evidence: `LlmEngine.loadModel` returns a refusal for `SD_ENGINE` (LlmEngine.kt:145) and `streamGenerate` throws (LlmEngine.kt:622); there is no end-to-end generation test (`RealModelTest` only opens the model); `SDBrandingTest` pins `STAGE == "TEST"` and the advisory text. To settle it: wire SDengine into `LlmEngine` as a real runtime and add an end-to-end generation test over a real MoE GGUF; then the app-side banners can come down.
+3. `LlmModel`/`ModelCatalog` model names and descriptions are still Korean — that is catalog *content* and needs translation, not string extraction.
+4. Status text already on screen is not re-localized when the language changes at runtime (snapshot strings in `MainViewModel`).
+5. Backup *transport* behaviour is still only verified at the config level (`BackupRulesTest`), not by a real device restore.
+
 
 
