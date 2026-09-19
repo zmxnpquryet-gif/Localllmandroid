@@ -15,9 +15,11 @@
   <img src="https://img.shields.io/badge/Platform-Android%2024%2B-green.svg" alt="Platform" />
   <img src="https://img.shields.io/badge/Runtime-llama.cpp%20%7C%20LiteRT--LM-orange.svg" alt="Runtime" />
   <img src="https://img.shields.io/badge/API-Ollama%20%7C%20OpenAI%20Port%2011434-blueviolet.svg" alt="API" />
+  <img src="https://img.shields.io/badge/MCP-Client%20Ready-1f8f8f.svg" alt="MCP" />
+  <img src="https://img.shields.io/badge/UI-EN%20%2F%20KO%20Switcher-ff69b4.svg" alt="Multilingual" />
 </p>
 
-완전 오프라인 환경에서 동작하는 고성능 안드로이드 온디바이스 LLM(대형 언어 모델) 애플리케이션입니다. 외부 클라우드나 API 통신 없이, 기기의 CPU, GPU, NPU 하드웨어를 직접 활용하여 안전하게 인공지능 모델을 구동합니다.
+완전 오프라인 환경에서 동작하는 고성능 안드로이드 온디바이스 LLM(대형 언어 모델) 애플리케이션입니다. 외부 클라우드나 API 통신 없이, 기기의 CPU, GPU, NPU 하드웨어를 직접 활용하여 안전하게 인공지능 모델을 구동합니다. UI는 자체 개발 **글래스 디자인 시스템** 위에서 동작하며 설정에서 **영어/한국어 실시간 전환**이 가능하고, 채팅에서 도구 호출을 위해 네이티브 **MCP 클라이언트**를 지원합니다. 또한 자체 MoE 연구 엔진(**SDengine**)이 `:engine` 모듈로 오픈소스로 개발 중입니다.
 
 ---
 
@@ -51,6 +53,8 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
    • Qwen, DeepSeek-R1, Llama 3 등               • Gemma-2, 모바일 NPU 가속 타깃
    • CPU 멀티스레딩 & GPU 레이어 오프로딩          • GPU(OpenCL/Vulkan) & NPU 가속
    • mmproj 비전타워 연동 (멀티모달)              • 저전력 / 고효율 모바일 추론
+
+        (+ SDengine — :engine 모듈의 실험적 자체 MoE 엔진, 아래 참조)
 ```
 
 ### 왜 두 엔진을 함께 사용하는가? (Dual-Runtime Rationale)
@@ -98,7 +102,7 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 2. **오프라인 텍스트 추론 및 로컬 저장**
    - 텍스트 추론 과정의 대화 내역 및 프롬프트가 외부 서버나 클라우드로 일절 전송되지 않습니다.
    - 모든 대화 기록은 로컬 암호화 SQLite Room 데이터베이스에만 저장됩니다.
-   - 참고: 시스템 음성 인식(STT)·합성(TTS)은 기기의 음성 서비스를 이용할 수 있으며, 완전한 오프라인 음성을 위해서는 온디바이스 인식 팩이 필요합니다.
+   - 참고: 음성 인식(STT)은 **로컬 Whisper STT 엔진**(`LocalSttEngine`)으로 온디바이스 처리되며, 음성 합성(TTS)은 기기 내장 음성 서비스를 사용할 수 있습니다.
 
 ---
 
@@ -108,14 +112,38 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
   - **llama.cpp(GGUF)**: `llamaCtx.tokenize()` 네이티브 토큰화 호출을 통해 실제 토큰 수 기반의 `promptSpeed`(초당 처리 토큰 수) 및 `tps`(생성 속도)를 측정.
   - **Google LiteRT-LM**: C++ 코어의 `conv.getBenchmarkInfo()` 네이티브 지표를 직접 연동하여 오차 없는 실시간 성능 표기.
 - **핸즈프리 음성 대화 모드 (Interactive Voice Mode)**:
-   - 음성 인식(시스템 STT, 온디바이스 우선) → 온디바이스 LLM 추론 → 음성 합성(TTS) 루프 자동 수행.
+   - 음성 인식(**로컬 Whisper STT**, 온디바이스) → 온디바이스 LLM 추론 → 음성 합성(TTS) 루프 자동 수행.
   - 리액티브 Voice Orb 애니메이션 탑재.
 - **스트리밍 추론 상태머신 (`ReasoningStreamParser`)**:
   - DeepSeek-R1 등 추론 모델의 `<think>`, `</think>` 태그가 토큰 스트리밍 단위로 쪼개져 수신되는 경우에도 버퍼 상태머신을 통해 생각 과정과 최종 답변을 안정적으로 분리 표기.
+- **MCP 프로토콜 클라이언트 (`McpClient`)**:
+  - 네이티브 MCP 프로토콜 클라이언트를 탑재하여 세션별 격리 가드와 함께 온디바이스 채팅에서 도구 사용을 지원합니다.
+- **자체 글래스 디자인 시스템 (`ui/glass`)**:
+  - Material3를 완전히 제거하고 자체 글래스 UI 툴킷(`GlassTheme`, `GButtons`, `GControls`, `GOverlays` 등)으로 모든 화면을 커버합니다.
+- **인앱 이중 언어 UI (영어 / 한국어)**:
+  - 설정에서 시스템 기본값 / English / 한국어를 앱 재시작 없이 즉시 실시간 전환합니다.
 - **사전 OOM 진단 및 보호 가드 (`checkMemoryDiagnostics`)**:
   - 모델 로딩 전 `ActivityManager.MemoryInfo`를 통해 가용 RAM과 모델 파일 크기를 대조하여 메모리 고갈로 인한 네이티브 프로세스 비정상 종료(SIGSEGV)를 사전 예방.
 - **타입 안전한 전역 네비게이션 (`AppScreen`) & 시스템 제스처 핸들링**:
   - 모든 UI 화면 컴포넌트의 화면 전환을 `AppScreen` enum으로 관리하며, 서브 화면에서 시스템 뒤로가기 제스처 시 메인 채팅으로 자연스럽게 복귀.
+
+---
+
+## 🧪 SDengine — 실험적 자체 추론 엔진 (`:engine`)
+
+독립 안드로이드 라이브러리 모듈로 자체 MoE 전용 추론 코어를 오픈소스로 개발하고 있습니다.
+
+**범위(의도된 설계):** 안드로이드에서 C++로 동작하는 gated-expert Mixture-of-Experts 전용. Dense 전용 모델 및 비-MoE 하이브리드는 범위 밖입니다.
+
+**현재 포함된 것:**
+- GGUF 리더 + 메타데이터 감지, BPE 토크나이저, 샘플러, KV 캐시 (`GgufReader`, `BpeTokenizer`, `Sampler`, `KvCache`)
+- 페이징 전문가 스트리밍: dense 가중치는 상한 내 상주 디코딩, expert 타일은 스토리지에 두고 `ExpertPager`로 스트리밍
+- NDK 27 + CMake 기반 C++ JNI 코어 (`arm64-v8a`, `x86_64`)
+- 실제 MoE 가중치 기반 수치 검증 (라이브 Qwen3-30B-A3B를 HTTP range 스트리밍으로 검증)
+
+**상태: TEST BUILD / 실험체 — 프로덕션 사용 금지.**
+- 레퍼런스 스칼라 커널로 수학을 검증 중이며, NEON/GPU 커널이 다음 단계입니다.
+- 온디바이스 엔드투엔드 추론은 아직 준비되지 않았으며, 앱 레이어는 조용한 추론을 거부하고 엔진 어드바이저리(`SDEngine.ADVISORIES`)를 표시합니다.
 
 ---
 
@@ -124,6 +152,7 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 ### 요구 사항
 - Android Studio Ladybug 이상 / JDK 17
 - Android SDK 36, Min SDK 24
+- Android NDK 27.2 + CMake 3.22 이상 (`:engine` 모듈 빌드에 필요)
 - NDK 지원 기기 (ARM64-v8a, x86_64)
 
 ### 빌드 명령어
