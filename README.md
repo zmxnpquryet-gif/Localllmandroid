@@ -96,9 +96,10 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
    - Authenticated Encryption (AEAD) ensures conversational data cannot be intercepted or tampered with.
    - Strict prevention of silent downgrades to insecure hardcoded keys.
 
-2. **100% Offline & Private**
-   - Zero telemetry, zero analytics, zero external API dependencies.
+2. **Offline Text Inference & Private Storage**
+   - Zero telemetry, zero analytics, zero external API dependencies for text inference.
    - Conversations and prompts remain strictly on your physical device in an encrypted Room SQLite database.
+   - Note: system voice recognition (STT) and speech synthesis (TTS) may use the device's speech services; offline-only voice requires an on-device recognition pack.
 
 ---
 
@@ -107,7 +108,7 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
 - **Real-Time Hardware Benchmarking**:
   - Displays prompt prefill speed (`promptSpeed` tokens/sec), generation decode speed (`tps`), and active context token counts on every message.
 - **Interactive Voice Mode**:
-  - Hands-free conversational loop: On-device Speech-to-Text (STT) → LLM generation → Text-to-Speech (TTS) response.
+   - Hands-free conversational loop: system speech recognition (on-device preferred) → local LLM generation → Text-to-Speech (TTS) response.
   - Visualized with an animated reactive Voice Orb.
 - **Streaming Reasoning State Machine (`ReasoningStreamParser`)**:
   - Elegantly parses `<think>` ... `</think>` tags across token streaming chunks for reasoning models like DeepSeek-R1.

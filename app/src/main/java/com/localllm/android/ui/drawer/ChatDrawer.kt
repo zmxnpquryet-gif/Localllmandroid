@@ -18,29 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.ui.res.stringResource
-import com.localllm.android.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,10 +27,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.localllm.android.R
 import com.localllm.android.model.Conversation
+import com.localllm.android.ui.glass.GDialog
+import com.localllm.android.ui.glass.GDivider
+import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIconButton
+import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GTextButton
+import com.localllm.android.ui.glass.GTextField
+import com.localllm.android.ui.glass.GlassTheme
 
 @Composable
 fun ChatDrawer(
@@ -82,7 +70,7 @@ fun ChatDrawer(
         modifier = modifier
             .fillMaxHeight()
             .width(310.dp)
-            .background(MaterialTheme.colorScheme.surface)
+            .background(GlassTheme.colors.surface.copy(alpha = 0.82f))
             .statusBarsPadding()
             .padding(vertical = 12.dp)
     ) {
@@ -92,10 +80,10 @@ fun ChatDrawer(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .background(GlassTheme.colors.surfaceVariant)
                 .border(
                     1.dp,
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                    GlassTheme.colors.primary.copy(alpha = 0.25f),
                     RoundedCornerShape(12.dp)
                 )
                 .clickable { onNewChat() }
@@ -104,23 +92,23 @@ fun ChatDrawer(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Add,
+                GIcon(
+                    imageVector = GIcons.Add,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = GlassTheme.colors.primary,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                Text(
+                GText(
                     text = stringResource(R.string.new_chat),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface
+                    style = GlassTheme.type.titleSmall,
+                    color = GlassTheme.colors.onSurface
                 )
             }
-            Icon(
-                imageVector = Icons.Default.Edit,
+            GIcon(
+                imageVector = GIcons.Edit,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = GlassTheme.colors.onSurfaceVariant,
                 modifier = Modifier.size(16.dp)
             )
         }
@@ -131,35 +119,29 @@ fun ChatDrawer(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .background(GlassTheme.colors.surfaceVariant.copy(alpha = 0.5f))
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Search,
+                GIcon(
+                    imageVector = GIcons.Search,
                     contentDescription = "검색",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = GlassTheme.colors.onSurfaceVariant,
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                TextField(
+                GTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     placeholder = {
-                        Text(
+                        GText(
                             text = "대화 검색...",
                             fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = GlassTheme.colors.onSurfaceVariant
                         )
                     },
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
-                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -172,24 +154,21 @@ fun ChatDrawer(
                 .padding(horizontal = 20.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.Lock,
+            GIcon(
+                imageVector = GIcons.Lock,
                 contentDescription = "암호화",
-                tint = MaterialTheme.colorScheme.primary,
+                tint = GlassTheme.colors.primary,
                 modifier = Modifier.size(12.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
-            Text(
+            GText(
                 text = "로컬 SQLite AES-256 암호화 저장됨",
                 fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = GlassTheme.colors.onSurfaceVariant
             )
         }
 
-        HorizontalDivider(
-            modifier = Modifier.padding(vertical = 8.dp),
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
-        )
+        GDivider(modifier = Modifier.padding(vertical = 8.dp))
 
         // 3. Conversation List
         LazyColumn(
@@ -200,10 +179,10 @@ fun ChatDrawer(
         ) {
             if (filtered.isEmpty()) {
                 item {
-                    Text(
+                    GText(
                         text = "대화 기록이 없습니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = GlassTheme.type.bodySmall,
+                        color = GlassTheme.colors.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp)
                     )
                 }
@@ -215,7 +194,7 @@ fun ChatDrawer(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(
-                                if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+                                if (isSelected) GlassTheme.colors.primaryContainer.copy(alpha = 0.8f)
                                 else Color.Transparent
                             )
                             .clickable { onSelectConversation(conv.id) }
@@ -227,47 +206,47 @@ fun ChatDrawer(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f)
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Chat,
+                            GIcon(
+                                imageVector = GIcons.Chat,
                                 contentDescription = null,
-                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = if (isSelected) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text(
+                            GText(
                                 text = conv.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                style = GlassTheme.type.bodyMedium,
+                                color = if (isSelected) GlassTheme.colors.onPrimaryContainer else GlassTheme.colors.onSurface,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
 
                         if (isSelected) {
                             Row {
-                                IconButton(
+                                GIconButton(
                                     onClick = {
                                         renameTargetConv = conv
                                         newTitleInput = conv.title
                                     },
                                     modifier = Modifier.size(24.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
+                                    GIcon(
+                                        imageVector = GIcons.Edit,
                                         contentDescription = "수정",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        tint = GlassTheme.colors.onSurfaceVariant,
                                         modifier = Modifier.size(14.dp)
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(4.dp))
-                                IconButton(
+                                GIconButton(
                                     onClick = { onDeleteConversation(conv.id) },
                                     modifier = Modifier.size(24.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
+                                    GIcon(
+                                        imageVector = GIcons.Delete,
                                         contentDescription = "삭제",
-                                        tint = MaterialTheme.colorScheme.error,
+                                        tint = GlassTheme.colors.error,
                                         modifier = Modifier.size(14.dp)
                                     )
                                 }
@@ -278,7 +257,7 @@ fun ChatDrawer(
             }
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+        GDivider()
 
         // 4. Bottom Navigation actions
         Column(
@@ -296,22 +275,22 @@ fun ChatDrawer(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Storage,
+                GIcon(
+                    imageVector = GIcons.Storage,
                     contentDescription = stringResource(R.string.nav_models),
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = GlassTheme.colors.primary,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
-                    Text(
+                    GText(
                         text = stringResource(R.string.nav_models),
-                        style = MaterialTheme.typography.bodyMedium
+                        style = GlassTheme.type.bodyMedium
                     )
-                    Text(
+                    GText(
                         text = "GGUF / LiteRT LM",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = GlassTheme.type.labelSmall,
+                        color = GlassTheme.colors.onSurfaceVariant
                     )
                 }
             }
@@ -325,22 +304,22 @@ fun ChatDrawer(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Headphones,
+                GIcon(
+                    imageVector = GIcons.Headphones,
                     contentDescription = stringResource(R.string.nav_voice_mode),
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = GlassTheme.colors.primary,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
-                    Text(
+                    GText(
                         text = stringResource(R.string.nav_voice_mode),
-                        style = MaterialTheme.typography.bodyMedium
+                        style = GlassTheme.type.bodyMedium
                     )
-                    Text(
+                    GText(
                         text = "STT + TTS",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = GlassTheme.type.labelSmall,
+                        color = GlassTheme.colors.onSurfaceVariant
                     )
                 }
             }
@@ -354,22 +333,22 @@ fun ChatDrawer(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Dns,
+                GIcon(
+                    imageVector = GIcons.Dns,
                     contentDescription = stringResource(R.string.nav_api_mode),
-                    tint = MaterialTheme.colorScheme.secondary,
+                    tint = GlassTheme.colors.secondary,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
-                    Text(
+                    GText(
                         text = stringResource(R.string.nav_api_mode),
-                        style = MaterialTheme.typography.bodyMedium
+                        style = GlassTheme.type.bodyMedium
                     )
-                    Text(
+                    GText(
                         text = "Port 11434 Ollama/OpenAI",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = GlassTheme.type.labelSmall,
+                        color = GlassTheme.colors.onSurfaceVariant
                     )
                 }
             }
@@ -383,16 +362,16 @@ fun ChatDrawer(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
+                GIcon(
+                    imageVector = GIcons.Settings,
                     contentDescription = stringResource(R.string.nav_settings),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = GlassTheme.colors.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                Text(
+                GText(
                     text = stringResource(R.string.nav_settings),
-                    style = MaterialTheme.typography.bodyMedium
+                    style = GlassTheme.type.bodyMedium
                 )
             }
         }
@@ -400,20 +379,20 @@ fun ChatDrawer(
 
     // Rename Dialog
     if (renameTargetConv != null) {
-        AlertDialog(
+        GDialog(
             onDismissRequest = { renameTargetConv = null },
-            title = { Text("대화 제목 변경") },
+            title = { GText("대화 제목 변경") },
             text = {
-                OutlinedTextField(
+                GTextField(
                     value = newTitleInput,
                     onValueChange = { newTitleInput = it },
-                    label = { Text("대화 제목") },
+                    label = { GText("대화 제목") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
-                TextButton(
+                GTextButton(
                     onClick = {
                         val conv = renameTargetConv
                         if (conv != null && newTitleInput.isNotBlank()) {
@@ -422,12 +401,12 @@ fun ChatDrawer(
                         renameTargetConv = null
                     }
                 ) {
-                    Text("변경")
+                    GText("변경")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { renameTargetConv = null }) {
-                    Text("취소")
+                GTextButton(onClick = { renameTargetConv = null }) {
+                    GText("취소")
                 }
             }
         )

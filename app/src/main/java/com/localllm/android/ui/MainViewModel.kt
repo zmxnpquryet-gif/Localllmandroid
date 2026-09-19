@@ -154,6 +154,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _mcpStatusText = MutableStateFlow<String>("미연결")
     val mcpStatusText: StateFlow<String> = _mcpStatusText.asStateFlow()
 
+    private val _mcpTools = MutableStateFlow<List<com.localllm.android.engine.McpTool>>(emptyList())
+    val mcpTools: StateFlow<List<com.localllm.android.engine.McpTool>> = _mcpTools.asStateFlow()
+
+    /** Prompt-ready rendering of the *actually connected* MCP tools. Null when none. */
+    private val _mcpToolsContext = MutableStateFlow<String?>(null)
+
     private var currentStreamJob: Job? = null
     private var messageCollectionJob: Job? = null
 
@@ -172,6 +178,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             _activeModel.value = null
             _engineStatusMessage.value = "기본 모델 미탑재: 모델 관리자에서 최신 모델을 다운로드하세요."
+        }
+
+        // Restore MCP session: tool handles live per-process, so re-list them when
+        // the user left MCP enabled with a saved URL.
+        if (_settings.value.isMcpEnabled && _settings.value.mcpServerUrl.isNotBlank()) {
+            connectMcp(_settings.value.mcpServerUrl)
+        } else if (_settings.value.isMcpEnabled) {
+            _settings.value = _settings.value.copy(isMcpEnabled = false)
+            settingsPrefs.edit().putBoolean("is_mcp_enabled", false).apply()
         }
 
         // Auto-create initial conversation if empty
@@ -238,6 +253,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun createNewConversation() {
+        stopGeneration()
         viewModelScope.launch {
             val newId = UUID.randomUUID().toString()
             val newConv = Conversation(
@@ -252,6 +268,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectConversation(conversationId: String) {
+        if (_currentConversationId.value == conversationId && messageCollectionJob != null) return
+        // Never let a generation span a conversation switch: the streamed answer
+        // would otherwise be saved into the chat that is being left.
+        stopGeneration()
         _currentConversationId.value = conversationId
         messageCollectionJob?.cancel()
         messageCollectionJob = viewModelScope.launch {
@@ -262,6 +282,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteConversation(id: String) {
+        stopGeneration()
         viewModelScope.launch {
             repository.deleteConversation(id)
             if (_currentConversationId.value == id) {
@@ -276,6 +297,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearAllHistory() {
+        stopGeneration()
         viewModelScope.launch {
             database.chatDao().clearAllConversations()
             _messages.value = emptyList()
@@ -300,6 +322,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        // Swapping weights under a running generation would release the native
+        // context it is using; stop first (loadModel also serializes via Mutex).
+        stopGeneration()
         modelLoadingJob?.cancel()
         modelLoadingJob = viewModelScope.launch {
             _isModelLoading.value = true
@@ -373,6 +398,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateSettings(newSettings: GenerationSettings) {
+        val previous = _settings.value
         _settings.value = newSettings
         settingsPrefs.edit().apply {
             putString("hf_token", newSettings.hfToken)
@@ -394,6 +420,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putBoolean("is_mcp_enabled", newSettings.isMcpEnabled)
             apply()
         }
+        // Sampling options (temperature/topP/topK/system prompt) apply per request,
+        // so only runtime-affecting changes justify a full weight reload. Reloading on
+        // every slider tick used to thrash the native context dozens of times per drag.
+        val needsReload = previous.runtime != newSettings.runtime ||
+                previous.contextWindow != newSettings.contextWindow ||
+                previous.enableGpuAcceleration != newSettings.enableGpuAcceleration ||
+                previous.gpuLayers != newSettings.gpuLayers
+        if (!needsReload) return
         viewModelScope.launch {
             try {
                 val status = llmEngine.loadModel(_activeModel.value, newSettings)
@@ -418,15 +452,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _mcpStatusText.value = "연결 확인 중..."
             val result = mcpClient.connectServer(url)
-            _mcpStatusText.value = if (result.isSuccess) {
-                "${result.serverName} (${result.latencyMs}ms, ${result.tools.size}개 도구)"
+            if (result.isSuccess) {
+                _mcpTools.value = result.tools
+                _mcpToolsContext.value = McpClient.buildToolsContext(result.serverName, result.tools)
+                _mcpStatusText.value = "${result.serverName} (${result.latencyMs}ms, ${result.tools.size}개 도구)"
             } else {
-                "연결 실패: ${result.message}"
+                mcpClient.disconnect()
+                _mcpTools.value = emptyList()
+                _mcpToolsContext.value = null
+                _mcpStatusText.value = "연결 실패: ${result.message}"
             }
             _settings.value = _settings.value.copy(
                 mcpServerUrl = url,
                 isMcpEnabled = result.isSuccess
             )
+            settingsPrefs.edit()
+                .putString("mcp_server_url", url)
+                .putBoolean("is_mcp_enabled", result.isSuccess)
+                .apply()
         }
     }
 
@@ -821,7 +864,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         history = history,
                         settings = _settings.value,
                         attachment = userMessage.attachment,
-                        mcpToolsContext = if (_settings.value.isMcpEnabled) _settings.value.mcpServerUrl else null
+                        mcpToolsContext = if (_settings.value.isMcpEnabled) _mcpToolsContext.value else null
                     ).collect { chunk ->
                         _streamingMessage.value = streamPlaceholder.copy(
                             content = chunk.currentContentText,
@@ -858,6 +901,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stopGeneration() {
         currentStreamJob?.cancel()
         currentStreamJob = null
+        // Propagate to the native loop: cancelling the collector alone left
+        // llama.cpp / LiteRT still generating in the background.
+        try {
+            llmEngine.stopGeneration()
+        } catch (t: Throwable) {
+            android.util.Log.w("MainViewModel", "Engine stop error", t)
+        }
         val cur = _streamingMessage.value
         if (cur != null) {
             viewModelScope.launch {
@@ -889,9 +939,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     // Stream or generate response
                     val answerBuilder = StringBuilder()
+                    val voiceHistory = _messages.value.takeLast(6).map { it.role.name to it.content }
                     llmEngine.streamGenerate(
                         prompt = userSpokenText,
-                        history = emptyList(),
+                        history = voiceHistory,
                         settings = _settings.value,
                         attachment = null
                     ).collect { chunk ->
@@ -944,6 +995,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val hasDrafter = detected.hasDrafter
                 val isLiteRt = detected.detectedRuntime == ModelRuntimeType.LITE_RT
 
+                // First-party engine peek (additive only): verify the container with the
+                // new GGUF reader. Never overrides the shipping detector on failure.
+                val engineNote = try {
+                    com.localllm.engine.GgufReader.open(destFile).use { reader ->
+                        "Engine 구조 확인(${reader.tensors.size} 텐서)"
+                    }
+                } catch (_: Throwable) {
+                    null
+                }
+
                 val cleanName = targetFileName
                     .removeSuffix(".gguf")
                     .removeSuffix(".bin")
@@ -974,6 +1035,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             if (hasVision) append(" • 내장 비전타워")
                             if (hasDrafter) append(" • 내장 드래프터")
                         }
+                        if (engineNote != null) append(" • $engineNote")
                     },
                     quantization = if (isLiteRt) "LiteRT" else "GGUF",
                     hasMmproj = hasVision,

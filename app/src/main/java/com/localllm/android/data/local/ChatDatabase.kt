@@ -23,7 +23,11 @@ abstract class ChatDatabase : RoomDatabase() {
                     context.applicationContext,
                     ChatDatabase::class.java,
                     "local_llm_encrypted_chat.db"
-                ).fallbackToDestructiveMigration().build()
+                ).fallbackToDestructiveMigration(dropAllTables = true).build()
+                // Explicit: schema is version 1 with no migrations yet. If the schema
+                // ever bumps, old encrypted rows (unreadable under a new schema) are
+                // dropped rather than crashing launch. Revisit with a real Migration
+                // once exportSchema/versioning is introduced.
                 INSTANCE = instance
                 instance
             }

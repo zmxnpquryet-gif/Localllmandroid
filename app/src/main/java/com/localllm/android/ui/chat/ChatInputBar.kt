@@ -20,46 +20,32 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.ui.res.stringResource
-import com.localllm.android.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import com.localllm.android.R
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.localllm.android.model.ChatAttachment
 import com.localllm.android.model.LlmModel
+import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIconButton
+import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GOptionRow
+import com.localllm.android.ui.glass.GSheet
+import com.localllm.android.ui.glass.GSlider
+import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GTextField
+import com.localllm.android.ui.glass.GlassTheme
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatInputBar(
     inputText: String,
@@ -127,15 +113,15 @@ fun ChatInputBar(
                 modifier = Modifier
                     .padding(bottom = 6.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .background(GlassTheme.colors.surfaceVariant.copy(alpha = 0.5f))
                     .clickable { showReasoningSlider = !showReasoningSlider }
                     .padding(horizontal = 10.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Psychology,
+                GIcon(
+                    imageVector = GIcons.Psychology,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = GlassTheme.colors.primary,
                     modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -145,10 +131,10 @@ fun ChatInputBar(
                     reasoningEffort <= 0.85f -> "High (0.8)"
                     else -> "Max (1.0)"
                 }
-                Text(
+                GText(
                     text = "Reasoning Effort: $effortLabel",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface
+                    style = GlassTheme.type.labelSmall,
+                    color = GlassTheme.colors.onSurface
                 )
             }
 
@@ -158,23 +144,19 @@ fun ChatInputBar(
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .background(GlassTheme.colors.surfaceVariant)
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    Text(
+                    GText(
                         text = "실시간 추론 깊이 (Reasoning Effort) 조절",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = GlassTheme.type.labelSmall,
+                        color = GlassTheme.colors.onSurfaceVariant
                     )
-                    Slider(
+                    GSlider(
                         value = reasoningEffort,
                         onValueChange = onReasoningEffortChanged,
                         valueRange = 0f..1f,
-                        steps = 3,
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary
-                        )
+                        steps = 3
                     )
                 }
             }
@@ -186,8 +168,8 @@ fun ChatInputBar(
                 modifier = Modifier
                     .padding(bottom = 8.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                    .background(GlassTheme.colors.surfaceVariant)
+                    .border(1.dp, GlassTheme.colors.outline.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
                     .padding(8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -200,26 +182,26 @@ fun ChatInputBar(
                                 .clip(RoundedCornerShape(6.dp))
                         )
                     } else {
-                        Icon(
-                            imageVector = Icons.Default.Description,
+                        GIcon(
+                            imageVector = GIcons.Description,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(28.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
+                    GText(
                         text = pendingAttachment.fileName,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = GlassTheme.type.bodySmall,
                         modifier = Modifier.weight(1f),
                         maxLines = 1
                     )
-                    IconButton(
+                    GIconButton(
                         onClick = { onSetAttachment(null) },
                         modifier = Modifier.size(28.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
+                        GIcon(
+                            imageVector = GIcons.Close,
                             contentDescription = "삭제",
                             modifier = Modifier.size(18.dp)
                         )
@@ -228,51 +210,40 @@ fun ChatInputBar(
             }
         }
 
-        // 3. Artistic Floating Input Pill
+        // 3. Liquid-glass floating input pill (translucent; aurora shows through)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(28.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f))
-                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(28.dp))
+                .background(GlassTheme.colors.surface.copy(alpha = 0.60f))
+                .border(1.dp, GlassTheme.colors.primary.copy(alpha = 0.35f), RoundedCornerShape(28.dp))
                 .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Attachment "+" Button
-            IconButton(
+            GIconButton(
                 onClick = { showAttachmentSheet = true },
                 modifier = Modifier.size(38.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
+                GIcon(
+                    imageVector = GIcons.Add,
                     contentDescription = "파일 첨부",
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = GlassTheme.colors.primary
                 )
             }
 
             // Input Text Field
-            TextField(
+            GTextField(
                 value = inputText,
                 onValueChange = onInputTextChanged,
                 placeholder = {
-                    Text(
+                    GText(
                         text = if (activeModel == null) stringResource(R.string.no_model_downloaded) else stringResource(R.string.input_placeholder),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        style = GlassTheme.type.bodyLarge,
+                        color = GlassTheme.colors.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 },
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = 0.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    disabledContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
-                ),
+                modifier = Modifier.weight(1f),
                 maxLines = 4
             )
 
@@ -283,14 +254,14 @@ fun ChatInputBar(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
+                        .background(GlassTheme.colors.primary)
                         .clickable { onStopGeneration() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Stop,
+                    GIcon(
+                        imageVector = GIcons.Stop,
                         contentDescription = stringResource(R.string.stop),
-                        tint = MaterialTheme.colorScheme.onPrimary,
+                        tint = GlassTheme.colors.onPrimary,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -300,129 +271,112 @@ fun ChatInputBar(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
+                        .background(GlassTheme.colors.primary)
                         .clickable { onSendMessage() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    GIcon(
+                        imageVector = GIcons.ArrowForward,
                         contentDescription = stringResource(R.string.send),
-                        tint = MaterialTheme.colorScheme.onPrimary,
+                        tint = GlassTheme.colors.onPrimary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
             } else {
                 // Speech-To-Text mic button
-                IconButton(
+                GIconButton(
                     onClick = onStartVoiceInput,
                     modifier = Modifier.size(36.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
+                    GIcon(
+                        imageVector = GIcons.Mic,
                         contentDescription = stringResource(R.string.voice_input),
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = GlassTheme.colors.primary
                     )
                 }
 
                 // Interactive Voice Mode Headphone button
-                IconButton(
+                GIconButton(
                     onClick = onOpenVoiceMode,
                     modifier = Modifier.size(36.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Headphones,
+                    GIcon(
+                        imageVector = GIcons.Headphones,
                         contentDescription = stringResource(R.string.nav_voice_mode),
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = GlassTheme.colors.primary
                     )
                 }
             }
         }
     }
 
-    // Attachment Modal Bottom Sheet
-    if (showAttachmentSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showAttachmentSheet = false },
-            sheetState = rememberModalBottomSheetState()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(
-                    text = "파일 및 미디어 첨부",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
+    // Attachment Bottom Sheet
+    GSheet(
+        visible = showAttachmentSheet,
+        onDismissRequest = { showAttachmentSheet = false }
+    ) {
+        GText(
+            text = "파일 및 미디어 첨부",
+            style = GlassTheme.type.titleMedium,
+            color = GlassTheme.colors.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        GOptionRow(
+            onClick = {
+                imagePicker.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                    )
                 )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .clickable {
-                            imagePicker.launch(
-                                androidx.activity.result.PickVisualMediaRequest(
-                                    ActivityResultContracts.PickVisualMedia.ImageOnly
-                                )
-                            )
-                        }
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            text = "사진 및 이미지 선택 (Vision 지원)",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = if (activeModel?.hasMmproj == true) "mmproj 비전 인코더 자동 활성화" else "텍스트 전용 모델",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .clickable {
-                            documentPicker.launch(arrayOf("text/*", "application/pdf", "*/*"))
-                        }
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Description,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            text = "문서 및 텍스트 파일 첨부",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = "TXT, PDF, 코드 파일 콘텍스트 주입",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
+            }
+        ) {
+            GIcon(
+                imageVector = GIcons.Add,
+                contentDescription = null,
+                tint = GlassTheme.colors.primary
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                GText(
+                    text = "사진 및 이미지 선택 (Vision 지원)",
+                    style = GlassTheme.type.bodyMedium
+                )
+                GText(
+                    text = if (activeModel?.hasMmproj == true) "mmproj 비전 인코더 자동 활성화" else "텍스트 전용 모델",
+                    style = GlassTheme.type.labelSmall,
+                    color = GlassTheme.colors.onSurfaceVariant
+                )
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        GOptionRow(
+            onClick = {
+                documentPicker.launch(arrayOf("text/*", "application/pdf", "*/*"))
+            }
+        ) {
+            GIcon(
+                imageVector = GIcons.Description,
+                contentDescription = null,
+                tint = GlassTheme.colors.primary
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                GText(
+                    text = "문서 및 텍스트 파일 첨부",
+                    style = GlassTheme.type.bodyMedium
+                )
+                GText(
+                    text = "TXT, PDF, 코드 파일 콘텍스트 주입",
+                    style = GlassTheme.type.labelSmall,
+                    color = GlassTheme.colors.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }

@@ -26,6 +26,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.Semaphore
 
 /**
  * Hardened lightweight HTTP server running on port 11434 (compatible with standard Ollama & OpenAI protocols).
@@ -48,6 +49,27 @@ class OllamaApiServer(
         const val DEFAULT_PORT = 11434
         private const val TAG = "OllamaApiServer"
         private const val MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024
+        private const val MAX_HEADER_COUNT = 100
+        private const val MAX_CONCURRENT_GENERATIONS = 2
+
+        /**
+         * Loopback-only CORS allow-list matched on parsed host, never on string prefix.
+         * Prefix matching would accept "http://localhost.evil.example" as well.
+         */
+        internal fun isAllowedCorsOrigin(origin: String?): Boolean {
+            if (origin.isNullOrBlank()) return false
+            return try {
+                val uri = java.net.URI(origin.trim())
+                val scheme = uri.scheme?.lowercase() ?: return false
+                if (scheme != "http" && scheme != "https") return false
+                // Reject origins carrying user-info or paths that smuggle extra authority.
+                if (uri.rawUserInfo != null) return false
+                val host = uri.host?.lowercase() ?: return false
+                host == "localhost" || host == "127.0.0.1" || host == "::1"
+            } catch (_: Exception) {
+                false
+            }
+        }
 
         internal fun readHttpLine(input: InputStream): String? {
             val bytes = ByteArrayOutputStream()
@@ -84,6 +106,7 @@ class OllamaApiServer(
     private var isRunning = false
     private var serverJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val generationSlots = Semaphore(MAX_CONCURRENT_GENERATIONS)
 
     var currentApiKey: String = initialApiKey
         private set
@@ -185,8 +208,14 @@ class OllamaApiServer(
             var contentLength = 0
             val headers = mutableMapOf<String, String>()
             var line: String?
+            var headerCount = 0
             while (readHttpLine(input).also { line = it } != null) {
                 if (line.isNullOrEmpty()) break
+                headerCount++
+                if (headerCount > MAX_HEADER_COUNT) {
+                    sendResponse(output, 431, "Request Header Fields Too Large", "application/json", "{\"error\":\"Too many headers\"}", headers["origin"])
+                    return
+                }
                 val colonIdx = line!!.indexOf(':')
                 if (colonIdx > 0) {
                     val key = line!!.substring(0, colonIdx).trim().lowercase()
@@ -381,6 +410,62 @@ class OllamaApiServer(
         sendResponse(output, 200, "OK", "application/json", detailsJson, origin)
     }
 
+    private data class EffectiveRequestOptions(
+        val settings: GenerationSettings,
+        /** GGUF n_predict override; null = unlimited (-1). LiteRT applies sampler only. */
+        val numPredict: Int?
+    )
+
+    /**
+     * Honors per-request sampling options instead of silently ignoring them.
+     * Reads Ollama-style `options` object + top-level fields, and OpenAI-style
+     * `temperature` / `top_p` / `max_tokens`. Values are clamped to the same ranges
+     * the app itself uses.
+     */
+    private fun resolveRequestOptions(json: JSONObject, base: GenerationSettings): EffectiveRequestOptions {
+        val options = json.optJSONObject("options")
+        fun optDouble(vararg keys: String, fallback: Double): Double {
+            for (key in keys) {
+                if (json.has(key) && !json.isNull(key)) {
+                    val v = json.optDouble(key, Double.NaN)
+                    if (!v.isNaN()) return v
+                }
+                if (options != null && options.has(key) && !options.isNull(key)) {
+                    val v = options.optDouble(key, Double.NaN)
+                    if (!v.isNaN()) return v
+                }
+            }
+            return fallback
+        }
+        fun optInt(vararg keys: String, fallback: Int): Int {
+            for (key in keys) {
+                if (json.has(key) && !json.isNull(key)) {
+                    val v = json.optInt(key, Int.MIN_VALUE)
+                    if (v != Int.MIN_VALUE) return v
+                }
+                if (options != null && options.has(key) && !options.isNull(key)) {
+                    val v = options.optInt(key, Int.MIN_VALUE)
+                    if (v != Int.MIN_VALUE) return v
+                }
+            }
+            return fallback
+        }
+
+        val temperature = optDouble("temperature", fallback = base.temperature.toDouble()).coerceIn(0.0, 2.0).toFloat()
+        val topP = optDouble("top_p", fallback = base.topP.toDouble()).coerceIn(0.01, 1.0).toFloat()
+        val topK = optInt("top_k", fallback = base.topK).coerceIn(1, 200)
+        val numPredictRaw = optInt("num_predict", "max_tokens", "num_predict", fallback = Int.MIN_VALUE)
+        val numPredict = if (numPredictRaw == Int.MIN_VALUE) null else numPredictRaw.coerceIn(1, 16384)
+
+        return EffectiveRequestOptions(
+            settings = base.copy(temperature = temperature, topP = topP, topK = topK),
+            numPredict = numPredict
+        )
+    }
+
+    private fun isBusyError(e: Throwable): Boolean =
+        e.message?.contains("BUSY_INFERENCE") == true
+
     private suspend fun handleGenerate(output: OutputStream, body: String, origin: String?) {
         val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
         val prompt = json.optString("prompt", "")
@@ -401,72 +486,106 @@ class OllamaApiServer(
 
         val settings = getSettings()
         val modelName = currentModel?.name ?: "local-model"
+        val request = resolveRequestOptions(json, settings)
 
-        if (isStream) {
-            sendStreamHeaders(output, "application/x-ndjson", origin)
-            try {
-                llmEngine.streamGenerate(
-                    prompt = prompt,
-                    history = emptyList(),
-                    settings = settings,
-                    attachment = null
-                ).collect { chunk ->
-                    if (chunk.token.isNotEmpty()) {
-                        val chunkObj = JSONObject().apply {
-                            put("model", modelName)
-                            put("created_at", getIsoTimestamp())
-                            put("response", chunk.token)
-                            put("done", false)
+        if (!generationSlots.tryAcquire()) {
+            val err = JSONObject().put("error", "Server is busy: another generation is already running.").toString()
+            sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
+            return
+        }
+        try {
+            if (isStream) {
+                sendStreamHeaders(output, "application/x-ndjson", origin)
+                var failed = false
+                try {
+                    llmEngine.streamGenerate(
+                        prompt = prompt,
+                        history = emptyList(),
+                        settings = request.settings,
+                        attachment = null,
+                        numPredictOverride = request.numPredict
+                    ).collect { chunk ->
+                        if (chunk.token.isNotEmpty()) {
+                            val chunkObj = JSONObject().apply {
+                                put("model", modelName)
+                                put("created_at", getIsoTimestamp())
+                                put("response", chunk.token)
+                                put("done", false)
+                            }
+                            sendChunk(output, chunkObj.toString() + "\n")
                         }
-                        sendChunk(output, chunkObj.toString() + "\n")
+                    }
+                } catch (e: Exception) {
+                    failed = true
+                    if (isBusyError(e)) {
+                        val busyObj = JSONObject().apply {
+                            put("model", modelName)
+                            put("response", "")
+                            put("done", true)
+                            put("error", "Server is busy: another generation is already running.")
+                        }
+                        sendChunk(output, busyObj.toString() + "\n")
+                    } else {
+                        val errObj = JSONObject().apply {
+                            put("model", modelName)
+                            put("response", "")
+                            put("done", true)
+                            put("error", "Inference failed: ${e.localizedMessage}")
+                        }
+                        sendChunk(output, errObj.toString() + "\n")
                     }
                 }
-            } catch (e: Exception) {
-                val errObj = JSONObject().apply {
+
+                if (!failed) {
+                    val finalObj = JSONObject().apply {
+                        put("model", modelName)
+                        put("created_at", getIsoTimestamp())
+                        put("response", "")
+                        put("done", true)
+                    }
+                    sendChunk(output, finalObj.toString() + "\n")
+                }
+                endChunk(output)
+
+            } else {
+                var fullResponse = ""
+                var totalTokens = 0
+                try {
+                    llmEngine.streamGenerate(
+                        prompt = prompt,
+                        history = emptyList(),
+                        settings = request.settings,
+                        attachment = null,
+                        numPredictOverride = request.numPredict
+                    ).collect { chunk ->
+                        if (chunk.token.isNotEmpty()) {
+                            fullResponse += chunk.token
+                        }
+                        totalTokens = chunk.totalTokens
+                    }
+                } catch (e: Exception) {
+                    if (isBusyError(e)) {
+                        val err = JSONObject().put("error", "Server is busy: another generation is already running.").toString()
+                        sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
+                    } else {
+                        val err = JSONObject().put("error", "Inference failed: ${e.localizedMessage}").toString()
+                        sendResponse(output, 500, "Internal Server Error", "application/json", err, origin)
+                    }
+                    return
+                }
+
+                val responseJson = JSONObject().apply {
                     put("model", modelName)
-                    put("response", "\n[추론 오류: ${e.localizedMessage}]")
-                    put("done", false)
-                }
-                sendChunk(output, errObj.toString() + "\n")
+                    put("created_at", getIsoTimestamp())
+                    put("response", fullResponse)
+                    put("done", true)
+                    put("eval_count", totalTokens)
+                }.toString()
+
+                sendResponse(output, 200, "OK", "application/json", responseJson, origin)
             }
-
-            val finalObj = JSONObject().apply {
-                put("model", modelName)
-                put("created_at", getIsoTimestamp())
-                put("response", "")
-                put("done", true)
-            }
-            sendChunk(output, finalObj.toString() + "\n")
-            endChunk(output)
-
-        } else {
-            var fullResponse = ""
-            var totalTokens = 0
-            try {
-                llmEngine.streamGenerate(
-                    prompt = prompt,
-                    history = emptyList(),
-                    settings = settings,
-                    attachment = null
-                ).collect { chunk ->
-                    if (chunk.token.isNotEmpty()) {
-                        fullResponse += chunk.token
-                    }
-                    totalTokens = chunk.totalTokens
-                }
-            } catch (e: Exception) {
-                fullResponse = "추론 중 오류: ${e.localizedMessage}"
-            }
-
-            val responseJson = JSONObject().apply {
-                put("model", modelName)
-                put("created_at", getIsoTimestamp())
-                put("response", fullResponse)
-                put("done", true)
-                put("eval_count", totalTokens)
-            }.toString()
-
-            sendResponse(output, 200, "OK", "application/json", responseJson, origin)
+        } finally {
+            generationSlots.release()
         }
     }
 
@@ -485,84 +604,114 @@ class OllamaApiServer(
 
         val (historyList, lastUserPrompt) = parseMessages(messagesArray)
         val settings = getSettings()
+        val request = resolveRequestOptions(json, settings)
 
-        if (isStream) {
-            sendStreamHeaders(output, "application/x-ndjson", origin)
-            try {
-                llmEngine.streamGenerate(
-                    prompt = lastUserPrompt,
-                    history = historyList,
-                    settings = settings,
-                    attachment = null
-                ).collect { chunk ->
-                    if (chunk.token.isNotEmpty()) {
-                        val chunkObj = JSONObject().apply {
-                            put("model", modelName)
-                            put("created_at", getIsoTimestamp())
-                            put("message", JSONObject().apply {
-                                put("role", "assistant")
-                                put("content", chunk.token)
-                            })
-                            put("done", false)
+        if (lastUserPrompt.isBlank()) {
+            val err = JSONObject().put("error", "No user message to respond to").toString()
+            sendResponse(output, 400, "Bad Request", "application/json", err, origin)
+            return
+        }
+
+        if (!generationSlots.tryAcquire()) {
+            val err = JSONObject().put("error", "Server is busy: another generation is already running.").toString()
+            sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
+            return
+        }
+        try {
+            if (isStream) {
+                sendStreamHeaders(output, "application/x-ndjson", origin)
+                var failed = false
+                try {
+                    llmEngine.streamGenerate(
+                        prompt = lastUserPrompt,
+                        history = historyList,
+                        settings = request.settings,
+                        attachment = null,
+                        numPredictOverride = request.numPredict
+                    ).collect { chunk ->
+                        if (chunk.token.isNotEmpty()) {
+                            val chunkObj = JSONObject().apply {
+                                put("model", modelName)
+                                put("created_at", getIsoTimestamp())
+                                put("message", JSONObject().apply {
+                                    put("role", "assistant")
+                                    put("content", chunk.token)
+                                })
+                                put("done", false)
+                            }
+                            sendChunk(output, chunkObj.toString() + "\n")
                         }
-                        sendChunk(output, chunkObj.toString() + "\n")
                     }
+                } catch (e: Exception) {
+                    failed = true
+                    val errObj = JSONObject().apply {
+                        put("model", modelName)
+                        put("message", JSONObject().apply {
+                            put("role", "assistant")
+                            put("content", "")
+                        })
+                        put("done", true)
+                        put("error", if (isBusyError(e)) "Server is busy: another generation is already running." else "Inference failed: ${e.localizedMessage}")
+                    }
+                    sendChunk(output, errObj.toString() + "\n")
                 }
-            } catch (e: Exception) {
-                val errObj = JSONObject().apply {
+
+                if (!failed) {
+                    val finalObj = JSONObject().apply {
+                        put("model", modelName)
+                        put("created_at", getIsoTimestamp())
+                        put("message", JSONObject().apply {
+                            put("role", "assistant")
+                            put("content", "")
+                        })
+                        put("done", true)
+                    }
+                    sendChunk(output, finalObj.toString() + "\n")
+                }
+                endChunk(output)
+
+            } else {
+                var fullAnswer = ""
+                var totalTokens = 0
+                try {
+                    llmEngine.streamGenerate(
+                        prompt = lastUserPrompt,
+                        history = historyList,
+                        settings = request.settings,
+                        attachment = null,
+                        numPredictOverride = request.numPredict
+                    ).collect { chunk ->
+                        if (chunk.token.isNotEmpty()) {
+                            fullAnswer += chunk.token
+                        }
+                        totalTokens = chunk.totalTokens
+                    }
+                } catch (e: Exception) {
+                    if (isBusyError(e)) {
+                        val err = JSONObject().put("error", "Server is busy: another generation is already running.").toString()
+                        sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
+                    } else {
+                        val err = JSONObject().put("error", "Inference failed: ${e.localizedMessage}").toString()
+                        sendResponse(output, 500, "Internal Server Error", "application/json", err, origin)
+                    }
+                    return
+                }
+
+                val resultJson = JSONObject().apply {
                     put("model", modelName)
+                    put("created_at", getIsoTimestamp())
                     put("message", JSONObject().apply {
                         put("role", "assistant")
-                        put("content", "\n[추론 오류: ${e.localizedMessage}]")
+                        put("content", fullAnswer)
                     })
-                    put("done", false)
-                }
-                sendChunk(output, errObj.toString() + "\n")
+                    put("done", true)
+                    put("eval_count", totalTokens)
+                }.toString()
+
+                sendResponse(output, 200, "OK", "application/json", resultJson, origin)
             }
-
-            val finalObj = JSONObject().apply {
-                put("model", modelName)
-                put("created_at", getIsoTimestamp())
-                put("message", JSONObject().apply {
-                    put("role", "assistant")
-                    put("content", "")
-                })
-                put("done", true)
-            }
-            sendChunk(output, finalObj.toString() + "\n")
-            endChunk(output)
-
-        } else {
-            var fullAnswer = ""
-            var totalTokens = 0
-            try {
-                llmEngine.streamGenerate(
-                    prompt = lastUserPrompt,
-                    history = historyList,
-                    settings = settings,
-                    attachment = null
-                ).collect { chunk ->
-                    if (chunk.token.isNotEmpty()) {
-                        fullAnswer += chunk.token
-                    }
-                    totalTokens = chunk.totalTokens
-                }
-            } catch (e: Exception) {
-                fullAnswer = "오류: ${e.localizedMessage}"
-            }
-
-            val resultJson = JSONObject().apply {
-                put("model", modelName)
-                put("created_at", getIsoTimestamp())
-                put("message", JSONObject().apply {
-                    put("role", "assistant")
-                    put("content", fullAnswer)
-                })
-                put("done", true)
-                put("eval_count", totalTokens)
-            }.toString()
-
-            sendResponse(output, 200, "OK", "application/json", resultJson, origin)
+        } finally {
+            generationSlots.release()
         }
     }
 
@@ -582,97 +731,130 @@ class OllamaApiServer(
 
         val (historyList, lastUserPrompt) = parseMessages(messagesArray)
         val settings = getSettings()
+        val request = resolveRequestOptions(json, settings)
 
-        if (isStream) {
-            sendStreamHeaders(output, "text/event-stream", origin)
-            try {
-                llmEngine.streamGenerate(
-                    prompt = lastUserPrompt,
-                    history = historyList,
-                    settings = settings,
-                    attachment = null
-                ).collect { chunk ->
-                    if (chunk.token.isNotEmpty()) {
-                        val sseData = JSONObject().apply {
-                            put("id", chatId)
-                            put("object", "chat.completion.chunk")
-                            put("created", System.currentTimeMillis() / 1000)
-                            put("model", modelName)
-                            put("choices", JSONArray().put(JSONObject().apply {
-                                put("index", 0)
-                                put("delta", JSONObject().put("content", chunk.token))
-                                put("finish_reason", JSONObject.NULL)
-                            }))
+        if (lastUserPrompt.isBlank()) {
+            val err = JSONObject().put("error", JSONObject().put("message", "No user message to respond to")).toString()
+            sendResponse(output, 400, "Bad Request", "application/json", err, origin)
+            return
+        }
+
+        if (!generationSlots.tryAcquire()) {
+            val err = JSONObject().put("error", JSONObject().put("message", "Server is busy: another generation is already running.")).toString()
+            sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
+            return
+        }
+        try {
+            if (isStream) {
+                sendStreamHeaders(output, "text/event-stream", origin)
+                try {
+                    llmEngine.streamGenerate(
+                        prompt = lastUserPrompt,
+                        history = historyList,
+                        settings = request.settings,
+                        attachment = null,
+                        numPredictOverride = request.numPredict
+                    ).collect { chunk ->
+                        if (chunk.token.isNotEmpty()) {
+                            val sseData = JSONObject().apply {
+                                put("id", chatId)
+                                put("object", "chat.completion.chunk")
+                                put("created", System.currentTimeMillis() / 1000)
+                                put("model", modelName)
+                                put("choices", JSONArray().put(JSONObject().apply {
+                                    put("index", 0)
+                                    put("delta", JSONObject().put("content", chunk.token))
+                                    put("finish_reason", JSONObject.NULL)
+                                }))
+                            }
+                            sendChunk(output, "data: $sseData\n\n")
                         }
-                        sendChunk(output, "data: $sseData\n\n")
                     }
+                } catch (e: Exception) {
+                    val errData = JSONObject().apply {
+                        put("id", chatId)
+                        put("object", "chat.completion.chunk")
+                        put("choices", JSONArray().put(JSONObject().apply {
+                            put("index", 0)
+                            put("delta", JSONObject())
+                            put("finish_reason", "stop")
+                        }))
+                        put("error", JSONObject().put(
+                            "message",
+                            if (isBusyError(e)) "Server is busy: another generation is already running." else "Inference failed: ${e.localizedMessage}"
+                        ))
+                    }
+                    sendChunk(output, "data: $errData\n\n")
+                    sendChunk(output, "data: [DONE]\n\n")
+                    endChunk(output)
+                    return
                 }
-            } catch (e: Exception) {
-                val errData = JSONObject().apply {
+
+                val finalSse = JSONObject().apply {
                     put("id", chatId)
                     put("object", "chat.completion.chunk")
+                    put("created", System.currentTimeMillis() / 1000)
+                    put("model", modelName)
                     put("choices", JSONArray().put(JSONObject().apply {
                         put("index", 0)
-                        put("delta", JSONObject().put("content", "\n[오류: ${e.localizedMessage}]"))
+                        put("delta", JSONObject())
+                        put("finish_reason", "stop")
                     }))
                 }
-                sendChunk(output, "data: $errData\n\n")
-            }
+                sendChunk(output, "data: $finalSse\n\n")
+                sendChunk(output, "data: [DONE]\n\n")
+                endChunk(output)
 
-            val finalSse = JSONObject().apply {
-                put("id", chatId)
-                put("object", "chat.completion.chunk")
-                put("created", System.currentTimeMillis() / 1000)
-                put("model", modelName)
-                put("choices", JSONArray().put(JSONObject().apply {
-                    put("index", 0)
-                    put("delta", JSONObject())
-                    put("finish_reason", "stop")
-                }))
-            }
-            sendChunk(output, "data: $finalSse\n\n")
-            sendChunk(output, "data: [DONE]\n\n")
-            endChunk(output)
-
-        } else {
-            var fullAnswer = ""
-            var totalTokens = 0
-            try {
-                llmEngine.streamGenerate(
-                    prompt = lastUserPrompt,
-                    history = historyList,
-                    settings = settings,
-                    attachment = null
-                ).collect { chunk ->
-                    if (chunk.token.isNotEmpty()) {
-                        fullAnswer += chunk.token
+            } else {
+                var fullAnswer = ""
+                var totalTokens = 0
+                try {
+                    llmEngine.streamGenerate(
+                        prompt = lastUserPrompt,
+                        history = historyList,
+                        settings = request.settings,
+                        attachment = null,
+                        numPredictOverride = request.numPredict
+                    ).collect { chunk ->
+                        if (chunk.token.isNotEmpty()) {
+                            fullAnswer += chunk.token
+                        }
+                        totalTokens = chunk.totalTokens
                     }
-                    totalTokens = chunk.totalTokens
+                } catch (e: Exception) {
+                    if (isBusyError(e)) {
+                        val err = JSONObject().put("error", JSONObject().put("message", "Server is busy: another generation is already running.")).toString()
+                        sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
+                    } else {
+                        val err = JSONObject().put("error", JSONObject().put("message", "Inference failed: ${e.localizedMessage}")).toString()
+                        sendResponse(output, 500, "Internal Server Error", "application/json", err, origin)
+                    }
+                    return
                 }
-            } catch (e: Exception) {
-                fullAnswer = "오류: ${e.localizedMessage}"
-            }
 
-            val resultJson = JSONObject().apply {
-                put("id", chatId)
-                put("object", "chat.completion")
-                put("created", System.currentTimeMillis() / 1000)
-                put("model", modelName)
-                put("choices", JSONArray().put(JSONObject().apply {
-                    put("index", 0)
-                    put("message", JSONObject().apply {
-                        put("role", "assistant")
-                        put("content", fullAnswer)
+                val resultJson = JSONObject().apply {
+                    put("id", chatId)
+                    put("object", "chat.completion")
+                    put("created", System.currentTimeMillis() / 1000)
+                    put("model", modelName)
+                    put("choices", JSONArray().put(JSONObject().apply {
+                        put("index", 0)
+                        put("message", JSONObject().apply {
+                            put("role", "assistant")
+                            put("content", fullAnswer)
+                        })
+                        put("finish_reason", "stop")
+                    }))
+                    put("usage", JSONObject().apply {
+                        put("completion_tokens", totalTokens)
+                        put("total_tokens", totalTokens)
                     })
-                    put("finish_reason", "stop")
-                }))
-                put("usage", JSONObject().apply {
-                    put("completion_tokens", totalTokens)
-                    put("total_tokens", totalTokens)
-                })
-            }.toString()
+                }.toString()
 
-            sendResponse(output, 200, "OK", "application/json", resultJson, origin)
+                sendResponse(output, 200, "OK", "application/json", resultJson, origin)
+            }
+        } finally {
+            generationSlots.release()
         }
     }
 
@@ -701,13 +883,9 @@ class OllamaApiServer(
 
     private fun getValidatedCorsOrigin(origin: String?): String? {
         if (origin.isNullOrBlank()) return null
-        // Restrict CORS to localhost/loopback origins only to prevent drive-by attacks from arbitrary websites
-        return if (origin.startsWith("http://localhost") ||
-            origin.startsWith("http://127.0.0.1") ||
-            origin.startsWith("https://localhost")
-        ) {
-            origin
-        } else null
+        // Restrict CORS to loopback origins only to prevent drive-by attacks from arbitrary websites.
+        // Host is compared exactly after URI parsing; "http://localhost.evil.example" is rejected.
+        return if (isAllowedCorsOrigin(origin)) origin else null
     }
 
     private fun sendCorsPreflight(output: OutputStream, origin: String?) {
