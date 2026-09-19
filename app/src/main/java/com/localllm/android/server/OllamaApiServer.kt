@@ -279,6 +279,10 @@ class OllamaApiServer(
 
                 // Ollama /api/version
                 uri.startsWith("/api/version") -> {
+                    // Deliberately reports a fixed Ollama version, not the app's own
+                    // version: desktop clients and Ollama SDKs gate feature/capability
+                    // checks on a minimum version string. 0.5.x advertises the API
+                    // surface this server actually implements.
                     val json = JSONObject().put("version", "0.5.1").toString()
                     sendResponse(output, 200, "OK", "application/json", json, clientOrigin)
                 }

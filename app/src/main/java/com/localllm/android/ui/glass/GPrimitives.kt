@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -26,6 +27,16 @@ import androidx.compose.ui.unit.dp
 
 /** Ambient content color (filled buttons override it; explicit colors always win). */
 val LocalGContentColor = staticCompositionLocalOf { Color.Black }
+
+/**
+ * Glass sheen / hairline color. White reads as a highlight on dark canvases but
+ * disappears on light ones, so light themes fall back to ink at reduced alpha.
+ */
+@Composable
+fun glassHighlight(alpha: Float): Color {
+    val darkCanvas = GlassTheme.colors.background.luminance() < 0.5f
+    return if (darkCanvas) Color.White.copy(alpha = alpha) else Color.Black.copy(alpha = alpha * 0.7f)
+}
 
 /** Foundation-only text. Accepts the same styling knobs screens already use. */
 @Composable
@@ -70,9 +81,9 @@ fun GCard(
     val shape = RoundedCornerShape(cornerRadius)
     val borderBrush = Brush.linearGradient(
         colors = listOf(
-            Color.White.copy(alpha = 0.35f),
+            glassHighlight(0.35f),
             GlassTheme.colors.primary.copy(alpha = 0.25f),
-            Color.White.copy(alpha = 0.08f)
+            glassHighlight(0.08f)
         )
     )
     Box(
@@ -87,7 +98,7 @@ fun GCard(
                     .clip(shape)
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.10f), Color.Transparent)
+                            colors = listOf(glassHighlight(0.10f), Color.Transparent)
                         )
                     )
             )
@@ -116,7 +127,7 @@ fun LiquidBackground(modifier: Modifier = Modifier) {
         Box(modifier = Modifier.fillMaxSize().background(
             Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.05f), Color.Transparent, Color.Black.copy(alpha = 0.08f)
+                    glassHighlight(0.05f), Color.Transparent, Color.Black.copy(alpha = 0.08f)
                 )
             )
         ))

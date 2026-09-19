@@ -127,7 +127,7 @@ fun ChatDrawer(
             ) {
                 GIcon(
                     imageVector = GIcons.Search,
-                    contentDescription = "검색",
+                    contentDescription = stringResource(R.string.chat_search_desc),
                     tint = GlassTheme.colors.onSurfaceVariant,
                     modifier = Modifier.size(16.dp)
                 )
@@ -137,7 +137,7 @@ fun ChatDrawer(
                     onValueChange = { searchQuery = it },
                     placeholder = {
                         GText(
-                            text = "대화 검색...",
+                            text = stringResource(R.string.chat_search_placeholder),
                             fontSize = 13.sp,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
@@ -156,13 +156,13 @@ fun ChatDrawer(
         ) {
             GIcon(
                 imageVector = GIcons.Lock,
-                contentDescription = "암호화",
+                contentDescription = stringResource(R.string.chat_encryption_desc),
                 tint = GlassTheme.colors.primary,
                 modifier = Modifier.size(12.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
             GText(
-                text = "로컬 SQLite AES-256 암호화 저장됨",
+                text = stringResource(R.string.chat_encrypted_storage_notice),
                 fontSize = 11.sp,
                 color = GlassTheme.colors.onSurfaceVariant
             )
@@ -180,7 +180,7 @@ fun ChatDrawer(
             if (filtered.isEmpty()) {
                 item {
                     GText(
-                        text = "대화 기록이 없습니다.",
+                        text = stringResource(R.string.no_conversations),
                         style = GlassTheme.type.bodySmall,
                         color = GlassTheme.colors.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp)
@@ -214,7 +214,7 @@ fun ChatDrawer(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             GText(
-                                text = conv.title,
+                                text = conv.title.ifBlank { stringResource(R.string.conversation_untitled) },
                                 style = GlassTheme.type.bodyMedium,
                                 color = if (isSelected) GlassTheme.colors.onPrimaryContainer else GlassTheme.colors.onSurface,
                                 maxLines = 1,
@@ -233,7 +233,7 @@ fun ChatDrawer(
                                 ) {
                                     GIcon(
                                         imageVector = GIcons.Edit,
-                                        contentDescription = "수정",
+                                        contentDescription = stringResource(R.string.chat_rename_desc),
                                         tint = GlassTheme.colors.onSurfaceVariant,
                                         modifier = Modifier.size(14.dp)
                                     )
@@ -245,7 +245,7 @@ fun ChatDrawer(
                                 ) {
                                     GIcon(
                                         imageVector = GIcons.Delete,
-                                        contentDescription = "삭제",
+                                        contentDescription = stringResource(R.string.delete),
                                         tint = GlassTheme.colors.error,
                                         modifier = Modifier.size(14.dp)
                                     )
@@ -381,12 +381,12 @@ fun ChatDrawer(
     if (renameTargetConv != null) {
         GDialog(
             onDismissRequest = { renameTargetConv = null },
-            title = { GText("대화 제목 변경") },
+            title = { GText(stringResource(R.string.chat_rename_title)) },
             text = {
                 GTextField(
                     value = newTitleInput,
                     onValueChange = { newTitleInput = it },
-                    label = { GText("대화 제목") },
+                    label = { GText(stringResource(R.string.chat_rename_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -401,12 +401,12 @@ fun ChatDrawer(
                         renameTargetConv = null
                     }
                 ) {
-                    GText("변경")
+                    GText(stringResource(R.string.chat_rename_confirm))
                 }
             },
             dismissButton = {
                 GTextButton(onClick = { renameTargetConv = null }) {
-                    GText("취소")
+                    GText(stringResource(R.string.cancel))
                 }
             }
         )

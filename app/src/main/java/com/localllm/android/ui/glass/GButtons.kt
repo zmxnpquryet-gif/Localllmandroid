@@ -54,7 +54,7 @@ fun GButton(
                     )
                 )
             )
-            .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(18.dp))
+            .border(1.dp, glassHighlight(0.25f), RoundedCornerShape(18.dp))
             .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 12.dp)
             .defaultMinSize(minHeight = 24.dp),
@@ -112,7 +112,7 @@ fun GTextButton(
     )
 }
 
-/** 40dp glass icon button. */
+/** 48dp glass icon button (meets the minimum touch-target size). */
 @Composable
 fun GIconButton(
     onClick: () -> Unit,
@@ -123,7 +123,7 @@ fun GIconButton(
     Box(
         modifier = modifier
             .alpha(if (enabled) 1f else 0.4f)
-            .size(40.dp)
+            .size(48.dp)
             .clip(CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,

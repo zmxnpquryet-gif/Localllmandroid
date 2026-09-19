@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -38,12 +39,17 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
-/** Glass toggle replacing M3 Switch. */
+/** Glass toggle replacing M3 Switch (48dp touch target, switch semantics). */
 @Composable
 fun GSwitch(
     checked: Boolean,
@@ -58,24 +64,35 @@ fun GSwitch(
     )
     Box(
         modifier = modifier
-            .size(width = 52.dp, height = 30.dp)
-            .clip(RoundedCornerShape(15.dp))
-            .background(
-                if (checked) activeColor.copy(alpha = 0.85f)
-                else colors.surfaceVariant.copy(alpha = 0.7f)
-            )
-            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(15.dp))
-            .clickable(enabled = enabled) { onCheckedChange(!checked) }
-            .padding(3.dp),
-        contentAlignment = Alignment.CenterStart
+            .size(width = 52.dp, height = 48.dp)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange
+            ),
+        contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
-                .offset { IntOffset(((52 - 6 - 24) * thumbOffset).dp.roundToPx(), 0) }
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.95f))
-        )
+                .size(width = 52.dp, height = 30.dp)
+                .clip(RoundedCornerShape(15.dp))
+                .background(
+                    if (checked) activeColor.copy(alpha = 0.85f)
+                    else colors.surfaceVariant.copy(alpha = 0.7f)
+                )
+                .border(1.dp, glassHighlight(0.2f), RoundedCornerShape(15.dp))
+                .padding(3.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(((52 - 6 - 24) * thumbOffset).dp.roundToPx(), 0) }
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.95f))
+            )
+        }
     }
 }
 
@@ -93,7 +110,20 @@ fun GSlider(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(32.dp)
+            .height(48.dp)
+            .semantics {
+                progressBarRangeInfo = ProgressBarRangeInfo(
+                    current = value,
+                    range = valueRange,
+                    steps = steps.coerceAtLeast(0)
+                )
+                setProgress { target ->
+                    onValueChange(
+                        snap(target.coerceIn(valueRange.start, valueRange.endInclusive), valueRange, steps)
+                    )
+                    true
+                }
+            }
             .pointerInput(valueRange, steps) {
                 detectHorizontalDragGestures(
                     onDragStart = { dragging = true },
@@ -144,7 +174,7 @@ fun GSlider(
                 .size(22.dp)
                 .clip(CircleShape)
                 .background(colors.primary)
-                .border(2.dp, Color.White.copy(alpha = 0.7f), CircleShape)
+                .border(2.dp, glassHighlight(0.7f), CircleShape)
         )
     }
 }
@@ -243,20 +273,5 @@ fun GSpinner(
             color = color, startAngle = 0f, sweepAngle = 270f, useCenter = false,
             style = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round)
         )
-    }
-}
-
-/** Small leading-icon label row used inside chips and buttons. */
-@Composable
-fun GLabelWithDot(text: String, color: Color = GlassTheme.colors.primary) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(color)
-        )
-        Spacer(modifier = Modifier.width(6.dp))
-        GText(text = text, style = GlassTheme.type.labelMedium, color = GlassTheme.colors.onSurface)
     }
 }

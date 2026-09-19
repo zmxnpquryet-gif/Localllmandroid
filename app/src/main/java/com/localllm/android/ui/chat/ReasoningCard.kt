@@ -25,8 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.localllm.android.R
 import com.localllm.android.ui.glass.GIcon
 import com.localllm.android.ui.glass.GIcons
 import com.localllm.android.ui.glass.GSpinner
@@ -84,14 +86,14 @@ fun ReasoningCard(
                 } else {
                     GIcon(
                         imageVector = GIcons.Psychology,
-                        contentDescription = "추론",
+                        contentDescription = stringResource(R.string.chat_reasoning_desc),
                         tint = accentColor,
                         modifier = Modifier.size(18.dp)
                     )
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 GText(
-                    text = if (isStreaming) "추론 과정 처리 중..." else "추론 과정 완료",
+                    text = if (isStreaming) stringResource(R.string.chat_reasoning_processing) else stringResource(R.string.chat_reasoning_complete),
                     style = GlassTheme.type.labelLarge,
                     color = GlassTheme.colors.onSurface
                 )
@@ -113,7 +115,7 @@ fun ReasoningCard(
 
             GIcon(
                 imageVector = if (isExpanded) GIcons.ArrowUp else GIcons.ArrowDown,
-                contentDescription = if (isExpanded) "접기" else "펼치기",
+                contentDescription = if (isExpanded) stringResource(R.string.chat_reasoning_collapse) else stringResource(R.string.chat_reasoning_expand),
                 tint = GlassTheme.colors.onSurfaceVariant
             )
         }

@@ -5,7 +5,6 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
-import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -19,17 +18,11 @@ interface ChatDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertConversation(conversation: ConversationEntity)
 
-    @Update
-    suspend fun updateConversation(conversation: ConversationEntity)
-
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun deleteConversationById(id: String)
 
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY timestamp ASC")
     fun getMessagesForConversation(conversationId: String): Flow<List<MessageEntity>>
-
-    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY timestamp ASC")
-    suspend fun getMessagesSnapshot(conversationId: String): List<MessageEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity)
@@ -49,10 +42,15 @@ interface ChatDao {
     @Query("DELETE FROM conversations")
     suspend fun clearAllConversations()
 
+    /** Atomic rename: avoids the load-then-update read-modify-write race. */
+    @Query("UPDATE conversations SET titleEncrypted = :titleEncrypted, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateConversationTitle(id: String, titleEncrypted: String, updatedAt: Long)
+
     /**
-     * IDs of conversations that hold zero messages. Used to avoid persisting
-     * chats the user never wrote in (empty chats are kept in memory only).
+     * Deletes conversations that hold zero messages in a single statement, so no
+     * read-then-delete TOCTOU window exists between selecting and deleting.
+     * Returns the number of deleted rows.
      */
-    @Query("SELECT c.id FROM conversations c LEFT JOIN messages m ON m.conversationId = c.id WHERE m.id IS NULL")
-    suspend fun getEmptyConversationIds(): List<String>
+    @Query("DELETE FROM conversations WHERE id NOT IN (SELECT DISTINCT conversationId FROM messages)")
+    suspend fun deleteEmptyConversations(): Int
 }

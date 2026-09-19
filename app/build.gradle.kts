@@ -1,3 +1,6 @@
+import java.net.URI
+import java.security.MessageDigest
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -28,6 +31,42 @@ val validateReleaseCredentials = tasks.register("validateReleaseCredentials") {
 tasks.configureEach {
   if (name == "preReleaseBuild") dependsOn(validateReleaseCredentials)
 }
+
+// sherpa-onnx ships no Maven artifact, so its official release AAR (ARM/x86 native
+// speech libraries, ~50 MB) is fetched on demand instead of being committed to git.
+// The version and SHA-256 are pinned to the official release asset; bump both together.
+// Values are declared inside the task so its action captures only serializable locals
+// (script-level vals would drag the script/Project into the configuration cache).
+val fetchSherpaAar = tasks.register("fetchSherpaAar") {
+  group = "build setup"
+  description = "Downloads the pinned sherpa-onnx Android AAR into app/libs when it is absent."
+  val version = "1.13.8"
+  val expectedSha256 = "633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96"
+  val expectedBytes = 50_129_134L
+  val archive = file("libs/sherpa-onnx.aar")
+  val downloadUrl =
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/sherpa-onnx-$version.aar"
+  outputs.file(archive)
+  doLast {
+    if (archive.isFile && archive.length() == expectedBytes) return@doLast
+    archive.parentFile.mkdirs()
+    val temp = File(archive.parentFile, "sherpa-onnx.aar.part")
+    URI(downloadUrl).toURL().openStream().use { input ->
+      temp.outputStream().use { output -> input.copyTo(output) }
+    }
+    val digest = MessageDigest.getInstance("SHA-256")
+      .digest(temp.readBytes())
+      .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    if (digest != expectedSha256) {
+      temp.delete()
+      error("sherpa-onnx AAR checksum mismatch (expected $expectedSha256, got $digest)")
+    }
+    if (archive.exists()) archive.delete()
+    check(temp.renameTo(archive)) { "Could not move the downloaded AAR into app/libs" }
+  }
+}
+
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(fetchSherpaAar) }
 
 android {
   namespace = "com.localllm.android"

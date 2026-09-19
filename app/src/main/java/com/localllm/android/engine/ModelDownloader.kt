@@ -789,55 +789,56 @@ class ModelDownloader(client: OkHttpClient? = null) {
                 token
             ).build()
 
-            val resp = httpClient.newCall(req).execute()
-            if (!resp.isSuccessful) {
-                onError("HTTP 오류 ${resp.code}: ${resp.message}")
-                return false
-            }
-
-            val body = resp.body ?: run {
-                onError("서버 응답 본문이 비어 있습니다.")
-                return false
-            }
-
-            val actualLength = body.contentLength().takeIf { it > 0 } ?: totalSize
-            var downloaded = 0L
-            var lastTime = System.currentTimeMillis()
-            var lastBytes = 0L
-
-            body.byteStream().use { input ->
-                BufferedOutputStream(FileOutputStream(tempFile, false), BUFFER_SIZE).use { output ->
-                    val buf = ByteArray(BUFFER_SIZE)
-                    var readLen = 0
-                    while (input.read(buf).also { readLen = it } != -1) {
-                        output.write(buf, 0, readLen)
-                        downloaded += readLen
-
-                        val now = System.currentTimeMillis()
-                        if (now - lastTime >= 200L) {
-                            val timeDelta = max((now - lastTime) / 1000.0, 0.001)
-                            val speedMbps = ((downloaded - lastBytes).toDouble() / timeDelta) / (1024.0 * 1024.0)
-                            val speedText = String.format("%.2f MB/s", speedMbps)
-                            val bytesPerSec = (speedMbps * 1024.0 * 1024.0).toLong()
-                            val remaining = (actualLength - downloaded).coerceAtLeast(0L)
-                            val etaSec = if (bytesPerSec > 0) (remaining / bytesPerSec).toInt() else 0
-
-                            val frac = safeFraction(downloaded, actualLength)
-                            val segmentBars = List(8) { frac }
-
-                            onProgress(downloaded, actualLength, speedText, etaSec, segmentBars)
-                            lastTime = now
-                            lastBytes = downloaded
-                        }
-                    }
-                    output.flush()
+            return httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    onError("HTTP 오류 ${resp.code}: ${resp.message}")
+                    return false
                 }
-            }
 
-            if (targetFile.exists()) targetFile.delete()
-            tempFile.renameTo(targetFile)
-            Log.i(tag, "[$taskTitle] Single stream download completed: ${targetFile.name} (${targetFile.length()} bytes)")
-            return true
+                val body = resp.body ?: run {
+                    onError("서버 응답 본문이 비어 있습니다.")
+                    return false
+                }
+
+                val actualLength = body.contentLength().takeIf { it > 0 } ?: totalSize
+                var downloaded = 0L
+                var lastTime = System.currentTimeMillis()
+                var lastBytes = 0L
+
+                body.byteStream().use { input ->
+                    BufferedOutputStream(FileOutputStream(tempFile, false), BUFFER_SIZE).use { output ->
+                        val buf = ByteArray(BUFFER_SIZE)
+                        var readLen = 0
+                        while (input.read(buf).also { readLen = it } != -1) {
+                            output.write(buf, 0, readLen)
+                            downloaded += readLen
+
+                            val now = System.currentTimeMillis()
+                            if (now - lastTime >= 200L) {
+                                val timeDelta = max((now - lastTime) / 1000.0, 0.001)
+                                val speedMbps = ((downloaded - lastBytes).toDouble() / timeDelta) / (1024.0 * 1024.0)
+                                val speedText = String.format("%.2f MB/s", speedMbps)
+                                val bytesPerSec = (speedMbps * 1024.0 * 1024.0).toLong()
+                                val remaining = (actualLength - downloaded).coerceAtLeast(0L)
+                                val etaSec = if (bytesPerSec > 0) (remaining / bytesPerSec).toInt() else 0
+
+                                val frac = safeFraction(downloaded, actualLength)
+                                val segmentBars = List(8) { frac }
+
+                                onProgress(downloaded, actualLength, speedText, etaSec, segmentBars)
+                                lastTime = now
+                                lastBytes = downloaded
+                            }
+                        }
+                        output.flush()
+                    }
+                }
+
+                if (targetFile.exists()) targetFile.delete()
+                tempFile.renameTo(targetFile)
+                Log.i(tag, "[$taskTitle] Single stream download completed: ${targetFile.name} (${targetFile.length()} bytes)")
+                true
+            }
         } catch (e: Exception) {
             val err = "다운로드 실패: ${e.localizedMessage ?: e.message}"
             Log.e(tag, "[$taskTitle] Single stream download failed", e)

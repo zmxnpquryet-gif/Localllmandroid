@@ -81,12 +81,12 @@ fun SettingsScreen(
     GScaffold(
         topBar = {
             GTopBar(
-                title = { GText("설정 및 커스텀 테마") },
+                title = { GText(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     GIconButton(onClick = { viewModel.navigateTo(AppScreen.CHAT) }) {
                         GIcon(
                             imageVector = GIcons.ArrowBack,
-                            contentDescription = "뒤로가기"
+                            contentDescription = stringResource(R.string.nav_back)
                         )
                     }
                 }
@@ -107,11 +107,11 @@ fun SettingsScreen(
             ) {
             // 1. Runtime Selection (LiteRT LM vs llama.cpp)
             SettingsCard(
-                title = "추론 백엔드 런타임",
+                title = stringResource(R.string.settings_runtime_title),
                 icon = GIcons.Memory
             ) {
                 GText(
-                    text = "추론 엔진 런타임을 선택하세요.",
+                    text = stringResource(R.string.settings_runtime_desc),
                     style = GlassTheme.type.bodySmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )
@@ -137,7 +137,7 @@ fun SettingsScreen(
                 GFilterChip(
                     selected = settings.runtime == ModelRuntimeType.SD_ENGINE,
                     onClick = { viewModel.switchRuntime(ModelRuntimeType.SD_ENGINE) },
-                    label = { GText("⚠ SDengine (TEST) — 자체 엔진 실험체") },
+                    label = { GText(stringResource(R.string.settings_sdengine_label)) },
                     modifier = Modifier.fillMaxWidth()
                 )
                 if (settings.runtime == ModelRuntimeType.SD_ENGINE) {
@@ -152,7 +152,7 @@ fun SettingsScreen(
 
             // 2. Hardware Acceleration & MTP Options
             SettingsCard(
-                title = "인덱싱 및 성능 가속 옵션",
+                title = stringResource(R.string.settings_performance_title),
                 icon = GIcons.Bolt
             ) {
                 Row(
@@ -161,8 +161,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        GText("MTP (Multi-Token Prediction) 자동 적용", style = GlassTheme.type.bodyMedium)
-                        GText("모델이 MTP를 지원할 때 스펙큘레이티브 2x 토큰 디코딩 가속", fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
+                        GText(stringResource(R.string.settings_mtp_title), style = GlassTheme.type.bodyMedium)
+                        GText(stringResource(R.string.settings_mtp_desc), fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
                     }
                     GSwitch(
                         checked = settings.enableMtp,
@@ -178,8 +178,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        GText("KV-Cache 및 프롬프트 인덱싱 가속", style = GlassTheme.type.bodyMedium)
-                        GText("Flash-Attention v2 및 프롬프트 캐시 최적화", fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
+                        GText(stringResource(R.string.settings_indexing_title), style = GlassTheme.type.bodyMedium)
+                        GText(stringResource(R.string.settings_indexing_desc), fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
                     }
                     GSwitch(
                         checked = settings.enableIndexingAcceleration,
@@ -195,8 +195,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        GText("실시간 TPS & PP 속도 표시", style = GlassTheme.type.bodyMedium)
-                        GText("메시지 하단에 토큰 생성 속도 및 프롬프트 처리 지표 표시", fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
+                        GText(stringResource(R.string.settings_metrics_title), style = GlassTheme.type.bodyMedium)
+                        GText(stringResource(R.string.settings_metrics_desc), fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
                     }
                     GSwitch(
                         checked = settings.showPerformanceMetrics,
@@ -207,7 +207,7 @@ fun SettingsScreen(
 
             // 3. Generation Hyperparameters (Context 4096 default, Temp, Top-P, Top-K)
             SettingsCard(
-                title = "세부 추론 파라미터",
+                title = stringResource(R.string.settings_params_title),
                 icon = GIcons.Tune
             ) {
                 // Context Window
@@ -215,8 +215,8 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    GText("컨텍스트 창 크기 (Context Window)")
-                    GText("${settings.contextWindow} 토큰", color = GlassTheme.colors.primary)
+                    GText(stringResource(R.string.settings_context_window))
+                    GText(stringResource(R.string.settings_context_window_value, settings.contextWindow), color = GlassTheme.colors.primary)
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -238,7 +238,7 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    GText("온도 (Temperature)")
+                    GText(stringResource(R.string.settings_temperature))
                     GText(String.format("%.2f", settings.temperature), color = GlassTheme.colors.primary)
                 }
                 GSlider(
@@ -255,7 +255,7 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    GText("Top-P 샘플링")
+                    GText(stringResource(R.string.settings_top_p_sampling))
                     GText(String.format("%.2f", settings.topP), color = GlassTheme.colors.primary)
                 }
                 GSlider(
@@ -285,7 +285,7 @@ fun SettingsScreen(
 
             // 4. Custom System Prompt
             SettingsCard(
-                title = "사용자 지정 시스템 프롬프트",
+                title = stringResource(R.string.settings_custom_system_prompt),
                 icon = GIcons.Tune
             ) {
                 GTextField(
@@ -296,7 +296,7 @@ fun SettingsScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 3,
-                    label = { GText("시스템 프롬프트 (System Instruction)") }
+                    label = { GText(stringResource(R.string.settings_system_prompt_label)) }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -307,18 +307,18 @@ fun SettingsScreen(
                             viewModel.updateSettings(settings.copy(systemPrompt = defaultPrompt))
                         }
                     ) {
-                        GText("초기화")
+                        GText(stringResource(R.string.settings_reset))
                     }
                 }
             }
 
             // 5. MCP (Model Context Protocol) URL Integration
             SettingsCard(
-                title = "MCP (Model Context Protocol) 도구 연동",
+                title = stringResource(R.string.settings_mcp_section),
                 icon = GIcons.Hub
             ) {
                 GText(
-                    text = "MCP 서버에 JSON-RPC로 연결해 도구 목록을 조회하고, 그 정의를 채팅 프롬프트에 전달합니다. 모델의 자동 도구 실행(에이전틱 호출)은 아직 지원하지 않습니다.",
+                    text = stringResource(R.string.settings_mcp_desc),
                     style = GlassTheme.type.bodySmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )
@@ -338,19 +338,19 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     GText(
-                        text = "상태: $mcpStatusText",
+                        text = stringResource(R.string.settings_mcp_status, mcpStatusText),
                         fontSize = 12.sp,
                         color = GlassTheme.colors.primary,
                         modifier = Modifier.weight(1f)
                     )
                     GButton(onClick = { viewModel.connectMcp(mcpUrlInput) }) {
-                        GText("연결 및 적용")
+                        GText(stringResource(R.string.settings_mcp_connect))
                     }
                 }
                 if (mcpTools.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(6.dp))
                     GText(
-                        text = "연결된 도구: " + mcpTools.joinToString(", ") { it.name },
+                        text = stringResource(R.string.settings_mcp_connected_tools, mcpTools.joinToString(", ") { it.name }),
                         fontSize = 12.sp,
                         color = GlassTheme.colors.onSurfaceVariant
                     )
@@ -359,11 +359,11 @@ fun SettingsScreen(
 
             // 6. Hugging Face Personal Access Token (Optional)
             SettingsCard(
-                title = "Hugging Face 액세스 토큰 (선택)",
+                title = stringResource(R.string.settings_hf_token_title),
                 icon = GIcons.Key
             ) {
                 GText(
-                    text = "Gated 모델(Gemma, Meta Llama 등) 또는 비공개 저장소 모델을 다운로드할 때 인증 헤더로 전송됩니다. 공개 모델 다운로드 시에는 비워두셔도 정상 동작합니다.",
+                    text = stringResource(R.string.settings_hf_token_desc),
                     style = GlassTheme.type.bodySmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )
@@ -374,7 +374,7 @@ fun SettingsScreen(
                         hfTokenInput = it
                         viewModel.updateHfToken(it)
                     },
-                    label = { GText("Hugging Face 토큰 (hf_...)") },
+                    label = { GText(stringResource(R.string.settings_hf_token_label)) },
                     placeholder = { GText("hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") },
                     singleLine = true,
                     visualTransformation = if (isTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -382,7 +382,7 @@ fun SettingsScreen(
                         GIconButton(onClick = { isTokenVisible = !isTokenVisible }) {
                             GIcon(
                                 imageVector = if (isTokenVisible) GIcons.VisibilityOff else GIcons.Visibility,
-                                contentDescription = if (isTokenVisible) "숨기기" else "보기"
+                                contentDescription = if (isTokenVisible) stringResource(R.string.settings_hide) else stringResource(R.string.settings_show)
                             )
                         }
                     },
@@ -390,7 +390,7 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 GText(
-                    text = if (settings.hfToken.isNotBlank()) "✓ 토큰 설정됨 (다운로드 요청 시 Authorization 헤더 자동 포함)" else "미설정 (공개 모델 전용)",
+                    text = if (settings.hfToken.isNotBlank()) stringResource(R.string.settings_hf_token_set) else stringResource(R.string.settings_hf_token_unset),
                     fontSize = 12.sp,
                     color = if (settings.hfToken.isNotBlank()) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant
                 )
@@ -398,10 +398,10 @@ fun SettingsScreen(
 
             // 7. Theme & Dark/Light Mode Personalization
             SettingsCard(
-                title = "UI 테마 및 다크/화이트 모드",
+                title = stringResource(R.string.settings_theme_section),
                 icon = GIcons.Palette
             ) {
-                GText("화면 모드 (Dark / Light Mode)", style = GlassTheme.type.bodyMedium)
+                GText(stringResource(R.string.settings_display_mode), style = GlassTheme.type.bodyMedium)
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -410,28 +410,28 @@ fun SettingsScreen(
                     GFilterChip(
                         selected = settings.darkModePreference == "dark",
                         onClick = { viewModel.updateSettings(settings.copy(darkModePreference = "dark")) },
-                        label = { GText("다크 모드") },
+                        label = { GText(stringResource(R.string.settings_theme_dark_on)) },
                         leadingIcon = { GIcon(GIcons.DarkMode, contentDescription = null, modifier = Modifier.size(16.dp)) },
                         modifier = Modifier.weight(1f)
                     )
                     GFilterChip(
                         selected = settings.darkModePreference == "light",
                         onClick = { viewModel.updateSettings(settings.copy(darkModePreference = "light")) },
-                        label = { GText("화이트 모드") },
+                        label = { GText(stringResource(R.string.settings_theme_white)) },
                         leadingIcon = { GIcon(GIcons.LightMode, contentDescription = null, modifier = Modifier.size(16.dp)) },
                         modifier = Modifier.weight(1f)
                     )
                     GFilterChip(
                         selected = settings.darkModePreference == "system",
                         onClick = { viewModel.updateSettings(settings.copy(darkModePreference = "system")) },
-                        label = { GText("시스템 설정") },
+                        label = { GText(stringResource(R.string.settings_theme_dark_system)) },
                         modifier = Modifier.weight(1f)
                     )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                GText("테마 컬러 팔레트 선택", style = GlassTheme.type.bodyMedium)
+                GText(stringResource(R.string.settings_theme_palette), style = GlassTheme.type.bodyMedium)
                 Spacer(modifier = Modifier.height(8.dp))
 
                 val themes = listOf(
@@ -521,11 +521,11 @@ fun SettingsScreen(
 
             // 7. API Dedicated Mode (Port 11434 Ollama / OpenAI Server)
             SettingsCard(
-                title = "API 전용 모드 (포트 11434)",
+                title = stringResource(R.string.settings_api_mode_section),
                 icon = GIcons.Dns
             ) {
                 GText(
-                    text = "기기를 독립적인 Ollama 호환 LLM 서버로 구동합니다. 로컬 네트워크의 다른 장치나 앱에서 HTTP API로 연결할 수 있습니다.",
+                    text = stringResource(R.string.settings_api_mode_desc),
                     style = GlassTheme.type.bodySmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )
@@ -537,15 +537,15 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         GText(
-                            text = if (isApiModeEnabled) "API 서버 구동 중" else "API 서버 꺼짐",
+                            text = if (isApiModeEnabled) stringResource(R.string.settings_api_server_on) else stringResource(R.string.settings_api_server_off),
                             style = GlassTheme.type.bodyMedium,
                             color = if (isApiModeEnabled) GlassTheme.colors.primary else GlassTheme.colors.onSurface
                         )
                         GText(
                             text = if (isApiModeEnabled) {
-                                if (settings.isApiExternalAccessEnabled) "http://$localIpAddress:$apiPort (외부 허용)"
-                                else "http://127.0.0.1:$apiPort (로컬 전용)"
-                            } else "포트 11434 수신 대기",
+                                if (settings.isApiExternalAccessEnabled) stringResource(R.string.settings_api_url_external, localIpAddress, apiPort)
+                                else stringResource(R.string.settings_api_url_local, apiPort)
+                            } else stringResource(R.string.settings_api_waiting),
                             style = GlassTheme.type.labelSmall,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
@@ -565,12 +565,12 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        GText("외부 네트워크(LAN) 접근 허용", style = GlassTheme.type.bodyMedium)
+                        GText(stringResource(R.string.api_external_access_title), style = GlassTheme.type.bodyMedium)
                         GText(
                             text = if (settings.isApiExternalAccessEnabled)
-                                "전체 인터페이스(0.0.0.0) 바인딩 활성화"
+                                stringResource(R.string.settings_api_bind_all)
                             else
-                                "기기 내부 루프백(127.0.0.1) 격리",
+                                stringResource(R.string.settings_api_bind_loopback),
                             fontSize = 12.sp,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
@@ -592,17 +592,17 @@ fun SettingsScreen(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    GText("API 모드 상세 화면 및 cURL 가이드 열기")
+                    GText(stringResource(R.string.settings_api_open_detail))
                 }
             }
 
             // 8. Encrypted SQLite Storage Management
             SettingsCard(
-                title = "로컬 SQLite 암호화 저장소",
+                title = stringResource(R.string.settings_storage_title),
                 icon = GIcons.Lock
             ) {
                 GText(
-                    text = "모든 대화 기록 및 메타데이터는 AES-256-GCM 알고리즘으로 기기 내 안전하게 암호화되어 보관됩니다.",
+                    text = stringResource(R.string.settings_storage_desc),
                     style = GlassTheme.type.bodySmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )
@@ -617,7 +617,7 @@ fun SettingsScreen(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    GText("모든 암호화 대화 데이터 영구 삭제")
+                    GText(stringResource(R.string.settings_storage_delete_all))
                 }
             }
 
@@ -629,22 +629,23 @@ fun SettingsScreen(
     if (showClearDialog) {
         GDialog(
             onDismissRequest = { showClearDialog = false },
-            title = { GText("대화 내역 전체 삭제") },
-            text = { GText("로컬 SQLite에 암호화 저장된 모든 대화 기록을 완전히 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.") },
+            title = { GText(stringResource(R.string.clear_all_chats_confirm_title)) },
+            text = { GText(stringResource(R.string.clear_all_chats_confirm_desc)) },
             confirmButton = {
+                val clearedToast = stringResource(R.string.chats_cleared)
                 GTextButton(
                     onClick = {
                         viewModel.clearAllHistory()
                         showClearDialog = false
-                        Toast.makeText(context, "대화 기록이 삭제되었습니다.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, clearedToast, Toast.LENGTH_SHORT).show()
                     }
                 ) {
-                    GText("삭제", color = GlassTheme.colors.error)
+                    GText(stringResource(R.string.delete), color = GlassTheme.colors.error)
                 }
             },
             dismissButton = {
                 GTextButton(onClick = { showClearDialog = false }) {
-                    GText("취소")
+                    GText(stringResource(R.string.cancel))
                 }
             }
         )

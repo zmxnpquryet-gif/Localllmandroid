@@ -154,6 +154,7 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 - Android SDK 36, Min SDK 24
 - Android NDK 27.2 + CMake 3.22 이상 (`:engine` 모듈 빌드에 필요)
 - NDK 지원 기기 (ARM64-v8a, x86_64)
+- 네이티브 의존성 수동 설치 불필요: sherpa-onnx STT AAR(약 50MB)은 저장소에 커밋하지 않고, 빌드 전 Gradle `fetchSherpaAar` 태스크가 버전·SHA-256 고정값으로 자동 다운로드합니다.
 
 ### 빌드 명령어
 ```bash

@@ -132,7 +132,7 @@ fun ChatInputBar(
                     else -> "Max (1.0)"
                 }
                 GText(
-                    text = "Reasoning Effort: $effortLabel",
+                    text = stringResource(R.string.chat_reasoning_effort_label, effortLabel),
                     style = GlassTheme.type.labelSmall,
                     color = GlassTheme.colors.onSurface
                 )
@@ -148,7 +148,7 @@ fun ChatInputBar(
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     GText(
-                        text = "실시간 추론 깊이 (Reasoning Effort) 조절",
+                        text = stringResource(R.string.chat_reasoning_slider_title),
                         style = GlassTheme.type.labelSmall,
                         color = GlassTheme.colors.onSurfaceVariant
                     )
@@ -202,7 +202,7 @@ fun ChatInputBar(
                     ) {
                         GIcon(
                             imageVector = GIcons.Close,
-                            contentDescription = "삭제",
+                            contentDescription = stringResource(R.string.delete),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -227,7 +227,7 @@ fun ChatInputBar(
             ) {
                 GIcon(
                     imageVector = GIcons.Add,
-                    contentDescription = "파일 첨부",
+                    contentDescription = stringResource(R.string.attach_file),
                     tint = GlassTheme.colors.primary
                 )
             }
@@ -316,7 +316,7 @@ fun ChatInputBar(
         onDismissRequest = { showAttachmentSheet = false }
     ) {
         GText(
-            text = "파일 및 미디어 첨부",
+            text = stringResource(R.string.chat_attach_sheet_title),
             style = GlassTheme.type.titleMedium,
             color = GlassTheme.colors.onSurface
         )
@@ -340,11 +340,11 @@ fun ChatInputBar(
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 GText(
-                    text = "사진 및 이미지 선택 (Vision 지원)",
+                    text = stringResource(R.string.chat_attach_image),
                     style = GlassTheme.type.bodyMedium
                 )
                 GText(
-                    text = if (activeModel?.hasMmproj == true) "mmproj 비전 인코더 자동 활성화" else "텍스트 전용 모델",
+                    text = if (activeModel?.hasMmproj == true) stringResource(R.string.chat_attach_image_mmproj_hint) else stringResource(R.string.chat_attach_text_only),
                     style = GlassTheme.type.labelSmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )
@@ -366,11 +366,11 @@ fun ChatInputBar(
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 GText(
-                    text = "문서 및 텍스트 파일 첨부",
+                    text = stringResource(R.string.chat_attach_document),
                     style = GlassTheme.type.bodyMedium
                 )
                 GText(
-                    text = "TXT, PDF, 코드 파일 콘텍스트 주입",
+                    text = stringResource(R.string.chat_attach_document_hint),
                     style = GlassTheme.type.labelSmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )

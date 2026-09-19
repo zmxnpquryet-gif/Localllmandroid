@@ -25,9 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.localllm.android.R
 import com.localllm.android.model.ChatMessage
 import com.localllm.android.model.MessageRole
 import com.localllm.android.ui.glass.GIcon
@@ -47,6 +49,7 @@ fun ChatMessageItem(
 ) {
     val context = LocalContext.current
     val isUser = message.role == MessageRole.USER
+    val copiedText = stringResource(R.string.copied)
 
     Column(
         modifier = modifier
@@ -81,7 +84,7 @@ fun ChatMessageItem(
                         ) {
                             AsyncImage(
                                 model = att.uriString,
-                                contentDescription = "첨부 이미지",
+                                contentDescription = stringResource(R.string.chat_attached_image_desc),
                                 modifier = Modifier.matchParentSize()
                             )
                         }
@@ -200,13 +203,13 @@ fun ChatMessageItem(
                                     onClick = {
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                         clipboard.setPrimaryClip(ClipData.newPlainText("AI Response", message.content))
-                                        Toast.makeText(context, "복사되었습니다.", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, copiedText, Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.size(32.dp)
                                 ) {
                                     GIcon(
                                         imageVector = GIcons.ContentCopy,
-                                        contentDescription = "복사",
+                                        contentDescription = stringResource(R.string.copy),
                                         tint = GlassTheme.colors.onSurfaceVariant,
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -218,7 +221,7 @@ fun ChatMessageItem(
                                 ) {
                                     GIcon(
                                         imageVector = GIcons.VolumeUp,
-                                        contentDescription = "읽기",
+                                        contentDescription = stringResource(R.string.chat_speak_desc),
                                         tint = GlassTheme.colors.onSurfaceVariant,
                                         modifier = Modifier.size(16.dp)
                                     )

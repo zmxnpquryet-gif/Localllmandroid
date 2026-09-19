@@ -44,9 +44,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.localllm.android.R
 import com.localllm.android.model.LlmModel
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
@@ -169,6 +171,7 @@ fun ChatScreen(
     }
 
     // Audio recording permission launcher for STT
+    val micPermissionDeniedMsg = stringResource(R.string.chat_voice_mic_permission_required)
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -182,7 +185,7 @@ fun ChatScreen(
                 }
             )
         } else {
-            Toast.makeText(context, "음성 입력을 위해 마이크 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, micPermissionDeniedMsg, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -320,7 +323,7 @@ fun ChatScreen(
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             GText(
-                                                text = if (modelLoadingStage.isNotBlank()) "모델 로딩 중: $modelLoadingStage" else "모델 로딩 중...",
+                                                text = if (modelLoadingStage.isNotBlank()) stringResource(R.string.model_loading, modelLoadingStage) else stringResource(R.string.model_loading_default),
                                                 style = GlassTheme.type.labelSmall,
                                                 color = GlassTheme.colors.primary
                                             )
@@ -386,13 +389,13 @@ fun ChatScreen(
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             GText(
-                                                text = "API 모드 실행 중 (포트 $apiPort) • 탭하여 API 정보 확인",
+                                                text = stringResource(R.string.chat_api_banner_active, apiPort),
                                                 fontSize = 11.sp,
                                                 color = GlassTheme.colors.onSecondaryContainer
                                             )
                                         }
                                         GText(
-                                            text = "상세보기 >",
+                                            text = stringResource(R.string.chat_api_banner_details),
                                             fontSize = 11.sp,
                                             color = GlassTheme.colors.secondary
                                         )
@@ -428,7 +431,7 @@ fun ChatScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     GText(
-                                        text = "⚠ SDengine (TEST) — 자체 엔진 실험체. " +
+                                        text = stringResource(R.string.chat_sdengine_banner_prefix) +
                                                 com.localllm.engine.SDEngine.advisoryText(),
                                         fontSize = 11.sp,
                                         color = GlassTheme.colors.onErrorContainer,
@@ -443,10 +446,7 @@ fun ChatScreen(
 
                 // Engine Status Pill Banner
                 if (!engineStatus.isNullOrBlank()) {
-                        val isErrorStatus = engineStatus?.contains("오류") == true ||
-                                engineStatus?.contains("실패") == true ||
-                                engineStatus?.contains("Error") == true ||
-                                engineStatus?.contains("Failed") == true
+                        val isErrorStatus = isEngineErrorStatus(engineStatus)
 
                         val bannerTextColor = if (isErrorStatus) {
                             GlassTheme.colors.onErrorContainer
@@ -493,7 +493,7 @@ fun ChatScreen(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         GText(
-                                            text = "[상세]",
+                                            text = stringResource(R.string.chat_status_details_short),
                                             fontSize = 10.sp,
                                             color = bannerIconTint,
                                             style = GlassTheme.type.labelSmall
@@ -510,7 +510,7 @@ fun ChatScreen(
                             onDismissRequest = { showStatusDetailDialog = false },
                             title = {
                                 GText(
-                                    text = if (engineStatus?.contains("오류") == true || engineStatus?.contains("실패") == true) "엔진 오류 상세 정보" else "엔진 상태 정보",
+                                    text = if (isEngineErrorStatus(engineStatus)) stringResource(R.string.engine_error_details) else stringResource(R.string.engine_status),
                                     style = GlassTheme.type.titleMedium
                                 )
                             },
@@ -522,20 +522,21 @@ fun ChatScreen(
                                 )
                             },
                             confirmButton = {
+                                val copiedToast = stringResource(R.string.copied)
                                 GTextButton(
                                     onClick = {
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                                         val clip = ClipData.newPlainText("Engine Status", engineStatus ?: "")
                                         clipboard?.setPrimaryClip(clip)
-                                        Toast.makeText(context, "클립보드에 복사되었습니다.", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, copiedToast, Toast.LENGTH_SHORT).show()
                                     }
                                 ) {
-                                    GText("복사")
+                                    GText(stringResource(R.string.copy))
                                 }
                             },
                             dismissButton = {
                                 GTextButton(onClick = { showStatusDetailDialog = false }) {
-                                    GText("닫기")
+                                    GText(stringResource(R.string.close))
                                 }
                             }
                         )
@@ -629,6 +630,14 @@ fun ChatScreen(
     }
 }
 
+/** Language-independent error detection for the engine status banner. */
+private fun isEngineErrorStatus(status: String?): Boolean {
+    if (status.isNullOrBlank()) return false
+    val lower = status.lowercase()
+    return lower.contains("error") || lower.contains("failed") || lower.contains("exception") ||
+        status.contains("오류") || status.contains("실패") || status.contains("예외")
+}
+
 @Composable
 private fun JumpToLatestButton(onClick: () -> Unit) {
     Box(
@@ -643,13 +652,13 @@ private fun JumpToLatestButton(onClick: () -> Unit) {
         ) {
             GIcon(
                 imageVector = GIcons.ArrowDown,
-                contentDescription = "최신 답변으로 이동",
+                contentDescription = stringResource(R.string.chat_jump_latest_desc),
                 tint = GlassTheme.colors.onPrimaryContainer,
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
             GText(
-                text = "답변 따라가기",
+                text = stringResource(R.string.chat_jump_latest),
                 style = GlassTheme.type.labelMedium,
                 color = GlassTheme.colors.onPrimaryContainer
             )
@@ -702,7 +711,7 @@ private fun EmptyChatPlaceholder(
             Spacer(modifier = Modifier.height(18.dp))
 
             GText(
-                text = "로컬 LLM 다운로드 필요",
+                text = stringResource(R.string.chat_empty_no_model_title),
                 style = GlassTheme.type.headlineMedium,
                 color = GlassTheme.colors.onBackground
             )
@@ -710,7 +719,7 @@ private fun EmptyChatPlaceholder(
             Spacer(modifier = Modifier.height(8.dp))
 
             GText(
-                text = "기본 모델이 없습니다. 모델 관리에서 모델을 다운로드하여 기기에서 바로 실행할 수 있습니다.",
+                text = stringResource(R.string.chat_empty_no_model_desc),
                 style = GlassTheme.type.bodyMedium,
                 color = GlassTheme.colors.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -731,7 +740,7 @@ private fun EmptyChatPlaceholder(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 GText(
-                    text = "모델 다운로드",
+                    text = stringResource(R.string.chat_empty_download_model),
                     color = GlassTheme.colors.onPrimary,
                     style = GlassTheme.type.labelLarge
                 )
@@ -741,7 +750,7 @@ private fun EmptyChatPlaceholder(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GText(
-                    text = "GGUF / LiteRT 지원 • 비전 및 가속 지원",
+                    text = stringResource(R.string.chat_empty_features),
                     style = GlassTheme.type.bodySmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )
@@ -779,7 +788,7 @@ private fun EmptyChatPlaceholder(
             Spacer(modifier = Modifier.height(16.dp))
 
             GText(
-                text = "Local LLM",
+                text = stringResource(R.string.app_name),
                 style = GlassTheme.type.headlineMedium,
                 color = GlassTheme.colors.onBackground
             )
@@ -811,7 +820,7 @@ private fun EmptyChatPlaceholder(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 GText(
-                    text = "로컬 실행 • 기기 내 저장",
+                    text = stringResource(R.string.app_tagline),
                     style = GlassTheme.type.bodySmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )
@@ -821,9 +830,9 @@ private fun EmptyChatPlaceholder(
 
             // Quick Suggestion buttons
             val suggestions = listOf(
-                "오늘 저녁 메뉴 추천해줘",
-                "주말에 읽을 만한 책 추천해줘",
-                "하루 일정 정리하는 방법 알려줘"
+                stringResource(R.string.prompt_suggestion_1),
+                stringResource(R.string.prompt_suggestion_2),
+                stringResource(R.string.prompt_suggestion_3)
             )
 
             suggestions.forEach { prompt ->

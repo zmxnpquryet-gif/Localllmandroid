@@ -1,6 +1,8 @@
 package com.localllm.android.ui
 
 import android.app.Application
+import android.content.res.Configuration
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.localllm.android.data.ModelStorageManager
@@ -19,6 +21,7 @@ import com.localllm.android.model.LlmModel
 import com.localllm.android.model.MessageRole
 import com.localllm.android.model.ModelCatalog
 import com.localllm.android.model.ModelRuntimeType
+import com.localllm.android.R
 import com.localllm.android.voice.InteractiveVoiceState
 import com.localllm.android.voice.VoiceManager
 import android.net.Uri
@@ -36,6 +39,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.net.NetworkInterface
 import java.util.Collections
+import java.util.Locale
 import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -115,7 +119,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val pendingAttachment: StateFlow<ChatAttachment?> = _pendingAttachment.asStateFlow()
 
     // Status banner / engine toast
-    private val _engineStatusMessage = MutableStateFlow<String?>("로컬 모델 다운로드 필요 (상단 허브)")
+    private val _engineStatusMessage = MutableStateFlow<String?>(localizedString(R.string.vm_status_download_required))
     val engineStatusMessage: StateFlow<String?> = _engineStatusMessage.asStateFlow()
 
     // Model Loading State & Progress (0f..1f, visible during loading, disappears when finished)
@@ -135,7 +139,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _apiServerPort = MutableStateFlow(OllamaApiServer.DEFAULT_PORT)
     val apiServerPort: StateFlow<Int> = _apiServerPort.asStateFlow()
 
-    private val _apiServerStatusMessage = MutableStateFlow<String?>("대기 중")
+    private val _apiServerStatusMessage = MutableStateFlow<String?>(localizedString(R.string.vm_api_status_idle))
     val apiServerStatusMessage: StateFlow<String?> = _apiServerStatusMessage.asStateFlow()
 
     private val _apiRequestCount = MutableStateFlow(0)
@@ -154,10 +158,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeDownloadStatus = MutableStateFlow<com.localllm.android.engine.DownloadStatus?>(null)
     val activeDownloadStatus: StateFlow<com.localllm.android.engine.DownloadStatus?> = _activeDownloadStatus.asStateFlow()
 
-    private var activeDownloadJob: Job? = null
-
     // MCP Connection result
-    private val _mcpStatusText = MutableStateFlow<String>("미연결")
+    private val _mcpStatusText = MutableStateFlow<String>(localizedString(R.string.vm_mcp_disconnected))
     val mcpStatusText: StateFlow<String> = _mcpStatusText.asStateFlow()
 
     private val _mcpTools = MutableStateFlow<List<com.localllm.android.engine.McpTool>>(emptyList())
@@ -181,10 +183,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 runtime = restoredModel.runtimeType,
                 enableMtp = if (restoredModel.supportsMtp) true else _settings.value.enableMtp
             )
-            _engineStatusMessage.value = "${restoredModel.name} 준비됨 (대화 시작 시 메모리 로드)"
+            _engineStatusMessage.value = localizedString(R.string.vm_status_model_restored, restoredModel.name)
         } else {
             _activeModel.value = null
-            _engineStatusMessage.value = "기본 모델 미탑재: 모델 관리자에서 최신 모델을 다운로드하세요."
+            _engineStatusMessage.value = localizedString(R.string.vm_status_no_default_model)
         }
 
         // Restore MCP session: tool handles live per-process, so re-list them when
@@ -271,7 +273,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun newPendingConversation(): Conversation {
         return Conversation(
             id = UUID.randomUUID().toString(),
-            title = "새로운 대화",
+            title = localizedString(R.string.vm_conversation_default_title),
             modelId = _activeModel.value?.id ?: "",
             systemPrompt = _settings.value.systemPrompt
         )
@@ -348,7 +350,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         stopGeneration()
         pendingConversation = null
         viewModelScope.launch {
-            database.chatDao().clearAllConversations()
+            repository.clearAll()
             _messages.value = emptyList()
             _currentConversationId.value = null
             createNewConversation()
@@ -373,7 +375,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectModel(model: LlmModel) {
         if (!model.isDownloaded) {
-            _engineStatusMessage.value = "${model.name} 모델은 아직 다운로드되지 않았습니다. 모델 관리자에서 다운로드해 주세요."
+            _engineStatusMessage.value = localizedString(R.string.vm_status_model_not_downloaded, model.name)
             return
         }
 
@@ -384,7 +386,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         modelLoadingJob = viewModelScope.launch {
             _isModelLoading.value = true
             _modelLoadingProgress.value = 0.05f
-            _modelLoadingStage.value = "로딩 준비 중..."
+            _modelLoadingStage.value = localizedString(R.string.vm_stage_preparing_load)
 
             // Sync runtime type and auto-apply MTP if model supports it
             _settings.value = _settings.value.copy(
@@ -401,14 +403,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (llmEngine.isModelReady()) {
                     _activeModel.value = model
                     _modelLoadingProgress.value = 1.0f
-                    _modelLoadingStage.value = "로드 완료"
+                    _modelLoadingStage.value = localizedString(R.string.vm_stage_load_complete)
                     _engineStatusMessage.value = status
                     modelStorageManager.saveActiveModelId(model.id)
                     delay(400)
                 } else {
                     _activeModel.value = null
                     _modelLoadingProgress.value = 0f
-                    _modelLoadingStage.value = "로드 실패"
+                    _modelLoadingStage.value = localizedString(R.string.vm_stage_load_failed)
                     _engineStatusMessage.value = status
                     delay(2000)
                 }
@@ -416,8 +418,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 android.util.Log.e("MainViewModel", "Model loading error", t)
                 _activeModel.value = null
                 _modelLoadingProgress.value = 0f
-                _modelLoadingStage.value = "로드 실패"
-                _engineStatusMessage.value = "모델 로드 예외: ${t.localizedMessage ?: t.message}"
+                _modelLoadingStage.value = localizedString(R.string.vm_stage_load_failed)
+                _engineStatusMessage.value = localizedString(R.string.vm_status_model_load_exception, t.localizedMessage ?: t.message)
                 delay(2000)
             } finally {
                 // Loading completes -> hide loading bar
@@ -443,8 +445,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             _engineStatusMessage.value = when (runtime) {
-                ModelRuntimeType.LLAMA_CPP -> "llama.cpp 형식의 다운로드된 모델이 없습니다. 모델 관리자에서 다운로드하세요."
-                ModelRuntimeType.LITE_RT -> "LiteRT LM 형식의 다운로드된 모델이 없습니다. 모델 관리자에서 다운로드하세요."
+                ModelRuntimeType.LLAMA_CPP -> localizedString(R.string.vm_status_no_llamacpp_model)
+                ModelRuntimeType.LITE_RT -> localizedString(R.string.vm_status_no_litert_model)
                 ModelRuntimeType.SD_ENGINE -> com.localllm.engine.SDEngine.advisoryText()
             }
         }
@@ -493,7 +495,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _engineStatusMessage.value = status
             } catch (t: Throwable) {
                 android.util.Log.e("MainViewModel", "Model reload error with new settings", t)
-                _engineStatusMessage.value = "설정 적용 오류: ${t.localizedMessage ?: t.message}"
+                _engineStatusMessage.value = localizedString(R.string.vm_status_settings_apply_error, t.localizedMessage ?: t.message)
             }
         }
     }
@@ -515,17 +517,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun connectMcp(url: String) {        viewModelScope.launch {
-            _mcpStatusText.value = "연결 확인 중..."
+            _mcpStatusText.value = localizedString(R.string.vm_mcp_checking)
             val result = mcpClient.connectServer(url)
             if (result.isSuccess) {
                 _mcpTools.value = result.tools
                 _mcpToolsContext.value = McpClient.buildToolsContext(result.serverName, result.tools)
-                _mcpStatusText.value = "${result.serverName} (${result.latencyMs}ms, ${result.tools.size}개 도구)"
+                _mcpStatusText.value = localizedString(R.string.vm_mcp_connected, result.serverName, result.latencyMs, result.tools.size)
             } else {
                 mcpClient.disconnect()
                 _mcpTools.value = emptyList()
                 _mcpToolsContext.value = null
-                _mcpStatusText.value = "연결 실패: ${result.message}"
+                _mcpStatusText.value = localizedString(R.string.vm_mcp_failed, result.message)
             }
             _settings.value = _settings.value.copy(
                 mcpServerUrl = url,
@@ -674,7 +676,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 viewModelScope.launch {
                     llmEngine.loadModel(null, _settings.value)
                 }
-                _engineStatusMessage.value = "다운로드된 모델이 없습니다. 모델 관리자에서 다운로드해 주세요."
+                _engineStatusMessage.value = localizedString(R.string.vm_status_no_downloaded_model)
             }
         }
     }
@@ -694,7 +696,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (active.id == modelId) {
                 val updated = _models.value.first { it.id == modelId }
                 _activeModel.value = updated
-                _engineStatusMessage.value = "${updated.name}: 비전 타워 ${if (updated.hasMmproj) "활성화 (실행 시 연동)" else "비활성화"}"
+                _engineStatusMessage.value = localizedString(
+                    R.string.vm_status_vision_toggle,
+                    updated.name,
+                    if (updated.hasMmproj) localizedString(R.string.vm_state_enabled_linked) else localizedString(R.string.vm_state_disabled)
+                )
             }
         }
     }
@@ -714,7 +720,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (active.id == modelId) {
                 val updated = _models.value.first { it.id == modelId }
                 _activeModel.value = updated
-                _engineStatusMessage.value = "${updated.name}: 드래프터 ${if (updated.supportsMtp) "활성화 (가속 연동)" else "비활성화"}"
+                _engineStatusMessage.value = localizedString(
+                    R.string.vm_status_drafter_toggle,
+                    updated.name,
+                    if (updated.supportsMtp) localizedString(R.string.vm_state_enabled_accel) else localizedString(R.string.vm_state_disabled)
+                )
             }
         }
     }
@@ -752,13 +762,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val defaultMainExt = if (runtime == ModelRuntimeType.LITE_RT) ".bin" else ".gguf"
-        val derivedFileName = cleanMain.substringAfterLast('/', "custom_model$defaultMainExt")
-        val finalFileName = if (customFileName.isNotBlank()) customFileName.trim() else derivedFileName
+        val derivedFileName = ModelStorageManager.sanitizeFileName(
+            cleanMain.substringAfterLast('/', "custom_model$defaultMainExt"),
+            fallback = "custom_model$defaultMainExt"
+        )
+        val finalFileName = if (customFileName.isNotBlank()) {
+            ModelStorageManager.sanitizeFileName(customFileName, fallback = derivedFileName)
+        } else derivedFileName
 
-        val visionFileName = if (cleanVision.isNotBlank()) cleanVision.substringAfterLast('/', "mmproj_vision.gguf") else null
-        val mtpFileName = if (cleanMtp.isNotBlank()) cleanMtp.substringAfterLast('/', "mtp_draft.gguf") else null
+        val visionFileName = if (cleanVision.isNotBlank()) {
+            ModelStorageManager.sanitizeFileName(
+                cleanVision.substringAfterLast('/', "mmproj_vision.gguf"),
+                fallback = "mmproj_vision.gguf"
+            )
+        } else null
+        val mtpFileName = if (cleanMtp.isNotBlank()) {
+            ModelStorageManager.sanitizeFileName(
+                cleanMtp.substringAfterLast('/', "mtp_draft.gguf"),
+                fallback = "mtp_draft.gguf"
+            )
+        } else null
         val templateFileName = if (cleanTemplate.isNotBlank()) {
-            cleanTemplate.substringAfterLast('/', "prompt_template.json")
+            ModelStorageManager.sanitizeFileName(
+                cleanTemplate.substringAfterLast('/', "prompt_template.json"),
+                fallback = "prompt_template.json"
+            )
         } else if (runtime == ModelRuntimeType.LITE_RT) {
             "${finalFileName.substringBeforeLast('.')}-template.json"
         } else null
@@ -780,12 +808,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val effectiveMtp = hasEmbeddedDrafter || cleanMtp.isNotBlank() || autoDetectedDrafter
 
         val descriptionParts = mutableListOf<String>()
-        descriptionParts.add("파일명: $finalFileName")
-        if (runtime == ModelRuntimeType.LITE_RT) descriptionParts.add("LiteRT LM 템플릿 지원")
-        if (effectiveReasoning) descriptionParts.add("사고 과정(Thinking) 지원")
-        if (effectiveVision) descriptionParts.add(if (cleanVision.isNotBlank()) "비전타워 포함" else "내장 비전타워")
-        if (effectiveMtp) descriptionParts.add(if (cleanMtp.isNotBlank()) "MTP 드래프터 포함" else "내장 드래프터")
-        if (cleanToken.isNotBlank()) descriptionParts.add("인증 토큰 적용")
+        descriptionParts.add(localizedString(R.string.vm_desc_filename, finalFileName))
+        if (runtime == ModelRuntimeType.LITE_RT) descriptionParts.add(localizedString(R.string.vm_desc_litert_template))
+        if (effectiveReasoning) descriptionParts.add(localizedString(R.string.vm_desc_thinking))
+        if (effectiveVision) descriptionParts.add(
+            if (cleanVision.isNotBlank()) localizedString(R.string.vm_desc_vision_included)
+            else localizedString(R.string.vm_desc_vision_embedded)
+        )
+        if (effectiveMtp) descriptionParts.add(
+            if (cleanMtp.isNotBlank()) localizedString(R.string.vm_desc_mtp_included)
+            else localizedString(R.string.vm_desc_drafter_embedded)
+        )
+        if (cleanToken.isNotBlank()) descriptionParts.add(localizedString(R.string.vm_desc_token_applied))
 
         val newModel = LlmModel(
             id = "custom-" + UUID.randomUUID().toString().take(8),
@@ -806,7 +840,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             mtpDrafterUrl = cleanMtp,
             isBundledModel = true,
             isDownloaded = false,
-            description = "커스텀 모델 (" + descriptionParts.joinToString(" • ") + ")",
+            description = localizedString(R.string.vm_desc_custom_model, descriptionParts.joinToString(" • ")),
             hfToken = cleanToken.ifBlank { null }
         )
 
@@ -835,7 +869,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendMessage(userPrompt: String) {
-        val trimmed = userPrompt.trim()
+        val rawPrompt = userPrompt.trim()
+        val trimmed = if (rawPrompt.length > MAX_USER_MESSAGE_CHARS) {
+            _engineStatusMessage.value = localizedString(R.string.vm_status_message_too_long, MAX_USER_MESSAGE_CHARS)
+            rawPrompt.take(MAX_USER_MESSAGE_CHARS)
+        } else {
+            rawPrompt
+        }
         val attachment = _pendingAttachment.value
         if (trimmed.isEmpty() && attachment == null) return
 
@@ -858,7 +898,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val currentList = _messages.value
             if (currentList.isEmpty() || currentList.size <= 1) {
                 val title = if (trimmed.length > 20) "${trimmed.take(20)}..." else trimmed
-                repository.renameConversation(convId, title.ifBlank { "사진 대화" })
+                repository.renameConversation(convId, title.ifBlank { localizedString(R.string.vm_conversation_photo_title) })
             }
 
             // Check if model is downloaded and ready
@@ -867,7 +907,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val noticeMessage = ChatMessage(
                     conversationId = convId,
                     role = MessageRole.ASSISTANT,
-                    content = "다운로드된 모델이 없습니다. 상단 메뉴 또는 모델 관리에서 모델을 먼저 다운로드해 주세요.",
+                    content = localizedString(R.string.vm_notice_no_model),
                     isStreaming = false
                 )
                 repository.saveMessage(noticeMessage)
@@ -875,10 +915,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             if (!llmEngine.isModelReady()) {
-                _engineStatusMessage.value = "${currentModel.name} 메모리 로드 중..."
+                _engineStatusMessage.value = localizedString(R.string.vm_status_loading_memory, currentModel.name)
                 _isModelLoading.value = true
                 _modelLoadingProgress.value = 0.15f
-                _modelLoadingStage.value = "온디바이스 가중치 로드 중..."
+                _modelLoadingStage.value = localizedString(R.string.vm_stage_loading_weights)
                 val loadResult = try {
                     llmEngine.loadModel(currentModel, _settings.value) { stage, progress ->
                         _modelLoadingStage.value = stage
@@ -886,7 +926,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 } catch (t: Throwable) {
                     android.util.Log.e("MainViewModel", "Auto-load on sendMessage failed", t)
-                    "모델 로드 예외: ${t.localizedMessage ?: t.message}"
+                    localizedString(R.string.vm_status_model_load_exception, t.localizedMessage ?: t.message)
                 } finally {
                     _isModelLoading.value = false
                     _modelLoadingProgress.value = 0f
@@ -899,7 +939,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val noticeMessage = ChatMessage(
                         conversationId = convId,
                         role = MessageRole.ASSISTANT,
-                        content = "모델 로드 실패: $loadResult. 모델 관리자에서 모델 상태를 확인해 주세요.",
+                        content = localizedString(R.string.vm_notice_model_load_failed, loadResult),
                         isStreaming = false
                     )
                     repository.saveMessage(noticeMessage)
@@ -953,7 +993,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 } catch (e: Exception) {
                     val errorMsg = streamPlaceholder.copy(
-                        content = "오류 발생: ${e.localizedMessage ?: "추론 중 문제가 발생했습니다."}",
+                        content = localizedString(
+                            R.string.vm_error_prefix,
+                            e.localizedMessage ?: localizedString(R.string.vm_error_inference_generic)
+                        ),
                         isStreaming = false
                     )
                     repository.saveMessage(errorMsg)
@@ -996,7 +1039,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (_activeModel.value == null || !_activeModel.value!!.isDownloaded) {
-            voiceManager.speak("다운로드된 로컬 모델이 없습니다. 모델 관리자에서 모델을 먼저 다운로드해 주세요.")
+            voiceManager.speak(localizedString(R.string.vm_voice_no_model))
             return
         }
         voiceManager.startListening(
@@ -1016,18 +1059,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         if (!llmEngine.isModelReady()) {
                             val target = _activeModel.value
                             if (target == null || !target.isDownloaded) {
-                                voiceManager.speak("다운로드된 로컬 모델이 없습니다. 모델 관리자에서 모델을 먼저 다운로드해 주세요.")
+                                voiceManager.speak(localizedString(R.string.vm_voice_no_model))
                                 voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
                                 return@launch
                             }
-                            _engineStatusMessage.value = "${target.name} 메모리 로드 중..."
+                            _engineStatusMessage.value = localizedString(R.string.vm_status_loading_memory, target.name)
                             val loadResult = try {
                                 llmEngine.loadModel(target, _settings.value)
                             } catch (t: Throwable) {
-                                "모델 로드 예외: ${t.localizedMessage ?: t.message}"
+                                localizedString(R.string.vm_status_model_load_exception, t.localizedMessage ?: t.message)
                             }
                             if (!llmEngine.isModelReady()) {
-                                voiceManager.speak("모델 로드 실패: $loadResult")
+                                voiceManager.speak(localizedString(R.string.vm_voice_load_failed, loadResult))
                                 voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
                                 return@launch
                             }
@@ -1067,7 +1110,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } catch (e: Exception) {
                         android.util.Log.w("MainViewModel", "Voice session error", e)
                         voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
-                        voiceManager.speak("음성 대화 중 오류가 발생했습니다.")
+                        voiceManager.speak(localizedString(R.string.vm_voice_error))
                     }
                 }
             },
@@ -1085,10 +1128,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val context = getApplication<Application>()
                 val modelsDir = File(context.filesDir, "models").apply { if (!exists()) mkdirs() }
-                val targetFileName = displayName.ifBlank { "imported_model.gguf" }
+                val targetFileName = ModelStorageManager.sanitizeFileName(
+                    displayName.ifBlank { "imported_model.gguf" },
+                    fallback = "imported_model.gguf"
+                )
                 val destFile = File(modelsDir, targetFileName)
 
-                _engineStatusMessage.value = "기기에서 GGUF 모델 복사 중..."
+                _engineStatusMessage.value = localizedString(R.string.vm_status_copying_gguf)
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     destFile.outputStream().use { output ->
                         input.copyTo(output)
@@ -1104,7 +1150,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // new GGUF reader. Never overrides the shipping detector on failure.
                 val engineNote = try {
                     com.localllm.engine.GgufReader.open(destFile).use { reader ->
-                        "Engine 구조 확인(${reader.tensors.size} 텐서)"
+                        localizedString(R.string.vm_desc_engine_note, reader.tensors.size)
                     }
                 } catch (_: Throwable) {
                     null
@@ -1132,13 +1178,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     isBundledModel = isLiteRt || detected.isUnifiedBundle,
                     description = buildString {
                         if (isLiteRt) {
-                            append("기기 저장소에서 불러온 LiteRT 올인원 통합 모델")
-                            if (hasVision) append(" • 통합 비전타워(Vision Encoder)")
-                            if (hasDrafter) append(" • 통합 드래프터(MTP)")
+                            append(localizedString(R.string.vm_desc_imported_litert))
+                            if (hasVision) append(localizedString(R.string.vm_desc_imported_litert_vision))
+                            if (hasDrafter) append(localizedString(R.string.vm_desc_imported_litert_drafter))
                         } else {
-                            append("기기 저장소에서 직접 불러온 로컬 GGUF 모델")
-                            if (hasVision) append(" • 내장 비전타워")
-                            if (hasDrafter) append(" • 내장 드래프터")
+                            append(localizedString(R.string.vm_desc_imported_gguf))
+                            if (hasVision) append(localizedString(R.string.vm_desc_imported_gguf_vision))
+                            if (hasDrafter) append(localizedString(R.string.vm_desc_imported_gguf_drafter))
                         }
                         if (engineNote != null) append(" • $engineNote")
                     },
@@ -1152,10 +1198,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val updatedList = listOf(customModel) + _models.value
                 _models.value = updatedList
                 modelStorageManager.saveModels(updatedList)
-                _engineStatusMessage.value = "모델 가져오기 완료: $cleanName"
+                _engineStatusMessage.value = localizedString(R.string.vm_status_import_complete, cleanName)
                 selectModel(customModel)
             } catch (e: Exception) {
-                _engineStatusMessage.value = "모델 가져오기 실패: ${e.localizedMessage}"
+                _engineStatusMessage.value = localizedString(R.string.vm_status_import_failed, e.localizedMessage)
             }
         }
     }
@@ -1194,7 +1240,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         apiServer?.start { isRunning, msg ->
             _isApiModeEnabled.value = isRunning
             _apiServerStatusMessage.value = msg
-            _engineStatusMessage.value = "보안 API 서버 (포트 11434): ${if (isRunning) "실행 중" else "중지됨"}"
+            _engineStatusMessage.value = localizedString(
+                R.string.vm_status_api_server,
+                if (isRunning) localizedString(R.string.vm_state_running) else localizedString(R.string.vm_state_stopped)
+            )
             _apiRequestCount.value = apiServer?.requestCount ?: 0
             _apiServerApiKey.value = apiServer?.currentApiKey ?: ""
         }
@@ -1209,7 +1258,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         apiServer?.stop { isRunning, msg ->
             _isApiModeEnabled.value = isRunning
             _apiServerStatusMessage.value = msg
-            _engineStatusMessage.value = "API 서버가 중지되었습니다."
+            _engineStatusMessage.value = localizedString(R.string.vm_status_api_stopped)
         }
     }
 
@@ -1258,5 +1307,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         voiceManager.release()
         modelLoadingJob?.cancel()
         apiServer?.stop { _, _ -> }
+    }
+
+    private fun localizedString(@StringRes id: Int, vararg args: Any?): String {
+        val pref = _settings.value.languagePreference
+        val locale = when (pref) {
+            "ko" -> Locale.KOREAN
+            "en" -> Locale.ENGLISH
+            else -> Locale.getDefault()
+        }
+        val config = Configuration(getApplication<Application>().resources.configuration).apply { setLocale(locale) }
+        @Suppress("UNCHECKED_CAST")
+        return getApplication<Application>().createConfigurationContext(config).getString(id, *(args as Array<Any>))
+    }
+
+    private companion object {
+        /** Guards the encrypted DB and prompt builder against multi-megabyte pastes. */
+        const val MAX_USER_MESSAGE_CHARS = 32_768
     }
 }

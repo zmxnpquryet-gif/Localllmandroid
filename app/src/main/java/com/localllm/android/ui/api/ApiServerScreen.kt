@@ -38,13 +38,18 @@ import com.localllm.android.ui.glass.LiquidBackground
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.localllm.android.R
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
 
@@ -62,6 +67,7 @@ fun ApiServerScreen(
     val activeModel by viewModel.activeModel.collectAsState()
     val requestCount by viewModel.apiRequestCount.collectAsState()
     val apiKey by viewModel.apiServerApiKey.collectAsState()
+    var apiKeyRevealed by remember { mutableStateOf(false) }
 
     val baseUrl = "http://$localIpAddress:$apiPort"
     val loopbackUrl = "http://127.0.0.1:$apiPort"
@@ -72,9 +78,9 @@ fun ApiServerScreen(
             GTopBar(
                 title = {
                     Column {
-                        GText("API 전용 모드", style = GlassTheme.type.titleLarge)
+                        GText(stringResource(R.string.api_mode_title), style = GlassTheme.type.titleLarge)
                         GText(
-                            text = "포트 $apiPort • Ollama / OpenAI 호환 엔드포인트",
+                            text = stringResource(R.string.api_mode_subtitle, apiPort),
                             style = GlassTheme.type.labelSmall,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
@@ -84,7 +90,7 @@ fun ApiServerScreen(
                     GIconButton(onClick = { viewModel.navigateTo(AppScreen.CHAT) }) {
                         GIcon(
                             imageVector = GIcons.ArrowBack,
-                            contentDescription = "뒤로 가기"
+                            contentDescription = stringResource(R.string.nav_back)
                         )
                     }
                 },
@@ -92,7 +98,7 @@ fun ApiServerScreen(
                     GIconButton(onClick = { viewModel.refreshLocalIp() }) {
                         GIcon(
                             imageVector = GIcons.Refresh,
-                            contentDescription = "IP 주소 새로고침"
+                            contentDescription = stringResource(R.string.api_refresh_ip_desc)
                         )
                     }
                 }
@@ -150,12 +156,12 @@ fun ApiServerScreen(
                             Spacer(modifier = Modifier.width(14.dp))
                             Column {
                                 GText(
-                                    text = if (isApiModeEnabled) "API 모드 실행 중" else "API 모드 비활성화",
+                                    text = if (isApiModeEnabled) stringResource(R.string.api_server_running) else stringResource(R.string.api_server_stopped),
                                     style = GlassTheme.type.titleMedium,
                                     color = GlassTheme.colors.onSurface
                                 )
                                 GText(
-                                    text = if (isApiModeEnabled) "포트 $apiPort 에서 외부 요청 대기 중" else "스위치를 켜서 API 서버를 구동하세요",
+                                    text = if (isApiModeEnabled) stringResource(R.string.api_server_waiting, apiPort) else stringResource(R.string.api_server_switch_hint),
                                     style = GlassTheme.type.bodySmall,
                                     color = GlassTheme.colors.onSurfaceVariant
                                 )
@@ -218,15 +224,15 @@ fun ApiServerScreen(
                             Spacer(modifier = Modifier.width(14.dp))
                             Column {
                                 GText(
-                                    text = "외부 네트워크(LAN) 접근 허용",
+                                    text = stringResource(R.string.api_external_access_title),
                                     style = GlassTheme.type.titleMedium,
                                     color = GlassTheme.colors.onSurface
                                 )
                                 GText(
                                     text = if (settings.isApiExternalAccessEnabled)
-                                        "외부 접속 가능 (0.0.0.0 바인딩)"
+                                        stringResource(R.string.api_external_access_enabled)
                                     else
-                                        "보안 격리 모드 (127.0.0.1 로컬 전용)",
+                                        stringResource(R.string.api_external_access_disabled),
                                     style = GlassTheme.type.bodySmall,
                                     color = if (settings.isApiExternalAccessEnabled) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant
                                 )
@@ -243,9 +249,9 @@ fun ApiServerScreen(
                     Spacer(modifier = Modifier.height(10.dp))
                     GText(
                         text = if (settings.isApiExternalAccessEnabled)
-                            "동일한 Wi-Fi 또는 로컬 네트워크(LAN)에 연결된 다른 PC나 기기에서 이 기기의 IP($localIpAddress:$apiPort)로 API를 직접 호출할 수 있습니다."
+                            stringResource(R.string.api_external_access_desc_on, localIpAddress, apiPort)
                         else
-                            "보안을 위해 외부 기기의 API 접근이 차단되어 있습니다. 이 기기 내부(127.0.0.1)의 앱 및 프로세스에서만 접속할 수 있습니다.",
+                            stringResource(R.string.api_external_access_desc_off),
                         style = GlassTheme.type.labelSmall,
                         color = GlassTheme.colors.onSurfaceVariant
                     )
@@ -260,43 +266,49 @@ fun ApiServerScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     GText(
-                        text = "접속 주소 정보",
+                        text = stringResource(R.string.api_address_info),
                         style = GlassTheme.type.titleSmall,
                         color = GlassTheme.colors.primary
                     )
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    val loopbackCopiedMsg = stringResource(R.string.api_copied_loopback)
                     AddressRow(
-                        label = "기기 내 로컬 접속 (Loopback)",
+                        label = stringResource(R.string.api_loopback_label),
                         url = loopbackUrl,
                         isEnabled = true,
-                        statusBadge = "항상 접근 가능",
-                        onCopy = { copyToClipboard(context, loopbackUrl, "루프백 주소가 복사되었습니다.") }
+                        statusBadge = stringResource(R.string.api_status_always_available),
+                        onCopy = { copyToClipboard(context, loopbackUrl, loopbackCopiedMsg) }
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    val networkCopiedMsg = stringResource(R.string.api_copied_network)
+                    val externalDisabledToast = stringResource(R.string.api_external_disabled_toast)
                     AddressRow(
-                        label = "같은 Wi-Fi / 로컬 네트워크 접속",
-                        url = if (settings.isApiExternalAccessEnabled) baseUrl else "$baseUrl (외부 접근 비활성화됨)",
+                        label = stringResource(R.string.api_lan_label),
+                        url = if (settings.isApiExternalAccessEnabled) baseUrl else stringResource(R.string.api_url_external_disabled, baseUrl),
                         isEnabled = settings.isApiExternalAccessEnabled,
-                        statusBadge = if (settings.isApiExternalAccessEnabled) "외부 접속 허용됨" else "외부 접근 차단됨",
+                        statusBadge = if (settings.isApiExternalAccessEnabled) stringResource(R.string.api_status_allowed) else stringResource(R.string.api_status_blocked),
                         onCopy = {
                             if (settings.isApiExternalAccessEnabled) {
-                                copyToClipboard(context, baseUrl, "네트워크 주소가 복사되었습니다.")
+                                copyToClipboard(context, baseUrl, networkCopiedMsg)
                             } else {
-                                Toast.makeText(context, "외부 접근이 꺼져 있습니다. 위의 '외부 네트워크(LAN) 접근 허용' 스위치를 켜주세요.", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, externalDisabledToast, Toast.LENGTH_SHORT).show()
                             }
                         }
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    val apiKeyCopiedMsg = stringResource(R.string.api_copied_key)
                     AddressRow(
-                        label = "보안 API 인증 키 (Bearer Token)",
-                        url = apiKey,
+                        label = stringResource(R.string.api_key_label),
+                        url = if (apiKeyRevealed) apiKey else maskSecret(apiKey),
                         isEnabled = true,
-                        onCopy = { copyToClipboard(context, apiKey, "API 키가 복사되었습니다.") }
+                        revealed = apiKeyRevealed,
+                        onToggleReveal = { apiKeyRevealed = !apiKeyRevealed },
+                        onCopy = { copyToClipboard(context, apiKey, apiKeyCopiedMsg) }
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -308,12 +320,12 @@ fun ApiServerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         GText(
-                            text = "현재 연결 모델",
+                            text = stringResource(R.string.api_connected_model),
                             style = GlassTheme.type.labelMedium,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
                         GText(
-                            text = activeModel?.name ?: "(선택된 모델 없음)",
+                            text = activeModel?.name ?: stringResource(R.string.api_no_model_selected),
                             style = GlassTheme.type.labelMedium,
                             color = GlassTheme.colors.primary
                         )
@@ -326,12 +338,12 @@ fun ApiServerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         GText(
-                            text = "처리된 API 요청 수",
+                            text = stringResource(R.string.api_processed_requests),
                             style = GlassTheme.type.labelMedium,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
                         GText(
-                            text = "${requestCount}건",
+                            text = stringResource(R.string.api_request_count, requestCount),
                             style = GlassTheme.type.labelMedium,
                             color = GlassTheme.colors.secondary
                         )
@@ -347,16 +359,16 @@ fun ApiServerScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     GText(
-                        text = "지원되는 API 규격 (포트 11434)",
+                        text = stringResource(R.string.api_supported_endpoints),
                         style = GlassTheme.type.titleSmall,
                         color = GlassTheme.colors.primary
                     )
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    EndpointRow(method = "GET", path = "/api/tags", desc = "설치된 모델 목록 조회")
-                    EndpointRow(method = "POST", path = "/api/generate", desc = "단일 텍스트 생성 (Ollama 규격)")
-                    EndpointRow(method = "POST", path = "/api/chat", desc = "대화형 메시지 생성 (Ollama 규격)")
-                    EndpointRow(method = "POST", path = "/v1/chat/completions", desc = "OpenAI 호환 대화 완성 엔드포인트")
+                    EndpointRow(method = "GET", path = "/api/tags", desc = stringResource(R.string.api_endpoint_tags_desc))
+                    EndpointRow(method = "POST", path = "/api/generate", desc = stringResource(R.string.api_endpoint_generate_desc))
+                    EndpointRow(method = "POST", path = "/api/chat", desc = stringResource(R.string.api_endpoint_chat_desc))
+                    EndpointRow(method = "POST", path = "/v1/chat/completions", desc = stringResource(R.string.api_endpoint_openai_desc))
                 }
             }
 
@@ -367,13 +379,16 @@ fun ApiServerScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    val displayApiKey = if (apiKeyRevealed) apiKey else maskSecret(apiKey)
+                    val curlCopiedMsg = stringResource(R.string.api_copied_curl)
+                    val curlExamplePrompt = stringResource(R.string.api_curl_example_prompt)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         GText(
-                            text = "cURL 호출 예시 (Ollama 형식)",
+                            text = stringResource(R.string.api_curl_example),
                             style = GlassTheme.type.titleSmall,
                             color = GlassTheme.colors.primary
                         )
@@ -381,14 +396,14 @@ fun ApiServerScreen(
                         val curlCmd = """curl -X POST $effectiveUrl/api/generate \
   -H "Authorization: Bearer $apiKey" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "안녕하세요", "stream": false}'"""
+  -d '{"prompt": "$curlExamplePrompt", "stream": false}'"""
 
                         GIconButton(onClick = {
-                            copyToClipboard(context, curlCmd, "cURL 명령어가 복사되었습니다.")
+                            copyToClipboard(context, curlCmd, curlCopiedMsg)
                         }) {
                             GIcon(
                                 imageVector = GIcons.ContentCopy,
-                                contentDescription = "명령어 복사",
+                                contentDescription = stringResource(R.string.api_copy_command_desc),
                                 tint = GlassTheme.colors.primary,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -405,7 +420,7 @@ fun ApiServerScreen(
                             .padding(12.dp)
                     ) {
                         GText(
-                            text = "curl -X POST $effectiveUrl/api/generate \\\n  -H \"Authorization: Bearer $apiKey\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"prompt\": \"안녕하세요\", \"stream\": false}'",
+                            text = "curl -X POST $effectiveUrl/api/generate \\\n  -H \"Authorization: Bearer $displayApiKey\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"prompt\": \"$curlExamplePrompt\", \"stream\": false}'",
                             fontSize = 11.sp,
                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                             color = GlassTheme.colors.onSurface
@@ -424,6 +439,8 @@ private fun AddressRow(
     url: String,
     isEnabled: Boolean = true,
     statusBadge: String? = null,
+    revealed: Boolean = true,
+    onToggleReveal: (() -> Unit)? = null,
     onCopy: () -> Unit
 ) {
     Column {
@@ -465,12 +482,25 @@ private fun AddressRow(
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                 color = if (isEnabled) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant
             )
-            GIcon(
-                imageVector = GIcons.ContentCopy,
-                contentDescription = "복사",
-                tint = if (isEnabled) GlassTheme.colors.onSurfaceVariant else GlassTheme.colors.outline,
-                modifier = Modifier.size(16.dp)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onToggleReveal != null) {
+                    GIconButton(onClick = onToggleReveal, modifier = Modifier.size(28.dp)) {
+                        GIcon(
+                            imageVector = if (revealed) GIcons.VisibilityOff else GIcons.Visibility,
+                            contentDescription = if (revealed) stringResource(R.string.api_hide_key_desc) else stringResource(R.string.api_show_key_desc),
+                            tint = GlassTheme.colors.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                GIcon(
+                    imageVector = GIcons.ContentCopy,
+                    contentDescription = stringResource(R.string.copy),
+                    tint = if (isEnabled) GlassTheme.colors.onSurfaceVariant else GlassTheme.colors.outline,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
     }
 }
@@ -525,4 +555,13 @@ private fun copyToClipboard(context: Context, text: String, toastMessage: String
     val clip = ClipData.newPlainText("API Address", text)
     clipboard.setPrimaryClip(clip)
     Toast.makeText(context, toastMessage, Toast.LENGTH_SHORT).show()
+}
+
+/** Never render an API key in full: keep a short recognizable prefix and the last 4 chars. */
+private fun maskSecret(secret: String): String {
+    if (secret.isBlank()) return ""
+    val last4 = secret.takeLast(4)
+    val rawPrefix = secret.substringBeforeLast('-', "")
+    val prefix = if (rawPrefix.isNotBlank() && rawPrefix.length <= 16) "$rawPrefix-" else ""
+    return "$prefix••••••••$last4"
 }

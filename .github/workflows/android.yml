@@ -34,6 +34,15 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # The sherpa-onnx AAR is fetched by the Gradle `fetchSherpaAar` task (pinned
+      # version + SHA-256) instead of being committed. Cache it to avoid re-downloading
+      # ~50 MB on every run.
+      - name: Cache vendored sherpa-onnx AAR
+        uses: actions/cache@v4
+        with:
+          path: app/libs/sherpa-onnx.aar
+          key: sherpa-onnx-aar-1.13.8
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 

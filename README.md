@@ -155,6 +155,7 @@ A first-party MoE-only inference core is being built in the open as a separate A
 - Android SDK 36 (Min SDK 24)
 - Android NDK 27.2 + CMake 3.22+ (required by the `:engine` module)
 - Target device with 64-bit ARM architecture (`arm64-v8a`) or `x86_64`
+- No manual native dependencies: the sherpa-onnx STT AAR (~50 MB) is not committed — Gradle fetches it automatically via the `fetchSherpaAar` task (pinned version + SHA-256) before every build
 
 ### Gradle Commands
 ```bash

@@ -14,8 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.localllm.android.R
 import com.localllm.android.ui.glass.GIcon
 import com.localllm.android.ui.glass.GIcons
 import com.localllm.android.ui.glass.GText
@@ -45,7 +47,7 @@ fun PerformanceMetricsChip(
     ) {
         GIcon(
             imageVector = GIcons.Speed,
-            contentDescription = "성능",
+            contentDescription = stringResource(R.string.chat_performance_desc),
             tint = accent,
             modifier = Modifier.size(14.dp)
         )

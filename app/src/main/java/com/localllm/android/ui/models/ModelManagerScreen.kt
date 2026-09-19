@@ -39,8 +39,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.localllm.android.R
 import com.localllm.android.engine.DownloadStatus
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelRuntimeType
@@ -102,9 +104,9 @@ fun ModelManagerScreen(
             GTopBar(
                 title = {
                     Column {
-                        GText("모델 관리")
+                        GText(stringResource(R.string.model_manager_title))
                         GText(
-                            text = "메인 모델, 비전 타워, 드래프터 관리",
+                            text = stringResource(R.string.model_manager_subtitle),
                             style = GlassTheme.type.labelSmall,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
@@ -114,7 +116,7 @@ fun ModelManagerScreen(
                     GIconButton(onClick = { viewModel.navigateTo(AppScreen.CHAT) }) {
                         GIcon(
                             imageVector = GIcons.ArrowBack,
-                            contentDescription = "뒤로가기"
+                            contentDescription = stringResource(R.string.nav_back)
                         )
                     }
                 }
@@ -145,7 +147,7 @@ fun ModelManagerScreen(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    GText("기기 모델 가져오기", fontSize = 12.sp)
+                    GText(stringResource(R.string.import_device_model), fontSize = 12.sp)
                 }
                 GButton(
                     onClick = { showFdmDialog = true },
@@ -157,7 +159,7 @@ fun ModelManagerScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    GText("다운로드 링크 추가", fontSize = 13.sp)
+                    GText(stringResource(R.string.add_custom_download_url), fontSize = 13.sp)
                 }
             }
             // Active FDM Download Monitor Widget (if downloading)
@@ -180,12 +182,12 @@ fun ModelManagerScreen(
                 GFilterChip(
                     selected = selectedFilter == "ALL",
                     onClick = { selectedFilter = "ALL" },
-                    label = { GText("전체 (${models.size})") }
+                    label = { GText(stringResource(R.string.model_manager_tab_all_count, models.size)) }
                 )
                 GFilterChip(
                     selected = selectedFilter == "DOWNLOADED",
                     onClick = { selectedFilter = "DOWNLOADED" },
-                    label = { GText("다운로드 완료 (${models.count { it.isDownloaded }})") }
+                    label = { GText(stringResource(R.string.model_manager_tab_downloaded_count, models.count { it.isDownloaded })) }
                 )
                 GFilterChip(
                     selected = selectedFilter == "LLAMA_CPP",
@@ -257,7 +259,7 @@ fun ModelManagerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         GText(
-                            text = "앱 모델 실제 사용 용량",
+                            text = stringResource(R.string.storage_usage),
                             style = GlassTheme.type.titleSmall,
                             color = GlassTheme.colors.onSurface
                         )
@@ -273,12 +275,12 @@ fun ModelManagerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         GText(
-                            text = "실제 기기 저장소에 기록된 파일 크기",
+                            text = stringResource(R.string.model_manager_storage_detail),
                             style = GlassTheme.type.labelSmall,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
                         GText(
-                            text = "기기 여유: $availableStorageFormatted",
+                            text = stringResource(R.string.model_manager_device_free, availableStorageFormatted),
                             style = GlassTheme.type.labelSmall,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
@@ -381,7 +383,7 @@ private fun FdmActiveDownloadCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     GText(
-                        text = "다운로드 중",
+                        text = stringResource(R.string.model_manager_downloading_title),
                         style = GlassTheme.type.titleSmall,
                         color = GlassTheme.colors.primary
                     )
@@ -394,7 +396,7 @@ private fun FdmActiveDownloadCard(
             GIconButton(onClick = onCancel, modifier = Modifier.size(28.dp)) {
                 GIcon(
                     imageVector = GIcons.Close,
-                    contentDescription = "취소",
+                    contentDescription = stringResource(R.string.cancel),
                     tint = GlassTheme.colors.error,
                     modifier = Modifier.size(18.dp)
                 )
@@ -409,12 +411,12 @@ private fun FdmActiveDownloadCard(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             GText(
-                text = "속도: ${status.speedText}",
+                text = stringResource(R.string.model_manager_speed, status.speedText),
                 style = GlassTheme.type.labelMedium,
                 color = GlassTheme.colors.primary
             )
             GText(
-                text = if (status.etaSeconds > 0) "남은 시간: 약 ${status.etaSeconds}초" else "완료 중...",
+                text = if (status.etaSeconds > 0) stringResource(R.string.model_manager_eta, status.etaSeconds) else stringResource(R.string.model_manager_finishing),
                 style = GlassTheme.type.labelMedium,
                 color = GlassTheme.colors.onSurfaceVariant
             )
@@ -441,7 +443,7 @@ private fun FdmActiveDownloadCard(
 
         // Multi-segment progress visualizer
         GText(
-            text = "분할 다운로드 진행 상태",
+            text = stringResource(R.string.model_manager_segments),
             style = GlassTheme.type.labelSmall,
             color = GlassTheme.colors.onSurfaceVariant,
             fontSize = 11.sp
@@ -483,27 +485,27 @@ private fun FdmActiveDownloadCard(
         ) {
             // Main weights
             ComponentProgressRow(
-                title = "1. 메인 가중치 (${model.fileName.take(20)})",
+                title = stringResource(R.string.model_manager_comp_main, model.fileName.take(20)),
                 progress = status.mainProgress
             )
             // Vision Tower
             if (model.hasMmproj || model.visionTowerUrl.isNotBlank()) {
                 ComponentProgressRow(
-                    title = "2. 비전 타워 (${model.mmprojFileName ?: "mmproj.gguf"})",
+                    title = stringResource(R.string.model_manager_comp_vision, model.mmprojFileName ?: "mmproj.gguf"),
                     progress = status.visionProgress
                 )
             }
             // MTP Drafter
             if (model.supportsMtp || model.mtpDrafterUrl.isNotBlank()) {
                 ComponentProgressRow(
-                    title = "3. MTP 드래프터 (${model.mtpDrafterFileName ?: "drafter.gguf"})",
+                    title = stringResource(R.string.model_manager_comp_mtp, model.mtpDrafterFileName ?: "drafter.gguf"),
                     progress = status.mtpProgress
                 )
             }
             // LiteRT Template
             if (model.templateFileName != null || model.templateFileUrl.isNotBlank() || model.runtimeType == ModelRuntimeType.LITE_RT) {
                 ComponentProgressRow(
-                    title = "4. 프롬프트 템플릿 (${model.templateFileName ?: "template.json"})",
+                    title = stringResource(R.string.model_manager_comp_template, model.templateFileName ?: "template.json"),
                     progress = status.templateProgress
                 )
             }
@@ -582,7 +584,7 @@ private fun ModelBundleCardItem(
                         Spacer(modifier = Modifier.width(6.dp))
                         GIcon(
                             imageVector = GIcons.CheckCircle,
-                            contentDescription = "동시 마운트 활성화",
+                            contentDescription = stringResource(R.string.model_manager_active_desc),
                             tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(16.dp)
                         )
@@ -633,7 +635,7 @@ private fun ModelBundleCardItem(
                         .background(GlassTheme.colors.tertiaryContainer)
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
-                    GText("올인원 통합 모델", fontSize = 10.sp, color = GlassTheme.colors.onTertiaryContainer)
+                    GText(stringResource(R.string.model_manager_all_in_one), fontSize = 10.sp, color = GlassTheme.colors.onTertiaryContainer)
                 }
             } else {
                 Box(
@@ -643,7 +645,7 @@ private fun ModelBundleCardItem(
                         .border(0.5.dp, GlassTheme.colors.outline.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
-                    GText("메인 가중치", fontSize = 10.sp, color = GlassTheme.colors.onSurface)
+                    GText(stringResource(R.string.model_manager_main_weights), fontSize = 10.sp, color = GlassTheme.colors.onSurface)
                 }
             }
 
@@ -664,8 +666,8 @@ private fun ModelBundleCardItem(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         GText(
-                            text = if (model.runtimeType == ModelRuntimeType.LITE_RT) "LiteRT 통합 비전"
-                            else if (model.isVisionDownloaded) "비전 타워 포함" else "비전 타워 지원",
+                            text = if (model.runtimeType == ModelRuntimeType.LITE_RT) stringResource(R.string.model_manager_litert_vision)
+                            else if (model.isVisionDownloaded) stringResource(R.string.model_manager_vision_included) else stringResource(R.string.model_manager_vision_supported),
                             fontSize = 10.sp,
                             color = GlassTheme.colors.primary
                         )
@@ -690,7 +692,7 @@ private fun ModelBundleCardItem(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         GText(
-                            text = if (model.isMtpDownloaded) "드래프터 포함" else "드래프터 가속 지원",
+                            text = if (model.isMtpDownloaded) stringResource(R.string.model_manager_drafter_included) else stringResource(R.string.model_manager_drafter_supported),
                             fontSize = 10.sp,
                             color = GlassTheme.colors.secondary
                         )
@@ -715,7 +717,7 @@ private fun ModelBundleCardItem(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         GText(
-                            text = if (model.isTemplateDownloaded || model.localTemplatePath != null) "템플릿 내장" else "LiteRT 템플릿",
+                            text = if (model.isTemplateDownloaded || model.localTemplatePath != null) stringResource(R.string.model_manager_template_embedded) else stringResource(R.string.model_manager_template_litert),
                             fontSize = 10.sp,
                             color = GlassTheme.colors.tertiary
                         )
@@ -740,7 +742,7 @@ private fun ModelBundleCardItem(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         GText(
-                            text = "Thinking 추론",
+                            text = stringResource(R.string.model_manager_thinking),
                             fontSize = 10.sp,
                             color = GlassTheme.colors.primary
                         )
@@ -770,7 +772,7 @@ private fun ModelBundleCardItem(
                 },
                 label = {
                     GText(
-                        text = if (model.hasMmproj) "비전 타워 [ON]" else "비전 타워 [OFF]",
+                        text = if (model.hasMmproj) stringResource(R.string.model_manager_vision_on) else stringResource(R.string.model_manager_vision_off),
                         fontSize = 11.sp
                     )
                 }
@@ -789,7 +791,7 @@ private fun ModelBundleCardItem(
                 },
                 label = {
                     GText(
-                        text = if (model.supportsMtp) "드래프터 [ON]" else "드래프터 [OFF]",
+                        text = if (model.supportsMtp) stringResource(R.string.model_manager_drafter_on) else stringResource(R.string.model_manager_drafter_off),
                         fontSize = 11.sp
                     )
                 }
@@ -806,7 +808,7 @@ private fun ModelBundleCardItem(
         ) {
             Column {
                 GText(
-                    text = "크기: ${model.displaySize}",
+                    text = stringResource(R.string.model_manager_size, model.displaySize),
                     style = GlassTheme.type.bodySmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )
@@ -825,7 +827,7 @@ private fun ModelBundleCardItem(
                         else String.format("%.1f MB", localBytes / (1024.0 * 1024.0))
                     }
                     GText(
-                        text = "디스크 점유: $actualDiskFormatted",
+                        text = stringResource(R.string.model_manager_disk_usage, actualDiskFormatted),
                         style = GlassTheme.type.labelSmall,
                         color = GlassTheme.colors.primary,
                         fontSize = 11.sp
@@ -841,7 +843,7 @@ private fun ModelBundleCardItem(
                     ) {
                         GIcon(
                             imageVector = GIcons.Delete,
-                            contentDescription = "삭제",
+                            contentDescription = stringResource(R.string.delete),
                             tint = GlassTheme.colors.error,
                             modifier = Modifier.size(18.dp)
                         )
@@ -858,7 +860,7 @@ private fun ModelBundleCardItem(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        GText(if (isActive) "실행 중" else "실행")
+                        GText(if (isActive) stringResource(R.string.model_manager_running) else stringResource(R.string.run_model))
                     }
                 } else {
                     GButton(
@@ -871,7 +873,7 @@ private fun ModelBundleCardItem(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        GText(if (model.isDownloading) "다운로드 중..." else "다운로드")
+                        GText(if (model.isDownloading) stringResource(R.string.downloading) else stringResource(R.string.download))
                     }
                 }
             }
@@ -931,7 +933,7 @@ private fun FdmAddBundleDialog(
                     tint = GlassTheme.colors.primary
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                GText("커스텀 모델 링크 다운로드")
+                GText(stringResource(R.string.model_manager_custom_dialog_title))
             }
         },
         text = {
@@ -942,7 +944,7 @@ private fun FdmAddBundleDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 GText(
-                    text = "직접 파일명을 지정할 수 있으며, LiteRT 모델의 템플릿 파일 다운로드 및 띵킹(사고 과정) 기능을 설정할 수 있습니다.",
+                    text = stringResource(R.string.model_manager_custom_dialog_desc),
                     style = GlassTheme.type.bodySmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )
@@ -982,7 +984,7 @@ private fun FdmAddBundleDialog(
                         },
                         modifier = Modifier.weight(1.1f)
                     ) {
-                        GText("LiteRT 통합 비전", fontSize = 11.sp)
+                        GText(stringResource(R.string.model_manager_litert_vision), fontSize = 11.sp)
                     }
                     GOutlineButton(
                         onClick = {
@@ -998,15 +1000,15 @@ private fun FdmAddBundleDialog(
                         },
                         modifier = Modifier.weight(1f)
                     ) {
-                        GText("LiteRT 템플릿", fontSize = 11.sp)
+                        GText(stringResource(R.string.model_manager_template_litert), fontSize = 11.sp)
                     }
                 }
 
                 GTextField(
                     value = modelNameInput,
                     onValueChange = { modelNameInput = it },
-                    label = { GText("모델 이름") },
-                    placeholder = { GText("미입력 시 파일명 자동 사용") },
+                    label = { GText(stringResource(R.string.model_manager_field_model_name)) },
+                    placeholder = { GText(stringResource(R.string.model_manager_field_model_name_hint)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1016,7 +1018,7 @@ private fun FdmAddBundleDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    GText("런타임 엔진", style = GlassTheme.type.bodyMedium)
+                    GText(stringResource(R.string.model_manager_field_runtime), style = GlassTheme.type.bodyMedium)
                     Row {
                         GFilterChip(
                             selected = runtimeChoice == ModelRuntimeType.LLAMA_CPP,
@@ -1041,7 +1043,7 @@ private fun FdmAddBundleDialog(
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         GText(
-                            text = "💡 Google LiteRT 모델은 비전 타워(Vision Encoder), 토크나이저, 프롬프트 템플릿이 단일 바이너리(.litertlm / .bin)에 통합 패키징된 올인원 구조입니다.",
+                            text = stringResource(R.string.model_manager_litert_hint),
                             style = GlassTheme.type.labelSmall,
                             color = GlassTheme.colors.onTertiaryContainer
                         )
@@ -1052,7 +1054,7 @@ private fun FdmAddBundleDialog(
                 GTextField(
                     value = customFileNameInput,
                     onValueChange = { customFileNameInput = it },
-                    label = { GText("저장 파일명 (선택)") },
+                    label = { GText(stringResource(R.string.model_manager_field_filename)) },
                     placeholder = {
                         GText(if (runtimeChoice == ModelRuntimeType.LITE_RT) "custom_model.bin" else "custom_model.gguf")
                     },
@@ -1070,7 +1072,7 @@ private fun FdmAddBundleDialog(
                             if (derived.isNotBlank()) customFileNameInput = derived
                         }
                     },
-                    label = { GText("메인 모델 다운로드 링크 [필수]") },
+                    label = { GText(stringResource(R.string.model_manager_field_main_url)) },
                     placeholder = { GText("https://.../model.gguf") },
                     trailingIcon = {
                         GIconButton(onClick = {
@@ -1082,7 +1084,7 @@ private fun FdmAddBundleDialog(
                                 }
                             }
                         }) {
-                            GIcon(GIcons.ContentPaste, contentDescription = "붙여넣기")
+                            GIcon(GIcons.ContentPaste, contentDescription = stringResource(R.string.model_manager_paste_desc))
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -1092,7 +1094,7 @@ private fun FdmAddBundleDialog(
                 GTextField(
                     value = hfTokenInput,
                     onValueChange = { hfTokenInput = it },
-                    label = { GText("Hugging Face 토큰 (선택: Gated/비공개 모델)") },
+                    label = { GText(stringResource(R.string.model_manager_field_hf_token)) },
                     placeholder = { GText("hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") },
                     singleLine = true,
                     visualTransformation = if (isTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -1101,14 +1103,14 @@ private fun FdmAddBundleDialog(
                             GIconButton(onClick = { isTokenVisible = !isTokenVisible }) {
                                 GIcon(
                                     imageVector = if (isTokenVisible) GIcons.VisibilityOff else GIcons.Visibility,
-                                    contentDescription = if (isTokenVisible) "숨기기" else "보기"
+                                    contentDescription = if (isTokenVisible) stringResource(R.string.settings_hide) else stringResource(R.string.settings_show)
                                 )
                             }
                             GIconButton(onClick = {
                                 val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                                 if (!clip.isNullOrBlank()) hfTokenInput = clip.trim()
                             }) {
-                                GIcon(GIcons.ContentPaste, contentDescription = "붙여넣기")
+                                GIcon(GIcons.ContentPaste, contentDescription = stringResource(R.string.model_manager_paste_desc))
                             }
                         }
                     },
@@ -1119,14 +1121,14 @@ private fun FdmAddBundleDialog(
                 GTextField(
                     value = templateUrlInput,
                     onValueChange = { templateUrlInput = it },
-                    label = { GText("LiteRT Jinja/JSON 템플릿 파일 링크" + if (runtimeChoice == ModelRuntimeType.LITE_RT) " [권장]" else " (선택)") },
-                    placeholder = { GText("https://.../chat_template.jinja 또는 tokenizer_config.json") },
+                    label = { GText(if (runtimeChoice == ModelRuntimeType.LITE_RT) stringResource(R.string.model_manager_field_template_url_recommended) else stringResource(R.string.model_manager_field_template_url_optional)) },
+                    placeholder = { GText(stringResource(R.string.model_manager_field_template_url_hint)) },
                     trailingIcon = {
                         GIconButton(onClick = {
                             val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                             if (!clip.isNullOrBlank()) templateUrlInput = clip
                         }) {
-                            GIcon(GIcons.ContentPaste, contentDescription = "붙여넣기")
+                            GIcon(GIcons.ContentPaste, contentDescription = stringResource(R.string.model_manager_paste_desc))
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -1152,12 +1154,12 @@ private fun FdmAddBundleDialog(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             GText(
-                                text = "사고 과정 (Thinking/추론) 활성화",
+                                text = stringResource(R.string.model_manager_reasoning_toggle),
                                 style = GlassTheme.type.bodyMedium
                             )
                         }
                         GText(
-                            text = "<think> 태그 또는 추론 단계 펼침/접기 UI 지원",
+                            text = stringResource(R.string.model_manager_reasoning_toggle_desc),
                             style = GlassTheme.type.labelSmall,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
@@ -1188,12 +1190,12 @@ private fun FdmAddBundleDialog(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             GText(
-                                text = "내장 비전 타워 (Vision Tower)",
+                                text = stringResource(R.string.model_manager_embedded_vision),
                                 style = GlassTheme.type.bodyMedium
                             )
                         }
                         GText(
-                            text = "단일 GGUF 파일 내부에 비전 가중치 내장 (Qwen2-VL, Llava 등)",
+                            text = stringResource(R.string.model_manager_embedded_vision_desc),
                             style = GlassTheme.type.labelSmall,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
@@ -1224,12 +1226,12 @@ private fun FdmAddBundleDialog(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             GText(
-                                text = "내장 추측 디코딩 드래프터 (MTP)",
+                                text = stringResource(R.string.model_manager_embedded_drafter),
                                 style = GlassTheme.type.bodyMedium
                             )
                         }
                         GText(
-                            text = "단일 GGUF 파일 내부에 드래프터 헤드 내장 (DeepSeek-V3 MTP 등)",
+                            text = stringResource(R.string.model_manager_embedded_drafter_desc),
                             style = GlassTheme.type.labelSmall,
                             color = GlassTheme.colors.onSurfaceVariant
                         )
@@ -1244,14 +1246,14 @@ private fun FdmAddBundleDialog(
                 GTextField(
                     value = visionUrlInput,
                     onValueChange = { visionUrlInput = it },
-                    label = { GText("비전 타워 다운로드 링크 (선택)") },
+                    label = { GText(stringResource(R.string.model_manager_field_vision_url)) },
                     placeholder = { GText("https://.../mmproj.gguf") },
                     trailingIcon = {
                         GIconButton(onClick = {
                             val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                             if (!clip.isNullOrBlank()) visionUrlInput = clip
                         }) {
-                            GIcon(GIcons.ContentPaste, contentDescription = "붙여넣기")
+                            GIcon(GIcons.ContentPaste, contentDescription = stringResource(R.string.model_manager_paste_desc))
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -1261,14 +1263,14 @@ private fun FdmAddBundleDialog(
                 GTextField(
                     value = mtpUrlInput,
                     onValueChange = { mtpUrlInput = it },
-                    label = { GText("드래프터 다운로드 링크 (선택)") },
+                    label = { GText(stringResource(R.string.model_manager_field_mtp_url)) },
                     placeholder = { GText("https://.../draft.gguf") },
                     trailingIcon = {
                         GIconButton(onClick = {
                             val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                             if (!clip.isNullOrBlank()) mtpUrlInput = clip
                         }) {
-                            GIcon(GIcons.ContentPaste, contentDescription = "붙여넣기")
+                            GIcon(GIcons.ContentPaste, contentDescription = stringResource(R.string.model_manager_paste_desc))
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -1298,12 +1300,12 @@ private fun FdmAddBundleDialog(
             ) {
                 GIcon(GIcons.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                GText("다운로드 시작")
+                GText(stringResource(R.string.model_manager_download_start))
             }
         },
         dismissButton = {
             GTextButton(onClick = onDismiss) {
-                GText("닫기")
+                GText(stringResource(R.string.close))
             }
         }
     )

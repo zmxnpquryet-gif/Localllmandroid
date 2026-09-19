@@ -54,9 +54,11 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.localllm.android.R
 import com.localllm.android.model.VoiceModelTemplate
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
@@ -85,13 +87,14 @@ fun VoiceModeScreen(
     }
 
     // Audio recording permission launcher
+    val micPermissionRequiredMsg = stringResource(R.string.voice_interactive_permission_required)
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
             viewModel.startInteractiveVoiceSession()
         } else {
-            Toast.makeText(context, "대화형 음성 모드를 위해 마이크 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, micPermissionRequiredMsg, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -130,10 +133,10 @@ fun VoiceModeScreen(
     }
 
     val statusText = when (voiceState) {
-        InteractiveVoiceState.LISTENING -> "음성을 듣고 있습니다..."
-        InteractiveVoiceState.PROCESSING -> "로컬 모델이 생각 중입니다..."
-        InteractiveVoiceState.SPEAKING -> "답변을 말하는 중입니다..."
-        InteractiveVoiceState.IDLE -> "중앙 오브를 눌러 대화를 시작하세요"
+        InteractiveVoiceState.LISTENING -> stringResource(R.string.voice_state_listening)
+        InteractiveVoiceState.PROCESSING -> stringResource(R.string.voice_state_local_thinking)
+        InteractiveVoiceState.SPEAKING -> stringResource(R.string.voice_state_speaking_answer)
+        InteractiveVoiceState.IDLE -> stringResource(R.string.voice_state_idle_hint)
     }
 
     Box(
@@ -187,13 +190,13 @@ fun VoiceModeScreen(
             ) {
                 GIcon(
                     imageVector = GIcons.Close,
-                    contentDescription = "닫기",
+                    contentDescription = stringResource(R.string.close),
                     tint = Color.White
                 )
             }
 
             GText(
-                text = "음성 대화 모드",
+                text = stringResource(R.string.voice_mode_title),
                 style = GlassTheme.type.titleSmall,
                 color = Color.White
             )
@@ -268,7 +271,7 @@ fun VoiceModeScreen(
                 .padding(bottom = 16.dp)
         ) {
             GText(
-                text = "한국어 음성 모델 템플릿 (STT / TTS)",
+                text = stringResource(R.string.voice_template_section),
                 style = GlassTheme.type.labelSmall,
                 color = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
@@ -281,11 +284,12 @@ fun VoiceModeScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(voiceTemplates) { template ->
+                    val templateUpdatedToast = stringResource(R.string.voice_template_updated, template.name)
                     VoiceTemplateCard(
                         template = template,
                         onToggle = {
                             viewModel.voiceManager.toggleVoiceModelInstall(template.id)
-                            Toast.makeText(context, "${template.name} 설정이 갱신되었습니다.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, templateUpdatedToast, Toast.LENGTH_SHORT).show()
                         }
                     )
                 }
@@ -318,7 +322,7 @@ fun VoiceModeScreen(
                 ) {
                     GIcon(
                         imageVector = if (isMicMuted) GIcons.MicOff else GIcons.Mic,
-                        contentDescription = "마이크",
+                        contentDescription = stringResource(R.string.voice_mic_desc),
                         tint = if (isMicMuted) Color.Red else Color.White
                     )
                 }
@@ -344,7 +348,7 @@ fun VoiceModeScreen(
                 ) {
                     GIcon(imageVector = GIcons.RecordVoiceOver, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    GText(text = if (voiceState == InteractiveVoiceState.IDLE) "대화 시작" else "대화 중지")
+                    GText(text = if (voiceState == InteractiveVoiceState.IDLE) stringResource(R.string.voice_dialogue_start) else stringResource(R.string.voice_stop_dialogue))
                 }
             }
         }
@@ -364,21 +368,21 @@ private fun SttStatusRow(viewModel: MainViewModel) {
     ) {
         Column(modifier = Modifier.weight(1f)) {
             GText(
-                text = "온디바이스 STT (Whisper tiny • 다국어)",
+                text = stringResource(R.string.voice_stt_ondevice),
                 style = GlassTheme.type.labelSmall,
                 color = Color.White.copy(alpha = 0.9f)
             )
             val engineNote = when (lastEngine) {
-                SttEngine.LOCAL_WHISPER -> "마지막 인식: 로컬 (오프라인)"
-                SttEngine.SYSTEM -> "마지막 인식: 시스템"
+                SttEngine.LOCAL_WHISPER -> stringResource(R.string.voice_stt_last_local)
+                SttEngine.SYSTEM -> stringResource(R.string.voice_stt_last_system)
                 null -> null
             }
             GText(
                 text = when (val s = sttState) {
-                    is LocalSttEngine.ModelState.Missing -> "시스템 인식기 사용 중" + (engineNote?.let { " • $it" } ?: "")
-                    is LocalSttEngine.ModelState.Downloading -> "모델 다운로드 중 ${(s.progress * 100).toInt()}%"
-                    is LocalSttEngine.ModelState.Ready -> "로컬 모델 준비됨" + (engineNote?.let { " • $it" } ?: "")
-                    is LocalSttEngine.ModelState.Failed -> "다운로드 실패: ${s.message}"
+                    is LocalSttEngine.ModelState.Missing -> stringResource(R.string.voice_stt_using_system) + (engineNote?.let { " • $it" } ?: "")
+                    is LocalSttEngine.ModelState.Downloading -> stringResource(R.string.voice_stt_downloading, (s.progress * 100).toInt())
+                    is LocalSttEngine.ModelState.Ready -> stringResource(R.string.voice_stt_ready) + (engineNote?.let { " • $it" } ?: "")
+                    is LocalSttEngine.ModelState.Failed -> stringResource(R.string.voice_stt_failed, s.message)
                 },
                 style = GlassTheme.type.labelSmall,
                 color = Color.White.copy(alpha = 0.6f)
@@ -388,7 +392,7 @@ private fun SttStatusRow(viewModel: MainViewModel) {
             is LocalSttEngine.ModelState.Missing, is LocalSttEngine.ModelState.Failed -> {
                 GTextButton(onClick = { viewModel.downloadLocalStt() }) {
                     GText(
-                        text = if (sttState is LocalSttEngine.ModelState.Failed) "재시도 (75MB)" else "받기 (75MB)",
+                        text = if (sttState is LocalSttEngine.ModelState.Failed) stringResource(R.string.voice_stt_retry) else stringResource(R.string.voice_stt_get),
                         color = Color.White
                     )
                 }

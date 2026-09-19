@@ -3,6 +3,7 @@
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.localllm.android.data.crypto.ChatCrypto
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelCatalog
 import com.localllm.android.model.ModelRuntimeType
@@ -242,7 +243,10 @@ class ModelStorageManager(private val context: Context) {
         obj.put("localMmprojPath", m.localMmprojPath ?: "")
         obj.put("localMtpDrafterPath", m.localMtpDrafterPath ?: "")
         obj.put("localTemplatePath", m.localTemplatePath ?: "")
-        obj.put("hfToken", m.hfToken ?: "")
+        // Access tokens are never written in cleartext to this (backup-adjacent) file.
+        // A Keystore failure drops only the token; it must not abort the whole save,
+        // which would silently lose every model entry.
+        obj.put("hfToken", encryptTokenOrEmpty(m.hfToken))
         return obj
     }
 
@@ -282,7 +286,51 @@ class ModelStorageManager(private val context: Context) {
             localMmprojPath = obj.optString("localMmprojPath", "").ifBlank { null },
             localMtpDrafterPath = obj.optString("localMtpDrafterPath", "").ifBlank { null },
             localTemplatePath = obj.optString("localTemplatePath", "").ifBlank { null },
-            hfToken = obj.optString("hfToken", "").ifBlank { null }
+            hfToken = decryptStoredToken(obj.optString("hfToken", ""))
         )
+    }
+
+    /**
+     * Encrypts a token for storage. Returns "" when there is no token or when
+     * encryption is unavailable, so one bad token can never fail the metadata write.
+     */
+    private fun encryptTokenOrEmpty(token: String?): String {
+        if (token.isNullOrBlank()) return ""
+        return try {
+            ChatCrypto.encrypt(token)
+        } catch (_: SecurityException) {
+            ""
+        }
+    }
+
+    /**
+     * Reads an encrypted token. Values written by older builds were plaintext
+     * (Hugging Face tokens carry the `hf_` prefix); those are accepted and
+     * re-encrypted on the next save. Any other payload that fails to decrypt is
+     * treated as absent rather than being used as if it were a token.
+     */
+    private fun decryptStoredToken(stored: String): String? {
+        if (stored.isBlank()) return null
+        return try {
+            ChatCrypto.decrypt(stored).ifBlank { null }
+        } catch (_: SecurityException) {
+            stored.takeIf { it.startsWith(LEGACY_PLAINTEXT_TOKEN_PREFIX) }
+        }
+    }
+
+    companion object {
+        private const val LEGACY_PLAINTEXT_TOKEN_PREFIX = "hf_"
+        private val ILLEGAL_FILE_CHARS = Regex("[\\\\/:*?\"<>|\\p{Cntrl}]")
+
+        /**
+         * Normalizes a user/URL-supplied name so it can never traverse outside the
+         * models directory: directory components are dropped and path metacharacters
+         * are replaced. Returns [fallback] when nothing usable remains.
+         */
+        fun sanitizeFileName(raw: String, fallback: String = "model.gguf"): String {
+            val base = raw.trim().substringAfterLast('/').substringAfterLast('\\')
+            val cleaned = ILLEGAL_FILE_CHARS.replace(base, "_").trim('.', ' ')
+            return cleaned.ifBlank { fallback }.take(120)
+        }
     }
 }

@@ -6,17 +6,18 @@ import android.util.Base64
 import android.util.Log
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
-import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
 /**
  * Enterprise-grade AES-256-GCM cipher utility backed by Android Keystore.
  * Generates and securely stores unique cryptographic keys in hardware-backed/secure OS Keystore.
- * Throws explicit SecurityExceptions on encryption/decryption failure to prevent plaintext leakage.
+ *
+ * Failure policy: there is intentionally NO fallback to a hardcoded key. A missing or
+ * unusable Keystore fails closed with a SecurityException instead of silently degrading
+ * to a key that ships in the APK.
  */
 object ChatCrypto {
     private const val TAG = "ChatCrypto"
@@ -25,15 +26,6 @@ object ChatCrypto {
     private const val ALGORITHM = "AES/GCM/NoPadding"
     private const val TAG_LENGTH_BIT = 128
     private const val IV_LENGTH_BYTE = 12
-
-    // Legacy seed preserved strictly for backward-compatible migration of legacy database entries
-    private const val LEGACY_MASTER_SEED = "LocalLLM_SQLite_Encrypted_Keystore_2026_Key"
-
-    private val legacySecretKey: SecretKeySpec by lazy {
-        val sha = MessageDigest.getInstance("SHA-256")
-        val keyBytes = sha.digest(LEGACY_MASTER_SEED.toByteArray(StandardCharsets.UTF_8))
-        SecretKeySpec(keyBytes, "AES")
-    }
 
     @Volatile
     private var cachedKey: SecretKey? = null
@@ -56,10 +48,11 @@ object ChatCrypto {
         cachedKey?.let { return it }
 
         if (isRunningInUnitTest()) {
-            Log.w(TAG, "AndroidKeyStore 미등록 환경(JVM/Robolectric 유닛 테스트) 감지: 테스트용 인메모리 키 사용")
-            val fallbackKey = SecretKeySpec(legacySecretKey.encoded, "AES")
-            cachedKey = fallbackKey
-            return fallbackKey
+            // Random, per-process key. Never derived from a constant, so a unit-test
+            // build can never produce ciphertext readable by a shipped app.
+            val testKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+            cachedKey = testKey
+            return testKey
         }
 
         return try {
@@ -123,8 +116,9 @@ object ChatCrypto {
     }
 
     /**
-     * Decrypts Base64-encoded [IV + Ciphertext + GCM Tag] back to plaintext.
-     * Supports automatic legacy key migration if ciphertext was encrypted by an older version.
+     * Decrypts Base64-encoded [IV + Ciphertext + GCM Tag] using the Keystore key.
+     * There is no legacy-key retry: a payload that cannot be authenticated with the
+     * device Keystore key is rejected rather than decrypted with a shipped constant.
      *
      * @throws SecurityException If decryption fails or data has been tampered with.
      */
@@ -146,7 +140,6 @@ object ChatCrypto {
         System.arraycopy(combined, 0, iv, 0, iv.size)
         System.arraycopy(combined, IV_LENGTH_BYTE, encrypted, 0, encrypted.size)
 
-        // 1. Attempt decryption with modern Android Keystore key
         try {
             val key = getSecretKey()
             val cipher = Cipher.getInstance(ALGORITHM)
@@ -154,19 +147,9 @@ object ChatCrypto {
             cipher.init(Cipher.DECRYPT_MODE, key, spec)
             val decrypted = cipher.doFinal(encrypted)
             return String(decrypted, StandardCharsets.UTF_8)
-        } catch (keystoreEx: Exception) {
-            // 2. Backward compatibility: Attempt legacy key decryption if Keystore decrypt failed
-            try {
-                val cipher = Cipher.getInstance(ALGORITHM)
-                val spec = GCMParameterSpec(TAG_LENGTH_BIT, iv)
-                cipher.init(Cipher.DECRYPT_MODE, legacySecretKey, spec)
-                val decrypted = cipher.doFinal(encrypted)
-                Log.i(TAG, "Successfully decrypted legacy conversation record via backward-compatibility key")
-                return String(decrypted, StandardCharsets.UTF_8)
-            } catch (legacyEx: Exception) {
-                Log.e(TAG, "Decryption failed for both Keystore and legacy keys: ${keystoreEx.message}", keystoreEx)
-                throw SecurityException("암호문 복호화 실패: 무결성 검증에 실패했거나 키가 일치하지 않습니다.", keystoreEx)
-            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Decryption failed: ${e.message}", e)
+            throw SecurityException("암호문 복호화 실패: 무결성 검증에 실패했거나 키가 일치하지 않습니다.", e)
         }
     }
 

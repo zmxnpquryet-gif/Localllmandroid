@@ -31,11 +31,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.localllm.android.R
 
 /** Full-screen scaffold replacing M3 Scaffold (no insets magic; callers own padding). */
 @Composable
@@ -170,6 +174,7 @@ fun GSheet(
     content: @Composable ColumnScope.() -> Unit
 ) {
     if (!visible) return
+    val dismissLabel = stringResource(R.string.close)
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
@@ -179,6 +184,7 @@ fun GSheet(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.45f))
+                    .semantics { contentDescription = dismissLabel }
                     .clickable(onClick = onDismissRequest)
             )
             AnimatedVisibility(
@@ -223,10 +229,12 @@ fun GDrawer(
             enter = fadeIn(),
             exit = fadeOut()
         ) {
+            val dismissLabel = stringResource(R.string.close)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.45f))
+                    .semantics { contentDescription = dismissLabel }
                     .clickable(onClick = onClose)
             )
         }

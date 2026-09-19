@@ -103,7 +103,7 @@ fun ChatTopBar(
                             )
                         }
                         GText(
-                            text = "자체 엔진 실험체 • 실행 불가",
+                            text = stringResource(R.string.chat_sdengine_unavailable),
                             style = GlassTheme.type.labelSmall,
                             color = GlassTheme.colors.error,
                             fontSize = 10.sp
@@ -161,7 +161,7 @@ fun ChatTopBar(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         GText(
-                            text = "모델 다운로드 필요",
+                            text = stringResource(R.string.chat_model_download_required),
                             style = GlassTheme.type.titleSmall,
                             color = GlassTheme.colors.primary
                         )
@@ -192,7 +192,7 @@ fun ChatTopBar(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             GText(
-                                text = "모델 다운로드 및 관리",
+                                text = stringResource(R.string.chat_model_manage),
                                 style = GlassTheme.type.labelLarge,
                                 color = GlassTheme.colors.primary
                             )
@@ -207,7 +207,7 @@ fun ChatTopBar(
                 GDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                 GText(
-                    text = "로컬 모델 목록",
+                    text = stringResource(R.string.chat_local_models),
                     style = GlassTheme.type.labelMedium,
                     color = GlassTheme.colors.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -228,7 +228,7 @@ fun ChatTopBar(
                                     if (model.supportsMtp) {
                                         GIcon(
                                             imageVector = GIcons.Bolt,
-                                            contentDescription = "MTP 지원",
+                                            contentDescription = stringResource(R.string.chat_mtp_supported_desc),
                                             tint = GlassTheme.colors.primary,
                                             modifier = Modifier.size(14.dp)
                                         )
@@ -242,7 +242,7 @@ fun ChatTopBar(
                                                 .padding(horizontal = 4.dp, vertical = 1.dp)
                                         ) {
                                             GText(
-                                                text = "미다운로드",
+                                                text = stringResource(R.string.chat_not_downloaded),
                                                 style = GlassTheme.type.labelSmall,
                                                 color = GlassTheme.colors.onErrorContainer,
                                                 fontSize = 9.sp
@@ -317,7 +317,7 @@ fun ChatTopBar(
 
                     GMenuItem(
                         text = {
-                            GText("런타임: ${currentRuntime.label} (탭하여 전환)")
+                            GText(stringResource(R.string.chat_runtime_switch, currentRuntime.label))
                         },
                         leadingIcon = {
                             GIcon(GIcons.Tune, contentDescription = null)

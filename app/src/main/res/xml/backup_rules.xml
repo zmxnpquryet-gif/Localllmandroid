@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
+    <!-- Conversations live in an encrypted Room DB; never ship it to the cloud. -->
     <exclude domain="database" path="." />
+    <!-- Encrypted prefs (HF token, active model, UI state) stay on this device. -->
     <exclude domain="sharedpref" path="." />
+    <!--
+      files/ holds multi-gigabyte model weights (regenerable by re-download),
+      the Whisper STT model, and models_metadata.json. Excluding the whole
+      domain avoids both pointless uploads and metadata/token leakage.
+    -->
+    <exclude domain="file" path="." />
 </full-backup-content>
