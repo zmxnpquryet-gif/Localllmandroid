@@ -133,6 +133,24 @@ data class TensorInfo(
 
 class GgufException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
+/** Absolute byte range of one expert tile inside a 3-D MoE tensor. */
+data class TileRange(val offset: Long, val length: Long, val dtypeId: Int)
+
+/**
+ * Locates expert [expertIndex] inside a 3-D MoE tensor [D0, D1, nExperts].
+ * Single source of truth for SSD tile layout (engine + tests share it).
+ */
+fun expertTileRange(info: TensorInfo, expertIndex: Int, nExperts: Long): TileRange {
+    require(info.dims.size == 3 && info.dims[2] == nExperts) {
+        "MoE tensor ${info.name} has unexpected dims ${info.dims.toList()}"
+    }
+    val dt = info.dtype()
+    val tileElements = info.dims[0] * info.dims[1]
+    require(tileElements % dt.blockLength == 0L) { "MoE tile of ${info.name} not block-aligned" }
+    val tileBytes = tileElements / dt.blockLength * dt.typeSizeBytes
+    return TileRange(info.dataOffset + expertIndex * tileBytes, tileBytes, info.dtypeId)
+}
+
 /** Marks K-quant kernels whose bit-exactness against ggml is pending golden-vector verification. */
 @RequiresOptIn("K-quant dequantization is structurally complete but not yet verified bit-exact against ggml golden vectors.")
 @Retention(AnnotationRetention.BINARY)

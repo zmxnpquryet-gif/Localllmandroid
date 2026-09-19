@@ -286,17 +286,11 @@ class SDEngine : AutoCloseable {
             base: String, layer: Int, expert: Int, kind: Int
         ): Pair<ExpertTileKey, Pair<Long, Int>> {
             val info = byName[base] ?: throw GgufException("Missing MoE tensor: $base")
-            // 3-D [D0, D1, nExperts]: expert e occupies elements [e*D0*D1, (e+1)*D0*D1).
-            require(info.dims.size == 3 && info.dims[2] == hp.nExperts.toLong()) {
-                "MoE tensor $base has unexpected dims ${info.dims.toList()}"
-            }
-            val dt = info.dtype()
-            val tileElements = info.dims[0] * info.dims[1]
-            require(tileElements % dt.blockLength == 0L) { "MoE tile of $base not block-aligned" }
-            val tileBytes = tileElements / dt.blockLength * dt.typeSizeBytes
+            val range = expertTileRange(info, expert, hp.nExperts.toLong())
+            if (range.length > Int.MAX_VALUE) throw GgufException("Tile too large: $base")
             val key = ExpertTileKey(layer, expert, kind)
-            onTile(key, info.copy(dataOffset = info.dataOffset + expert * tileBytes, byteSize = tileBytes))
-            return Pair(key, Pair(info.dataOffset + expert * tileBytes, tileBytes.toInt()))
+            onTile(key, info.copy(dataOffset = range.offset, byteSize = range.length))
+            return Pair(key, Pair(range.offset, range.length.toInt()))
         }
 
         override fun embed(id: Int): FloatArray {

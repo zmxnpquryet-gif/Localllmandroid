@@ -14,10 +14,57 @@ import java.nio.file.StandardOpenOption
  * are read on demand via positional reads (mmap/SSD-streaming friendly — the OS
  * page cache does the paging, we never slurp the file).
  */
+/** Random-access byte source: local file (OS paging friendly) or HTTP ranges. */
+interface SeekableSource : AutoCloseable {
+    val size: Long
+    fun readFully(dst: ByteArray, off: Int, len: Int, position: Long)
+}
+
+class FileSeekableSource(file: File) : SeekableSource {
+    private val channel: FileChannel = FileChannel.open(file.toPath(), StandardOpenOption.READ)
+    override val size: Long = channel.size()
+
+    override fun readFully(dst: ByteArray, off: Int, len: Int, position: Long) {
+        if (position < 0 || position + len > size) {
+            throw GgufException("Read out of bounds: pos=$position len=$len size=$size")
+        }
+        val buf = ByteBuffer.wrap(dst, off, len)
+        var pos = position
+        while (buf.hasRemaining()) {
+            val n = channel.read(buf, pos)
+            if (n < 0) throw GgufException("Unexpected EOF at $pos")
+            pos += n
+        }
+    }
+
+    override fun close() {
+        try {
+            channel.close()
+        } catch (_: Exception) {
+        }
+    }
+}
+
+class MemorySeekableSource(
+    private val bytes: ByteArray,
+    private val totalSize: Long = bytes.size.toLong()
+) : SeekableSource {
+    override val size: Long get() = totalSize
+
+    override fun readFully(dst: ByteArray, off: Int, len: Int, position: Long) {
+        if (position < 0 || position + len > bytes.size) {
+            throw GgufException("Range not resident: pos=$position len=$len (have ${bytes.size} of $totalSize)")
+        }
+        System.arraycopy(bytes, position.toInt(), dst, off, len)
+    }
+
+    override fun close() {}
+}
+
 class GgufReader private constructor(
-    private val channel: FileChannel,
-    val fileSize: Long
+    private val source: SeekableSource
 ) : AutoCloseable {
+    val fileSize: Long get() = source.size
 
     lateinit var header: GgufHeader
         private set
@@ -76,7 +123,7 @@ class GgufReader private constructor(
 
     override fun close() {
         try {
-            channel.close()
+            source.close()
         } catch (_: Exception) {
         }
     }
@@ -84,16 +131,7 @@ class GgufReader private constructor(
     // ---- internals ----
 
     private fun readFully(dst: ByteArray, off: Int, len: Int, position: Long) {
-        if (position < 0 || position + len > fileSize) {
-            throw GgufException("Read out of bounds: pos=$position len=$len size=$fileSize")
-        }
-        val buf = ByteBuffer.wrap(dst, off, len)
-        var pos = position
-        while (buf.hasRemaining()) {
-            val n = channel.read(buf, pos)
-            if (n < 0) throw GgufException("Unexpected EOF at $pos")
-            pos += n
-        }
+        source.readFully(dst, off, len, position)
     }
 
     private inner class Cursor(var pos: Long) {
@@ -230,13 +268,16 @@ class GgufReader private constructor(
 
         fun open(file: File): GgufReader {
             if (!file.isFile || file.length() < 24) throw GgufException("Not a GGUF file: ${file.path}")
-            val channel = FileChannel.open(file.toPath(), StandardOpenOption.READ)
-            val reader = GgufReader(channel, file.length())
+            return open(FileSeekableSource(file))
+        }
+
+        fun open(source: SeekableSource): GgufReader {
+            val reader = GgufReader(source)
             try {
                 reader.parse()
             } catch (e: Exception) {
                 try {
-                    channel.close()
+                    source.close()
                 } catch (_: Exception) {
                 }
                 throw if (e is GgufException) e else GgufException("Parse failed: ${e.message}", e)
