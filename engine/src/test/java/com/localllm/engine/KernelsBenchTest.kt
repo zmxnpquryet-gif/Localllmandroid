@@ -81,6 +81,17 @@ class KernelsBenchTest {
     }
 
     @Test
+    fun `native dot falls back to jvm correctly`() {
+        val a = floatArrayOf(1f, 2f, 3f)
+        val b = floatArrayOf(4f, 5f, 6f)
+        assertEquals(32.0, SDEngineNative.dotJvm(a, b), 1e-9)
+        assertEquals(32.0, SDEngineNative.dotAuto(a, b), 1e-9)
+        // Desktop JVM cannot dlopen Android .so files by design; on-device the
+        // instrumented test pins available=true. This only logs the path taken.
+        println("native available=" + SDEngineNative.available)
+    }
+
+    @Test
     fun `matvec throughput probe`() {
         val rng = Random(6)
         val rows = 512

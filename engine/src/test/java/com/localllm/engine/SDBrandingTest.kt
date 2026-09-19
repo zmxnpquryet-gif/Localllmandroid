@@ -23,4 +23,13 @@ class SDBrandingTest {
             assertTrue(advisory.isNotBlank())
         }
     }
+
+    @Test
+    fun `scope is moe-only with explicit deferrals`() {
+        assertTrue(SDEngine.SUPPORTED_PATTERNS.isNotEmpty())
+        assertTrue(SDEngine.SUPPORTED_PATTERNS.any { it.contains("MoE") || it.contains("MoE-only") || it.contains("gated-expert") })
+        assertTrue(SDEngine.DEFERRED.keys.any { it.startsWith("qwen4_exp") })
+        assertTrue(SDEngine.DEFERRED.keys.any { it.contains("Mamba") })
+        assertTrue(SDEngine.DEFERRED.keys.any { it.contains("LFM2") })
+    }
 }

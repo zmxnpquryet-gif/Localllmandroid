@@ -10,12 +10,15 @@ class ModelTooLargeException(message: String) : Exception(message)
 class UnsupportedArchException(message: String) : Exception(message)
 
 /**
- * SDengine — first-party inference facade (project "끔찍한 일" milestone 1).
+ * SDengine — first-party MoE-only inference facade (project "끔찍한 일").
+ *
+ * SCOPE (deliberate): gated-expert Mixture-of-Experts on Android, in C++.
+ * Dense-only models, non-MoE hybrids and exotic mixers are OUT:
  *
  * WARNING (TEST BUILD): this engine is an experiment scaffold. It is NOT ready
- * to run real models on-device (no NEON/GPU kernels, K-quant bit-exactness
- * pending golden vectors). Every entry point logs [ADVISORIES]; the app layer
- * must refuse silent inference and surface these warnings instead.
+ * to run real models on-device (scalar reference kernels so far; NEON next).
+ * Every entry point logs [ADVISORIES]; the app layer must refuse silent
+ * inference and surface these warnings instead.
  *
  * Today: GGUF metadata + tokenizer + full forward pass with paged MoE experts.
  * Dense (non-expert) weights are decoded resident under a cap; expert tiles stay
@@ -35,7 +38,31 @@ class SDEngine : AutoCloseable {
         val ADVISORIES: List<String> = listOf(
             "TEST 빌드: SDengine은 실험 단계의 자체 추론엔진입니다.",
             "실기기 모델 실행을 지원하지 않습니다. K-퀀트 수치 검증과 NEON 커널이 남은 마일스톤입니다.",
-            "이 엔진을 선택해도 추론이 실행되지 않으며, 모든 요청은 경고와 함께 거부됩니다."
+            "이 엔진을 선택해도 추론이 실행되지 않으며, 모든 요청은 경고와 함께 거부됩니다.",
+            "SDengine은 MoE 전용입니다. Dense 전용 모델과 MoE가 아닌 하이브리드는 범위 밖입니다."
+        )
+
+        /**
+         * Coverage contract. Patterns the pager/forward pass are built for, and
+         * architectures deliberately deferred with reasons. Tests pin this list
+         * so scope changes stay explicit.
+         */
+        val SUPPORTED_PATTERNS: List<String> = listOf(
+            "llama-family gated-expert MoE: GQA attention + SwiGLU experts + NeoX RoPE + RMSNorm",
+            "dense-prefix layers inside MoE models (first_k_dense_replace style)"
+        )
+
+        val DEFERRED: Map<String, String> = mapOf(
+            "qwen4_exp (Qwen4 preview: GDN linear attention + QSA sparse attention + host-offloaded N-gram)" to
+                "deferred until the official Qwen4 release",
+            "MLA / compressed-KV attention (DeepSeek family)" to
+                "needs dedicated MLA kernels (milestone)",
+            "sliding-window attention variants" to
+                "needs windowed mask path (milestone)",
+            "Mamba / SSM / recurrent mixers" to
+                "out of scope: MoE-only engine",
+            "short-convolution hybrids (LFM2 family)" to
+                "out of scope: MoE-only engine"
         )
 
         fun advisoryText(): String = "[SDengine][$STAGE] " + ADVISORIES.joinToString(" ")
@@ -87,12 +114,10 @@ class SDEngine : AutoCloseable {
         close()
         val r = GgufReader.open(file)
         reader = r
+        // No architecture allowlist, no model names: any GGUF whose hyperparams
+        // follow the {arch}.* convention and whose tensors use the llama-family
+        // layout is attempted. Missing keys fail loudly below with the key name.
         val arch = r.architecture() ?: throw UnsupportedArchException("general.architecture missing")
-        if (arch != "llama" && arch != "qwen3" && arch != "qwen3moe") {
-            r.close()
-            reader = null
-            throw UnsupportedArchException("Milestone 1 supports llama/qwen3/qwen3moe, got '$arch'")
-        }
         val tok = BpeTokenizer.fromMetadata(r)
             ?: throw GgufException("tokenizer.ggml.tokens missing")
         tokenizer = tok

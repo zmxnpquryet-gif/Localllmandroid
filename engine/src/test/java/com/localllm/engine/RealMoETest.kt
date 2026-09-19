@@ -13,8 +13,6 @@ import java.util.Random
 class RealMoETest {
 
     companion object {
-        const val DEFAULT_URL =
-            "https://huggingface.co/Qwen/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
         const val HEADER_BYTES = 8L * 1024 * 1024
     }
 
@@ -97,7 +95,13 @@ class RealMoETest {
 
     @Test
     fun `live moe tile streaming and residency`() {
-        val url = System.getenv("LOCALENGINE_MOE_URL")?.ifBlank { null } ?: DEFAULT_URL
+        // No hardcoded model: the target comes from the environment so the
+        // harness stays valid as releases move on (e.g. qwen4_exp later).
+        val url = System.getenv("LOCALENGINE_MOE_URL")?.ifBlank { null }
+        if (url.isNullOrBlank()) {
+            println("SKIP: set LOCALENGINE_MOE_URL to a gated-expert GGUF URL")
+            return
+        }
         val http = HttpRange(url)
         val header = try {
             http.getRange(0, HEADER_BYTES - 1)
@@ -113,14 +117,15 @@ class RealMoETest {
         GgufReader.open(MemorySeekableSource(header, total)).use { r ->
             val arch = r.architecture()
             println("arch=$arch tensors=${r.tensors.size}")
-            assertEquals("qwen3moe", arch)
+            assertTrue(!arch.isNullOrBlank())
             val nExperts = r.archU32("expert_count")?.toInt() ?: error("no expert_count")
             val topK = r.archU32("expert_used_count")?.toInt() ?: error("no expert_used_count")
             val nLayers = r.archU32("block_count")?.toInt() ?: error("no block_count")
             println("experts=$nExperts topK=$topK layers=$nLayers")
-            assertEquals(128, nExperts)
-            assertEquals(8, topK)
-            assertEquals(48, nLayers)
+            assertTrue("expected a gated-expert (MoE) model", nExperts > 1)
+            assertTrue(topK in 1..nExperts)
+            assertTrue(nLayers > 0)
+            val probeLayers = minOf(8, nLayers)
             val byName = r.tensors.associateBy { it.name }
 
             // Tile layout: 128 consecutive block-aligned ranges per 3-D tensor.
@@ -138,9 +143,9 @@ class RealMoETest {
                 .sumOf { it.byteSize }
             println("layer0 experts bytes=$layerBytes total expert bytes=$totalExpertBytes")
 
-            // Residency simulation: 2 steps x 8 layers x topK gate tiles through a 256MB pager.
+            // Residency simulation: 2 steps x probed layers x topK gate tiles through a 256MB pager.
             val src = HttpTileSource(http)
-            for (layer in 0 until 8) {
+            for (layer in 0 until probeLayers) {
                 for (kind in listOf(ExpertTileKey.GATE, ExpertTileKey.UP, ExpertTileKey.DOWN)) {
                     val base = when (kind) {
                         ExpertTileKey.GATE -> "blk.$layer.ffn_gate_exps.weight"
@@ -158,7 +163,7 @@ class RealMoETest {
             val pager = ExpertPager(src, maxResidentBytes = cap)
             val rng = Random(7)
             repeat(2) {
-                for (layer in 0 until 8) {
+                for (layer in 0 until probeLayers) {
                     val picked = (0 until nExperts).shuffled(rng).take(topK)
                     for (e in picked) pager.acquire(ExpertTileKey(layer, e, ExpertTileKey.GATE))
                 }
