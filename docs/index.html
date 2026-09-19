@@ -69,12 +69,15 @@
   <div class="hero">
     <h1>Your AI. <span>On your phone.</span> Offline.</h1>
     <p>A privacy-first, fully offline on-device LLM chat and server for Android.
-       Run state-of-the-art models directly on your CPU, GPU and NPU - no cloud, no API keys, no telemetry.</p>
+       Run state-of-the-art models directly on your CPU, GPU and NPU - no cloud, no API keys, no telemetry. Custom glass UI, instant English/Korean switching, tool use via a native MCP client, and an experimental first-party MoE engine built in the open.</p>
     <div class="badges">
       <span class="badge">llama.cpp + LiteRT-LM</span>
       <span class="badge">GGUF compatible</span>
       <span class="badge">Ollama / OpenAI API</span>
       <span class="badge">100% offline</span>
+      <span class="badge">MCP client</span>
+      <span class="badge">Whisper STT</span>
+      <span class="badge">EN / KO UI</span>
       <span class="badge">Apache-2.0</span>
     </div>
     <div class="cta">
@@ -119,17 +122,24 @@
       <div class="card"><div class="icon">🔒</div><h3>Hardware-backed encryption</h3><p>Chats are AES-256-GCM encrypted with keys generated in the Android Keystore (TEE / Secure Element). No silent fallbacks.</p></div>
       <div class="card"><div class="icon">🌐</div><h3>Ollama / OpenAI-compatible server</h3><p>Port 11434 server on-device. Loopback-only by default, optional LAN binding with bearer-token auth. Drop-in for your existing tools.</p></div>
       <div class="card"><div class="icon">📊</div><h3>Real-time benchmarking</h3><p>Token-level prompt speed and generation speed (tokens/s) measured via native tokenizers, shown on every message.</p></div>
-      <div class="card"><div class="icon">🎙️</div><h3>Voice mode</h3><p>Hands-free loop: on-device speech-to-text, LLM generation, text-to-speech. Animated voice orb, zero cloud round-trips.</p></div>
+      <div class="card"><div class="icon">🎙️</div><h3>Voice mode with local Whisper STT</h3><p>Hands-free loop: on-device Whisper speech-to-text, LLM generation, text-to-speech. Animated voice orb, zero cloud round-trips.</p></div>
       <div class="card"><div class="icon">🧠</div><h3>Reasoning-aware streaming</h3><p>DeepSeek-R1 style think tags are parsed reliably even when split across streaming chunks.</p></div>
+      <div class="card"><div class="icon">🔌</div><h3>MCP client</h3><p>Native Model Context Protocol client with per-session isolation guards, bringing tool use into on-device chats.</p></div>
+      <div class="card"><div class="icon">🧊</div><h3>First-party glass UI</h3><p>Material3 stripped out. A custom glass design system covers every screen, with instant English/Korean switching built in.</p></div>
       <div class="card"><div class="icon">🛡️</div><h3>OOM protection</h3><p>Available RAM is checked before model load to prevent native crashes. Downloads pause/resume with integrity checks.</p></div>
     </div>
+  </section>
+
+  <section id="lab">
+    <h2>In the lab: SDengine</h2>
+    <p class="sub">A first-party MoE-only inference core, built in the open as the <code>:engine</code> module. GGUF reader, BPE tokenizer, paged expert streaming, C++ JNI core (NDK). Numerical validation running on real Qwen3-30B-A3B weights. <b>Experimental - not for production yet.</b> Dense engines (llama.cpp / LiteRT-LM) remain the production path.</p>
   </section>
 
   <section id="build">
     <h2>Build from source</h2>
     <p class="sub">Apache-2.0 licensed. Clone, build, ship.</p>
     <div class="steps">
-      <div class="step"><div><b>Install</b> Android Studio Ladybug+ with JDK 17 (SDK 36, min SDK 24)</div></div>
+      <div class="step"><div><b>Install</b> Android Studio Ladybug+ with JDK 17 (SDK 36, min SDK 24, NDK 27)</div></div>
       <div class="step"><div><b>Clone</b> the repository and open it in Android Studio</div></div>
       <div class="step"><div><b>Run</b> on an arm64-v8a or x86_64 device or emulator</div></div>
       <div class="step"><div><b>Download</b> a GGUF or LiteRT model in the built-in model hub and start chatting</div></div>
