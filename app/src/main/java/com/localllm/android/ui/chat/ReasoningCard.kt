@@ -14,14 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,9 +23,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GSpinner
+import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GlassTheme
 
 @Composable
 fun ReasoningCard(
@@ -50,8 +48,8 @@ fun ReasoningCard(
         }
     }
 
-    val containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
-    val accentColor = MaterialTheme.colorScheme.primary
+    val containerColor = GlassTheme.colors.surface.copy(alpha = 0.55f)
+    val accentColor = GlassTheme.colors.primary
 
     Column(
         modifier = modifier
@@ -60,7 +58,7 @@ fun ReasoningCard(
             .background(containerColor)
             .border(
                 1.dp,
-                androidx.compose.ui.graphics.Brush.linearGradient(
+                Brush.linearGradient(
                     colors = listOf(
                         Color.White.copy(alpha = 0.30f),
                         accentColor.copy(alpha = 0.30f)
@@ -79,24 +77,23 @@ fun ReasoningCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isStreaming) {
-                    CircularProgressIndicator(
+                    GSpinner(
                         modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
                         color = accentColor
                     )
                 } else {
-                    Icon(
-                        imageVector = Icons.Default.Psychology,
+                    GIcon(
+                        imageVector = GIcons.Psychology,
                         contentDescription = "추론",
                         tint = accentColor,
                         modifier = Modifier.size(18.dp)
                     )
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
+                GText(
                     text = if (isStreaming) "추론 과정 처리 중..." else "추론 과정 완료",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+                    style = GlassTheme.type.labelLarge,
+                    color = GlassTheme.colors.onSurface
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Box(
@@ -105,29 +102,29 @@ fun ReasoningCard(
                         .background(accentColor.copy(alpha = 0.15f))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
-                    Text(
+                    GText(
                         text = reasoningEffortLabel,
                         fontSize = 11.sp,
                         color = accentColor,
-                        style = MaterialTheme.typography.labelSmall
+                        style = GlassTheme.type.labelSmall
                     )
                 }
             }
 
-            Icon(
-                imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            GIcon(
+                imageVector = if (isExpanded) GIcons.ArrowUp else GIcons.ArrowDown,
                 contentDescription = if (isExpanded) "접기" else "펼치기",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                tint = GlassTheme.colors.onSurfaceVariant
             )
         }
 
         AnimatedVisibility(visible = isExpanded) {
             Column(modifier = Modifier.padding(top = 8.dp)) {
-                Text(
+                GText(
                     text = reasoningText,
-                    style = MaterialTheme.typography.bodySmall.copy(
+                    style = GlassTheme.type.bodySmall.copy(
                         lineHeight = 18.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = GlassTheme.colors.onSurfaceVariant
                     )
                 )
             }

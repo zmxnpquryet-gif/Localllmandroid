@@ -7,6 +7,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -75,7 +76,7 @@ class ModelDownloaderTest {
                 return@FakeInterceptor responseBuilder.code(206)
                     .message("Partial Content")
                     .header("Content-Range", "bytes 0-0/${payload.size}")
-                    .body(okhttp3.ResponseBody.create(null, ByteArray(1)))
+                    .body(ByteArray(1).toResponseBody())
                     .build()
             }
             val dash = range.removePrefix("bytes=").split("-")
@@ -85,7 +86,7 @@ class ModelDownloaderTest {
             responseBuilder.code(206)
                 .message("Partial Content")
                 .header("Content-Range", "bytes $start-$end/${payload.size}")
-                .body(okhttp3.ResponseBody.create(null, slice))
+                .body(slice.toResponseBody())
             responseBuilder.build()
         })
         val client = OkHttpClient.Builder().addInterceptor(interceptor).build()
@@ -153,7 +154,7 @@ class ModelDownloaderTest {
             responseBuilder.code(200)
                 .message("OK")
                 .header("Content-Length", payload.size.toString())
-                .body(okhttp3.ResponseBody.create(null, payload))
+                .body(payload.toResponseBody())
                 .build()
         })
         val client = OkHttpClient.Builder().addInterceptor(interceptor).build()

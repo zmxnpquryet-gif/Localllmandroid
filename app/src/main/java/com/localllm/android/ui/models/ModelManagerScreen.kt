@@ -27,44 +27,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.SdCard
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -82,9 +46,25 @@ import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelRuntimeType
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
-import com.localllm.android.ui.theme.LiquidBackground
+import com.localllm.android.ui.glass.GButton
+import com.localllm.android.ui.glass.GCard
+import com.localllm.android.ui.glass.GDialog
+import com.localllm.android.ui.glass.GDivider
+import com.localllm.android.ui.glass.GFilterChip
+import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIconButton
+import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GLinearProgress
+import com.localllm.android.ui.glass.GOutlineButton
+import com.localllm.android.ui.glass.GScaffold
+import com.localllm.android.ui.glass.GSwitch
+import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GTextButton
+import com.localllm.android.ui.glass.GTextField
+import com.localllm.android.ui.glass.GTopBar
+import com.localllm.android.ui.glass.GlassTheme
+import com.localllm.android.ui.glass.LiquidBackground
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelManagerScreen(
     viewModel: MainViewModel,
@@ -117,73 +97,69 @@ fun ModelManagerScreen(
         }
     }
 
-    Scaffold(
+    GScaffold(
         topBar = {
-            TopAppBar(
+            GTopBar(
                 title = {
                     Column {
-                        Text("모델 관리")
-                        Text(
+                        GText("모델 관리")
+                        GText(
                             text = "메인 모델, 비전 타워, 드래프터 관리",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = GlassTheme.type.labelSmall,
+                            color = GlassTheme.colors.onSurfaceVariant
                         )
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = { viewModel.navigateTo(AppScreen.CHAT) }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    GIconButton(onClick = { viewModel.navigateTo(AppScreen.CHAT) }) {
+                        GIcon(
+                            imageVector = GIcons.ArrowBack,
                             contentDescription = "뒤로가기"
                         )
                     }
-                },
-                actions = {
-                    OutlinedButton(
-                        onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier.padding(end = 6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SdCard,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("기기 모델 가져오기", fontSize = 12.sp)
-                    }
-
-                    Button(
-                        onClick = { showFdmDialog = true },
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("다운로드 링크 추가", fontSize = 13.sp)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                modifier = Modifier.statusBarsPadding()
+                }
             )
         },
         modifier = modifier.fillMaxSize()
-    ) { innerPadding ->
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
         ) {
             LiquidBackground()
             Column(modifier = Modifier.fillMaxSize()) {
+            // Quick actions live here (not in the top bar) so the title never squeezes
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                GOutlineButton(
+                    onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    GIcon(
+                        imageVector = GIcons.SdCard,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    GText("기기 모델 가져오기", fontSize = 12.sp)
+                }
+                GButton(
+                    onClick = { showFdmDialog = true },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    GIcon(
+                        imageVector = GIcons.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    GText("다운로드 링크 추가", fontSize = 13.sp)
+                }
+            }
             // Active FDM Download Monitor Widget (if downloading)
             val downloadingModel = models.firstOrNull { it.isDownloading }
             if (downloadingModel != null && activeDownloadStatus != null) {
@@ -201,25 +177,25 @@ fun ModelManagerScreen(
                     .padding(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                FilterChip(
+                GFilterChip(
                     selected = selectedFilter == "ALL",
                     onClick = { selectedFilter = "ALL" },
-                    label = { Text("전체 (${models.size})") }
+                    label = { GText("전체 (${models.size})") }
                 )
-                FilterChip(
+                GFilterChip(
                     selected = selectedFilter == "DOWNLOADED",
                     onClick = { selectedFilter = "DOWNLOADED" },
-                    label = { Text("다운로드 완료 (${models.count { it.isDownloaded }})") }
+                    label = { GText("다운로드 완료 (${models.count { it.isDownloaded }})") }
                 )
-                FilterChip(
+                GFilterChip(
                     selected = selectedFilter == "LLAMA_CPP",
                     onClick = { selectedFilter = "LLAMA_CPP" },
-                    label = { Text("GGUF") }
+                    label = { GText("GGUF") }
                 )
-                FilterChip(
+                GFilterChip(
                     selected = selectedFilter == "LITE_RT",
                     onClick = { selectedFilter = "LITE_RT" },
-                    label = { Text("LiteRT") }
+                    label = { GText("LiteRT") }
                 )
             }
 
@@ -262,15 +238,15 @@ fun ModelManagerScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
+                    .background(GlassTheme.colors.surfaceVariant.copy(alpha = 0.5f))
+                    .border(1.dp, GlassTheme.colors.outline.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Storage,
+                GIcon(
+                    imageVector = GIcons.Storage,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = GlassTheme.colors.primary,
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
@@ -280,15 +256,15 @@ fun ModelManagerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
+                        GText(
                             text = "앱 모델 실제 사용 용량",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface
+                            style = GlassTheme.type.titleSmall,
+                            color = GlassTheme.colors.onSurface
                         )
-                        Text(
+                        GText(
                             text = storageUsedFormatted,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary
+                            style = GlassTheme.type.titleSmall,
+                            color = GlassTheme.colors.primary
                         )
                     }
                     Spacer(modifier = Modifier.height(2.dp))
@@ -296,23 +272,23 @@ fun ModelManagerScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
+                        GText(
                             text = "실제 기기 저장소에 기록된 파일 크기",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = GlassTheme.type.labelSmall,
+                            color = GlassTheme.colors.onSurfaceVariant
                         )
-                        Text(
+                        GText(
                             text = "기기 여유: $availableStorageFormatted",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = GlassTheme.type.labelSmall,
+                            color = GlassTheme.colors.onSurfaceVariant
                         )
                     }
                 }
             }
 
-            HorizontalDivider(
+            GDivider(
                 modifier = Modifier.padding(vertical = 6.dp),
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                color = GlassTheme.colors.outline.copy(alpha = 0.15f)
             )
 
             // Models List
@@ -386,8 +362,8 @@ private fun FdmActiveDownloadCard(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(14.dp))
+            .background(GlassTheme.colors.surfaceVariant)
+            .border(1.dp, GlassTheme.colors.primary, RoundedCornerShape(14.dp))
             .padding(14.dp)
     ) {
         Row(
@@ -396,30 +372,30 @@ private fun FdmActiveDownloadCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Speed,
+                GIcon(
+                    imageVector = GIcons.Speed,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = GlassTheme.colors.primary,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
-                    Text(
+                    GText(
                         text = "다운로드 중",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary
+                        style = GlassTheme.type.titleSmall,
+                        color = GlassTheme.colors.primary
                     )
-                    Text(
+                    GText(
                         text = model.name,
-                        style = MaterialTheme.typography.bodySmall
+                        style = GlassTheme.type.bodySmall
                     )
                 }
             }
-            IconButton(onClick = onCancel, modifier = Modifier.size(28.dp)) {
-                Icon(
-                    imageVector = Icons.Default.Close,
+            GIconButton(onClick = onCancel, modifier = Modifier.size(28.dp)) {
+                GIcon(
+                    imageVector = GIcons.Close,
                     contentDescription = "취소",
-                    tint = MaterialTheme.colorScheme.error,
+                    tint = GlassTheme.colors.error,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -432,29 +408,29 @@ private fun FdmActiveDownloadCard(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
+            GText(
                 text = "속도: ${status.speedText}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
+                style = GlassTheme.type.labelMedium,
+                color = GlassTheme.colors.primary
             )
-            Text(
+            GText(
                 text = if (status.etaSeconds > 0) "남은 시간: 약 ${status.etaSeconds}초" else "완료 중...",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = GlassTheme.type.labelMedium,
+                color = GlassTheme.colors.onSurfaceVariant
             )
             val safeProgress = if (status.progress.isNaN() || status.progress < 0f) 0f else status.progress.coerceIn(0f, 1f)
-            Text(
+            GText(
                 text = String.format("%.0f%%", safeProgress * 100f),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
+                style = GlassTheme.type.titleSmall,
+                color = GlassTheme.colors.onSurface
             )
         }
 
         Spacer(modifier = Modifier.height(6.dp))
 
         val safeProgress = if (status.progress.isNaN() || status.progress < 0f) 0f else status.progress.coerceIn(0f, 1f)
-        LinearProgressIndicator(
-            progress = { safeProgress },
+        GLinearProgress(
+            progress = safeProgress,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(8.dp)
@@ -464,10 +440,10 @@ private fun FdmActiveDownloadCard(
         Spacer(modifier = Modifier.height(8.dp))
 
         // Multi-segment progress visualizer
-        Text(
+        GText(
             text = "분할 다운로드 진행 상태",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = GlassTheme.type.labelSmall,
+            color = GlassTheme.colors.onSurfaceVariant,
             fontSize = 11.sp
         )
         Spacer(modifier = Modifier.height(4.dp))
@@ -482,13 +458,13 @@ private fun FdmActiveDownloadCard(
                         .weight(1f)
                         .height(10.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                        .background(GlassTheme.colors.outline.copy(alpha = 0.2f))
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(safeSeg)
                             .height(10.dp)
-                            .background(MaterialTheme.colorScheme.primary)
+                            .background(GlassTheme.colors.primary)
                     )
                 }
             }
@@ -501,7 +477,7 @@ private fun FdmActiveDownloadCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
+                .background(GlassTheme.colors.surface.copy(alpha = 0.6f))
                 .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -543,24 +519,24 @@ private fun ComponentProgressRow(title: String, progress: Float) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
+        GText(
             text = title,
-            style = MaterialTheme.typography.labelSmall,
+            style = GlassTheme.type.labelSmall,
             modifier = Modifier.weight(1f)
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            LinearProgressIndicator(
-                progress = { safeProgress },
+            GLinearProgress(
+                progress = safeProgress,
                 modifier = Modifier
                     .width(80.dp)
                     .height(6.dp)
                     .clip(RoundedCornerShape(3.dp))
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Text(
+            GText(
                 text = String.format("%.0f%%", safeProgress * 100f),
-                style = MaterialTheme.typography.labelSmall,
-                color = if (safeProgress >= 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                style = GlassTheme.type.labelSmall,
+                color = if (safeProgress >= 1f) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant
             )
         }
     }
@@ -580,13 +556,13 @@ private fun ModelBundleCardItem(
     onToggleVision: () -> Unit,
     onToggleDrafter: () -> Unit
 ) {
-    val borderColor = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+    val borderColor = if (isActive) GlassTheme.colors.primary else GlassTheme.colors.outline.copy(alpha = 0.2f)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            .background(GlassTheme.colors.surfaceVariant.copy(alpha = 0.4f))
             .border(if (isActive) 2.dp else 1.dp, borderColor, RoundedCornerShape(14.dp))
             .padding(14.dp)
     ) {
@@ -597,38 +573,38 @@ private fun ModelBundleCardItem(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
+                    GText(
                         text = model.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface
+                        style = GlassTheme.type.titleMedium,
+                        color = GlassTheme.colors.onSurface
                     )
                     if (isActive) {
                         Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
+                        GIcon(
+                            imageVector = GIcons.CheckCircle,
                             contentDescription = "동시 마운트 활성화",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(16.dp)
                         )
                     }
                 }
-                Text(
+                GText(
                     text = model.repoId,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = GlassTheme.type.bodySmall,
+                    color = GlassTheme.colors.onSurfaceVariant
                 )
             }
 
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .background(GlassTheme.colors.primaryContainer)
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
-                Text(
+                GText(
                     text = model.runtimeBadge,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = GlassTheme.type.labelSmall,
+                    color = GlassTheme.colors.onPrimaryContainer,
                     fontSize = 11.sp
                 )
             }
@@ -636,10 +612,10 @@ private fun ModelBundleCardItem(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text(
+        GText(
             text = model.description,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            style = GlassTheme.type.bodySmall,
+            color = GlassTheme.colors.onSurfaceVariant
         )
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -654,20 +630,20 @@ private fun ModelBundleCardItem(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.tertiaryContainer)
+                        .background(GlassTheme.colors.tertiaryContainer)
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
-                    Text("올인원 통합 모델", fontSize = 10.sp, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    GText("올인원 통합 모델", fontSize = 10.sp, color = GlassTheme.colors.onTertiaryContainer)
                 }
             } else {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                        .background(GlassTheme.colors.surface)
+                        .border(0.5.dp, GlassTheme.colors.outline.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
-                    Text("메인 가중치", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                    GText("메인 가중치", fontSize = 10.sp, color = GlassTheme.colors.onSurface)
                 }
             }
 
@@ -676,22 +652,22 @@ private fun ModelBundleCardItem(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                        .background(GlassTheme.colors.primary.copy(alpha = 0.15f))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Visibility,
+                        GIcon(
+                            imageVector = GIcons.Visibility,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(12.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(
+                        GText(
                             text = if (model.runtimeType == ModelRuntimeType.LITE_RT) "LiteRT 통합 비전"
                             else if (model.isVisionDownloaded) "비전 타워 포함" else "비전 타워 지원",
                             fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.primary
+                            color = GlassTheme.colors.primary
                         )
                     }
                 }
@@ -702,21 +678,21 @@ private fun ModelBundleCardItem(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f))
+                        .background(GlassTheme.colors.secondary.copy(alpha = 0.15f))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Bolt,
+                        GIcon(
+                            imageVector = GIcons.Bolt,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.secondary,
+                            tint = GlassTheme.colors.secondary,
                             modifier = Modifier.size(12.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(
+                        GText(
                             text = if (model.isMtpDownloaded) "드래프터 포함" else "드래프터 가속 지원",
                             fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.secondary
+                            color = GlassTheme.colors.secondary
                         )
                     }
                 }
@@ -727,21 +703,21 @@ private fun ModelBundleCardItem(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f))
+                        .background(GlassTheme.colors.tertiary.copy(alpha = 0.15f))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Layers,
+                        GIcon(
+                            imageVector = GIcons.Layers,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.tertiary,
+                            tint = GlassTheme.colors.tertiary,
                             modifier = Modifier.size(12.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(
+                        GText(
                             text = if (model.isTemplateDownloaded || model.localTemplatePath != null) "템플릿 내장" else "LiteRT 템플릿",
                             fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.tertiary
+                            color = GlassTheme.colors.tertiary
                         )
                     }
                 }
@@ -752,21 +728,21 @@ private fun ModelBundleCardItem(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                        .background(GlassTheme.colors.primary.copy(alpha = 0.15f))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Psychology,
+                        GIcon(
+                            imageVector = GIcons.Psychology,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(12.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(
+                        GText(
                             text = "Thinking 추론",
                             fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.primary
+                            color = GlassTheme.colors.primary
                         )
                     }
                 }
@@ -781,38 +757,38 @@ private fun ModelBundleCardItem(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            FilterChip(
+            GFilterChip(
                 selected = model.hasMmproj,
                 onClick = onToggleVision,
                 leadingIcon = {
-                    Icon(
-                        imageVector = if (model.hasMmproj) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                    GIcon(
+                        imageVector = if (model.hasMmproj) GIcons.Visibility else GIcons.VisibilityOff,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
-                        tint = if (model.hasMmproj) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (model.hasMmproj) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant
                     )
                 },
                 label = {
-                    Text(
+                    GText(
                         text = if (model.hasMmproj) "비전 타워 [ON]" else "비전 타워 [OFF]",
                         fontSize = 11.sp
                     )
                 }
             )
 
-            FilterChip(
+            GFilterChip(
                 selected = model.supportsMtp,
                 onClick = onToggleDrafter,
                 leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Bolt,
+                    GIcon(
+                        imageVector = GIcons.Bolt,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
-                        tint = if (model.supportsMtp) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (model.supportsMtp) GlassTheme.colors.secondary else GlassTheme.colors.onSurfaceVariant
                     )
                 },
                 label = {
-                    Text(
+                    GText(
                         text = if (model.supportsMtp) "드래프터 [ON]" else "드래프터 [OFF]",
                         fontSize = 11.sp
                     )
@@ -829,10 +805,10 @@ private fun ModelBundleCardItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(
+                GText(
                     text = "크기: ${model.displaySize}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = GlassTheme.type.bodySmall,
+                    color = GlassTheme.colors.onSurfaceVariant
                 )
                 if (model.isDownloaded) {
                     val localBytes = remember(model.localFilePath, model.localMmprojPath, model.localMtpDrafterPath) {
@@ -848,10 +824,10 @@ private fun ModelBundleCardItem(
                         if (gb >= 1.0) String.format("%.2f GB", gb)
                         else String.format("%.1f MB", localBytes / (1024.0 * 1024.0))
                     }
-                    Text(
+                    GText(
                         text = "디스크 점유: $actualDiskFormatted",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
+                        style = GlassTheme.type.labelSmall,
+                        color = GlassTheme.colors.primary,
                         fontSize = 11.sp
                     )
                 }
@@ -859,46 +835,43 @@ private fun ModelBundleCardItem(
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (model.isDownloaded) {
-                    IconButton(
+                    GIconButton(
                         onClick = onDelete,
                         modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
+                        GIcon(
+                            imageVector = GIcons.Delete,
                             contentDescription = "삭제",
-                            tint = MaterialTheme.colorScheme.error,
+                            tint = GlassTheme.colors.error,
                             modifier = Modifier.size(18.dp)
                         )
                     }
 
-                    Button(
+                    GButton(
                         onClick = onMount,
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isActive) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
-                        )
+                        containerColor = if (isActive) GlassTheme.colors.secondary else GlassTheme.colors.primary,
+                        contentColor = if (isActive) GlassTheme.colors.onSecondary else GlassTheme.colors.onPrimary
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
+                        GIcon(
+                            imageVector = GIcons.CheckCircle,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(if (isActive) "실행 중" else "실행")
+                        GText(if (isActive) "실행 중" else "실행")
                     }
                 } else {
-                    Button(
+                    GButton(
                         onClick = onDownload,
-                        enabled = !model.isDownloading,
-                        shape = RoundedCornerShape(8.dp)
+                        enabled = !model.isDownloading
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudDownload,
+                        GIcon(
+                            imageVector = GIcons.CloudDownload,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(if (model.isDownloading) "다운로드 중..." else "다운로드")
+                        GText(if (model.isDownloading) "다운로드 중..." else "다운로드")
                     }
                 }
             }
@@ -948,17 +921,17 @@ private fun FdmAddBundleDialog(
 
     val clipboard = remember { context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager }
 
-    AlertDialog(
+    GDialog(
         onDismissRequest = onDismiss,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.CloudDownload,
+                GIcon(
+                    imageVector = GIcons.CloudDownload,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = GlassTheme.colors.primary
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("커스텀 모델 링크 다운로드")
+                GText("커스텀 모델 링크 다운로드")
             }
         },
         text = {
@@ -968,10 +941,10 @@ private fun FdmAddBundleDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
+                GText(
                     text = "직접 파일명을 지정할 수 있으며, LiteRT 모델의 템플릿 파일 다운로드 및 띵킹(사고 과정) 기능을 설정할 수 있습니다.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = GlassTheme.type.bodySmall,
+                    color = GlassTheme.colors.onSurfaceVariant
                 )
 
                 // Fast Presets
@@ -979,7 +952,7 @@ private fun FdmAddBundleDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    OutlinedButton(
+                    GOutlineButton(
                         onClick = {
                             modelNameInput = "DeepSeek R1 (GGUF)"
                             runtimeChoice = ModelRuntimeType.LLAMA_CPP
@@ -991,12 +964,11 @@ private fun FdmAddBundleDialog(
                             hasEmbeddedVisionInput = false
                             supportsReasoningInput = true
                         },
-                        shape = RoundedCornerShape(6.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("DeepSeek R1", fontSize = 11.sp)
+                        GText("DeepSeek R1", fontSize = 11.sp)
                     }
-                    OutlinedButton(
+                    GOutlineButton(
                         onClick = {
                             modelNameInput = "Gemma 3 1B (LiteRT 통합 비전)"
                             runtimeChoice = ModelRuntimeType.LITE_RT
@@ -1008,12 +980,11 @@ private fun FdmAddBundleDialog(
                             hasEmbeddedVisionInput = true
                             supportsReasoningInput = false
                         },
-                        shape = RoundedCornerShape(6.dp),
                         modifier = Modifier.weight(1.1f)
                     ) {
-                        Text("LiteRT 통합 비전", fontSize = 11.sp)
+                        GText("LiteRT 통합 비전", fontSize = 11.sp)
                     }
-                    OutlinedButton(
+                    GOutlineButton(
                         onClick = {
                             modelNameInput = "Phi-4 Mini (LiteRT)"
                             runtimeChoice = ModelRuntimeType.LITE_RT
@@ -1025,18 +996,17 @@ private fun FdmAddBundleDialog(
                             hasEmbeddedVisionInput = false
                             supportsReasoningInput = true
                         },
-                        shape = RoundedCornerShape(6.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("LiteRT 템플릿", fontSize = 11.sp)
+                        GText("LiteRT 템플릿", fontSize = 11.sp)
                     }
                 }
 
-                OutlinedTextField(
+                GTextField(
                     value = modelNameInput,
                     onValueChange = { modelNameInput = it },
-                    label = { Text("모델 이름") },
-                    placeholder = { Text("미입력 시 파일명 자동 사용") },
+                    label = { GText("모델 이름") },
+                    placeholder = { GText("미입력 시 파일명 자동 사용") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1046,18 +1016,18 @@ private fun FdmAddBundleDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("런타임 엔진", style = MaterialTheme.typography.bodyMedium)
+                    GText("런타임 엔진", style = GlassTheme.type.bodyMedium)
                     Row {
-                        FilterChip(
+                        GFilterChip(
                             selected = runtimeChoice == ModelRuntimeType.LLAMA_CPP,
                             onClick = { runtimeChoice = ModelRuntimeType.LLAMA_CPP },
-                            label = { Text("llama.cpp") }
+                            label = { GText("llama.cpp") }
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        FilterChip(
+                        GFilterChip(
                             selected = runtimeChoice == ModelRuntimeType.LITE_RT,
                             onClick = { runtimeChoice = ModelRuntimeType.LITE_RT },
-                            label = { Text("LiteRT LM") }
+                            label = { GText("LiteRT LM") }
                         )
                     }
                 }
@@ -1067,31 +1037,31 @@ private fun FdmAddBundleDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f))
+                            .background(GlassTheme.colors.tertiaryContainer.copy(alpha = 0.4f))
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
-                        Text(
+                        GText(
                             text = "💡 Google LiteRT 모델은 비전 타워(Vision Encoder), 토크나이저, 프롬프트 템플릿이 단일 바이너리(.litertlm / .bin)에 통합 패키징된 올인원 구조입니다.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                            style = GlassTheme.type.labelSmall,
+                            color = GlassTheme.colors.onTertiaryContainer
                         )
                     }
                 }
 
                 // Custom filename input
-                OutlinedTextField(
+                GTextField(
                     value = customFileNameInput,
                     onValueChange = { customFileNameInput = it },
-                    label = { Text("저장 파일명 (선택)") },
+                    label = { GText("저장 파일명 (선택)") },
                     placeholder = {
-                        Text(if (runtimeChoice == ModelRuntimeType.LITE_RT) "custom_model.bin" else "custom_model.gguf")
+                        GText(if (runtimeChoice == ModelRuntimeType.LITE_RT) "custom_model.bin" else "custom_model.gguf")
                     },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 // 1. Main Model URL (Required)
-                OutlinedTextField(
+                GTextField(
                     value = mainUrlInput,
                     onValueChange = {
                         mainUrlInput = it
@@ -1100,10 +1070,10 @@ private fun FdmAddBundleDialog(
                             if (derived.isNotBlank()) customFileNameInput = derived
                         }
                     },
-                    label = { Text("메인 모델 다운로드 링크 [필수]") },
-                    placeholder = { Text("https://.../model.gguf") },
+                    label = { GText("메인 모델 다운로드 링크 [필수]") },
+                    placeholder = { GText("https://.../model.gguf") },
                     trailingIcon = {
-                        IconButton(onClick = {
+                        GIconButton(onClick = {
                             val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                             if (!clip.isNullOrBlank()) {
                                 mainUrlInput = clip
@@ -1112,33 +1082,33 @@ private fun FdmAddBundleDialog(
                                 }
                             }
                         }) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "붙여넣기")
+                            GIcon(GIcons.ContentPaste, contentDescription = "붙여넣기")
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 // 2. Hugging Face Access Token (Optional for gated / private models)
-                OutlinedTextField(
+                GTextField(
                     value = hfTokenInput,
                     onValueChange = { hfTokenInput = it },
-                    label = { Text("Hugging Face 토큰 (선택: Gated/비공개 모델)") },
-                    placeholder = { Text("hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") },
+                    label = { GText("Hugging Face 토큰 (선택: Gated/비공개 모델)") },
+                    placeholder = { GText("hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") },
                     singleLine = true,
                     visualTransformation = if (isTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { isTokenVisible = !isTokenVisible }) {
-                                Icon(
-                                    imageVector = if (isTokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            GIconButton(onClick = { isTokenVisible = !isTokenVisible }) {
+                                GIcon(
+                                    imageVector = if (isTokenVisible) GIcons.VisibilityOff else GIcons.Visibility,
                                     contentDescription = if (isTokenVisible) "숨기기" else "보기"
                                 )
                             }
-                            IconButton(onClick = {
+                            GIconButton(onClick = {
                                 val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                                 if (!clip.isNullOrBlank()) hfTokenInput = clip.trim()
                             }) {
-                                Icon(Icons.Default.ContentPaste, contentDescription = "붙여넣기")
+                                GIcon(GIcons.ContentPaste, contentDescription = "붙여넣기")
                             }
                         }
                     },
@@ -1146,17 +1116,17 @@ private fun FdmAddBundleDialog(
                 )
 
                 // LiteRT Template file URL (Jinja / JSON)
-                OutlinedTextField(
+                GTextField(
                     value = templateUrlInput,
                     onValueChange = { templateUrlInput = it },
-                    label = { Text("LiteRT Jinja/JSON 템플릿 파일 링크" + if (runtimeChoice == ModelRuntimeType.LITE_RT) " [권장]" else " (선택)") },
-                    placeholder = { Text("https://.../chat_template.jinja 또는 tokenizer_config.json") },
+                    label = { GText("LiteRT Jinja/JSON 템플릿 파일 링크" + if (runtimeChoice == ModelRuntimeType.LITE_RT) " [권장]" else " (선택)") },
+                    placeholder = { GText("https://.../chat_template.jinja 또는 tokenizer_config.json") },
                     trailingIcon = {
-                        IconButton(onClick = {
+                        GIconButton(onClick = {
                             val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                             if (!clip.isNullOrBlank()) templateUrlInput = clip
                         }) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "붙여넣기")
+                            GIcon(GIcons.ContentPaste, contentDescription = "붙여넣기")
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -1167,32 +1137,32 @@ private fun FdmAddBundleDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .background(GlassTheme.colors.surfaceVariant.copy(alpha = 0.5f))
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Psychology,
+                            GIcon(
+                                imageVector = GIcons.Psychology,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = GlassTheme.colors.primary,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(
+                            GText(
                                 text = "사고 과정 (Thinking/추론) 활성화",
-                                style = MaterialTheme.typography.bodyMedium
+                                style = GlassTheme.type.bodyMedium
                             )
                         }
-                        Text(
+                        GText(
                             text = "<think> 태그 또는 추론 단계 펼침/접기 UI 지원",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = GlassTheme.type.labelSmall,
+                            color = GlassTheme.colors.onSurfaceVariant
                         )
                     }
-                    Switch(
+                    GSwitch(
                         checked = supportsReasoningInput,
                         onCheckedChange = { supportsReasoningInput = it }
                     )
@@ -1203,32 +1173,32 @@ private fun FdmAddBundleDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .background(GlassTheme.colors.surfaceVariant.copy(alpha = 0.5f))
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Visibility,
+                            GIcon(
+                                imageVector = GIcons.Visibility,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = GlassTheme.colors.primary,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(
+                            GText(
                                 text = "내장 비전 타워 (Vision Tower)",
-                                style = MaterialTheme.typography.bodyMedium
+                                style = GlassTheme.type.bodyMedium
                             )
                         }
-                        Text(
+                        GText(
                             text = "단일 GGUF 파일 내부에 비전 가중치 내장 (Qwen2-VL, Llava 등)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = GlassTheme.type.labelSmall,
+                            color = GlassTheme.colors.onSurfaceVariant
                         )
                     }
-                    Switch(
+                    GSwitch(
                         checked = hasEmbeddedVisionInput,
                         onCheckedChange = { hasEmbeddedVisionInput = it }
                     )
@@ -1239,66 +1209,66 @@ private fun FdmAddBundleDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .background(GlassTheme.colors.surfaceVariant.copy(alpha = 0.5f))
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Bolt,
+                            GIcon(
+                                imageVector = GIcons.Bolt,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
+                                tint = GlassTheme.colors.secondary,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(
+                            GText(
                                 text = "내장 추측 디코딩 드래프터 (MTP)",
-                                style = MaterialTheme.typography.bodyMedium
+                                style = GlassTheme.type.bodyMedium
                             )
                         }
-                        Text(
+                        GText(
                             text = "단일 GGUF 파일 내부에 드래프터 헤드 내장 (DeepSeek-V3 MTP 등)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = GlassTheme.type.labelSmall,
+                            color = GlassTheme.colors.onSurfaceVariant
                         )
                     }
-                    Switch(
+                    GSwitch(
                         checked = hasEmbeddedDrafterInput,
                         onCheckedChange = { hasEmbeddedDrafterInput = it }
                     )
                 }
 
                 // 2. Vision Tower URL (Optional)
-                OutlinedTextField(
+                GTextField(
                     value = visionUrlInput,
                     onValueChange = { visionUrlInput = it },
-                    label = { Text("비전 타워 다운로드 링크 (선택)") },
-                    placeholder = { Text("https://.../mmproj.gguf") },
+                    label = { GText("비전 타워 다운로드 링크 (선택)") },
+                    placeholder = { GText("https://.../mmproj.gguf") },
                     trailingIcon = {
-                        IconButton(onClick = {
+                        GIconButton(onClick = {
                             val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                             if (!clip.isNullOrBlank()) visionUrlInput = clip
                         }) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "붙여넣기")
+                            GIcon(GIcons.ContentPaste, contentDescription = "붙여넣기")
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 // 3. MTP Drafter URL (Optional)
-                OutlinedTextField(
+                GTextField(
                     value = mtpUrlInput,
                     onValueChange = { mtpUrlInput = it },
-                    label = { Text("드래프터 다운로드 링크 (선택)") },
-                    placeholder = { Text("https://.../draft.gguf") },
+                    label = { GText("드래프터 다운로드 링크 (선택)") },
+                    placeholder = { GText("https://.../draft.gguf") },
                     trailingIcon = {
-                        IconButton(onClick = {
+                        GIconButton(onClick = {
                             val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                             if (!clip.isNullOrBlank()) mtpUrlInput = clip
                         }) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "붙여넣기")
+                            GIcon(GIcons.ContentPaste, contentDescription = "붙여넣기")
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -1306,7 +1276,7 @@ private fun FdmAddBundleDialog(
             }
         },
         confirmButton = {
-            Button(
+            GButton(
                 onClick = {
                     if (mainUrlInput.isNotBlank()) {
                         onStartDownload(
@@ -1326,14 +1296,14 @@ private fun FdmAddBundleDialog(
                 },
                 enabled = mainUrlInput.isNotBlank()
             ) {
-                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                GIcon(GIcons.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("다운로드 시작")
+                GText("다운로드 시작")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("닫기")
+            GTextButton(onClick = onDismiss) {
+                GText("닫기")
             }
         }
     )

@@ -31,20 +31,12 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Done
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.RecordVoiceOver
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import com.localllm.android.ui.glass.GButton
+import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIconButton
+import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GlassTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -155,7 +147,7 @@ fun VoiceModeScreen(
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                            GlassTheme.colors.primary.copy(alpha = 0.14f),
                             Color.Transparent
                         ),
                         radius = 800f
@@ -168,7 +160,7 @@ fun VoiceModeScreen(
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            MaterialTheme.colorScheme.secondary.copy(alpha = 0.10f),
+                            GlassTheme.colors.secondary.copy(alpha = 0.10f),
                             Color.Transparent
                         ),
                         radius = 1000f
@@ -183,23 +175,23 @@ fun VoiceModeScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
+            GIconButton(
                 onClick = {
                     viewModel.voiceManager.stopListening()
                     viewModel.voiceManager.stopSpeaking()
                     viewModel.navigateTo(AppScreen.CHAT)
                 }
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
+                GIcon(
+                    imageVector = GIcons.Close,
                     contentDescription = "닫기",
                     tint = Color.White
                 )
             }
 
-            Text(
+            GText(
                 text = "음성 대화 모드",
-                style = MaterialTheme.typography.titleSmall,
+                style = GlassTheme.type.titleSmall,
                 color = Color.White
             )
 
@@ -238,8 +230,8 @@ fun VoiceModeScreen(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = if (voiceState == InteractiveVoiceState.SPEAKING) Icons.Default.VolumeUp else Icons.Default.Mic,
+                GIcon(
+                    imageVector = if (voiceState == InteractiveVoiceState.SPEAKING) GIcons.VolumeUp else GIcons.Mic,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(54.dp)
@@ -248,18 +240,18 @@ fun VoiceModeScreen(
 
             Spacer(modifier = Modifier.height(28.dp))
 
-            Text(
+            GText(
                 text = statusText,
-                style = MaterialTheme.typography.titleMedium,
+                style = GlassTheme.type.titleMedium,
                 color = Color.White.copy(alpha = 0.9f)
             )
 
             if (recognizedText.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
+                GText(
                     text = "\"$recognizedText\"",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    style = GlassTheme.type.bodyMedium,
+                    color = GlassTheme.colors.primary,
                     modifier = Modifier.padding(horizontal = 24.dp)
                 )
             }
@@ -272,9 +264,9 @@ fun VoiceModeScreen(
                 .fillMaxWidth()
                 .padding(bottom = 16.dp)
         ) {
-            Text(
+            GText(
                 text = "한국어 음성 모델 템플릿 (STT / TTS)",
-                style = MaterialTheme.typography.labelSmall,
+                style = GlassTheme.type.labelSmall,
                 color = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
             )
@@ -306,7 +298,7 @@ fun VoiceModeScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
+                GIconButton(
                     onClick = {
                         isMicMuted = !isMicMuted
                         if (isMicMuted) viewModel.voiceManager.stopListening()
@@ -316,14 +308,14 @@ fun VoiceModeScreen(
                         .clip(CircleShape)
                         .background(Color(0xFF1E293B))
                 ) {
-                    Icon(
-                        imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                    GIcon(
+                        imageVector = if (isMicMuted) GIcons.MicOff else GIcons.Mic,
                         contentDescription = "마이크",
                         tint = if (isMicMuted) Color.Red else Color.White
                     )
                 }
 
-                Button(
+                GButton(
                     onClick = {
                         if (voiceState != InteractiveVoiceState.IDLE) {
                             viewModel.voiceManager.stopListening()
@@ -340,13 +332,11 @@ fun VoiceModeScreen(
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    shape = RoundedCornerShape(24.dp),
                     modifier = Modifier.height(48.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.RecordVoiceOver, contentDescription = null)
+                    GIcon(imageVector = GIcons.RecordVoiceOver, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = if (voiceState == InteractiveVoiceState.IDLE) "대화 시작" else "대화 중지")
+                    GText(text = if (voiceState == InteractiveVoiceState.IDLE) "대화 시작" else "대화 중지")
                 }
             }
         }
@@ -364,7 +354,7 @@ private fun VoiceTemplateCard(
             .background(Color(0xFF1E293B))
             .border(
                 width = 1.dp,
-                color = if (template.isInstalled) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
+                color = if (template.isInstalled) GlassTheme.colors.primary else Color.White.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(10.dp)
             )
             .clickable { onToggle() }
@@ -373,31 +363,31 @@ private fun VoiceTemplateCard(
     ) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
+                GText(
                     text = template.name,
                     fontSize = 12.sp,
                     color = Color.White
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 if (template.koreanSupport) {
-                    Text(
+                    GText(
                         text = "KR",
                         fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.primary
+                        color = GlassTheme.colors.primary
                     )
                 }
             }
-            Text(
+            GText(
                 text = "${template.type} • ${template.sizeText}",
                 fontSize = 10.sp,
                 color = Color.White.copy(alpha = 0.6f)
             )
         }
         Spacer(modifier = Modifier.width(8.dp))
-        Icon(
-            imageVector = if (template.isInstalled) Icons.Default.Done else Icons.Default.CloudDownload,
+        GIcon(
+            imageVector = if (template.isInstalled) GIcons.Done else GIcons.CloudDownload,
             contentDescription = null,
-            tint = if (template.isInstalled) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.6f),
+            tint = if (template.isInstalled) GlassTheme.colors.primary else Color.White.copy(alpha = 0.6f),
             modifier = Modifier.size(16.dp)
         )
     }

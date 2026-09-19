@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -23,7 +24,7 @@ import com.localllm.android.ui.api.ApiServerScreen
 import com.localllm.android.ui.chat.ChatScreen
 import com.localllm.android.ui.models.ModelManagerScreen
 import com.localllm.android.ui.settings.SettingsScreen
-import com.localllm.android.ui.theme.LocalLlmTheme
+import com.localllm.android.ui.glass.GlassTheme
 import com.localllm.android.ui.voice.VoiceModeScreen
 import java.util.Locale
 
@@ -61,9 +62,12 @@ class MainActivity : ComponentActivity() {
 
             CompositionLocalProvider(
                 LocalContext provides localizedContext,
+                // The localized wrapper above is not an Activity, so the registry owner
+                // lookup via LocalContext would fail (launch crash). Pin the real one.
+                LocalActivityResultRegistryOwner provides this@MainActivity,
                 LocalConfiguration provides localizedContext.resources.configuration
             ) {
-                LocalLlmTheme(
+                GlassTheme(
                     darkModePreference = settings.darkModePreference,
                     themeColorName = settings.themeColorName
                 ) {

@@ -10,18 +10,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GlassTheme
 
 @Composable
 fun PerformanceMetricsChip(
@@ -33,57 +31,57 @@ fun PerformanceMetricsChip(
 ) {
     if (tps <= 0f && promptSpeed <= 0f) return
 
-    val chipBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-    val accent = MaterialTheme.colorScheme.primary
+    val chipBg = GlassTheme.colors.surfaceVariant.copy(alpha = 0.45f)
+    val accent = GlassTheme.colors.primary
 
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(chipBg)
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+            .border(1.dp, GlassTheme.colors.outline.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Icon(
-            imageVector = Icons.Default.Speed,
+        GIcon(
+            imageVector = GIcons.Speed,
             contentDescription = "성능",
             tint = accent,
             modifier = Modifier.size(14.dp)
         )
 
-        Text(
+        GText(
             text = String.format("%.1f t/s", tps),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface,
+            style = GlassTheme.type.labelSmall,
+            color = GlassTheme.colors.onSurface,
             fontSize = 11.sp
         )
 
-        Text(
+        GText(
             text = "•",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
+            style = GlassTheme.type.labelSmall,
+            color = GlassTheme.colors.outline,
             fontSize = 11.sp
         )
 
-        Text(
+        GText(
             text = String.format("PP %.0f t/s", promptSpeed),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = GlassTheme.type.labelSmall,
+            color = GlassTheme.colors.onSurfaceVariant,
             fontSize = 11.sp
         )
 
         if (contextTokens > 0) {
-            Text(
+            GText(
                 text = "•",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+                style = GlassTheme.type.labelSmall,
+                color = GlassTheme.colors.outline,
                 fontSize = 11.sp
             )
-            Text(
+            GText(
                 text = "${contextTokens} tok",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = GlassTheme.type.labelSmall,
+                color = GlassTheme.colors.onSurfaceVariant,
                 fontSize = 11.sp
             )
         }
@@ -97,15 +95,15 @@ fun PerformanceMetricsChip(
                     .padding(horizontal = 4.dp, vertical = 1.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Bolt,
+                    GIcon(
+                        imageVector = GIcons.Bolt,
                         contentDescription = "MTP",
                         tint = accent,
                         modifier = Modifier.size(10.dp)
                     )
-                    Text(
+                    GText(
                         text = "MTP",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = GlassTheme.type.labelSmall,
                         color = accent,
                         fontSize = 9.sp
                     )

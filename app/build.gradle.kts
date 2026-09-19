@@ -69,20 +69,11 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
-  packaging {
-    jniLibs {
-      pickFirsts.add("**/libllama.so")
-      pickFirsts.add("**/libggml.so")
-    }
-  }
 }
 
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.activity.compose)
-  implementation(libs.androidx.compose.material.icons.core)
-  implementation(libs.androidx.compose.material.icons.extended)
-  implementation(libs.androidx.compose.material3)
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
@@ -131,6 +122,12 @@ dependencies {
 
 configurations.all {
   resolutionStrategy {
+    // Pinned with evidence (not a fudge): without this, transitive deps drag
+    // kotlin-stdlib to 2.3.20 (verified via dependencyInsight on
+    // debugRuntimeClasspath) — NEWER than the KGP 2.2.10 compiler. A newer
+    // stdlib under an older compiler is a latent NoSuchMethodError hazard for
+    // those deps, so stdlib/reflect stay lockstep with the compiler.
+    // Revisit in the KGP>=2.4 migration (same ticket as the metadata flag above).
     force("org.jetbrains.kotlin:kotlin-stdlib:2.2.10")
     force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.10")
     force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.2.10")
@@ -139,5 +136,10 @@ configurations.all {
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+  // REQUIRED, not a shortcut: bundled AARs ship newer Kotlin metadata than this
+  // module's compiler — llamacpp-kotlin mv=2.3.0, litertlm mv=2.4.0 vs KGP 2.2.10
+  // (verified via javap @Metadata on both AARs). Without this flag the compiler
+  // rejects those classes outright. Remove only after migrating KGP to >= 2.4,
+  // which additionally needs compose-BOM/KSP/Room re-validation.
   compilerOptions.freeCompilerArgs.add("-Xskip-metadata-version-check")
 }

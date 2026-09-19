@@ -15,27 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.ui.res.stringResource
-import com.localllm.android.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,12 +23,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.localllm.android.R
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelRuntimeType
+import com.localllm.android.ui.glass.GDivider
+import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIconButton
+import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GMenu
+import com.localllm.android.ui.glass.GMenuItem
+import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GlassTheme
 
 @Composable
 fun ChatTopBar(
@@ -79,11 +67,11 @@ fun ChatTopBar(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         // Drawer Hamburger Menu
-        IconButton(onClick = onOpenDrawer) {
-            Icon(
-                imageVector = Icons.Default.Menu,
+        GIconButton(onClick = onOpenDrawer) {
+            GIcon(
+                imageVector = GIcons.Menu,
                 contentDescription = stringResource(R.string.conversations),
-                tint = MaterialTheme.colorScheme.onSurface
+                tint = GlassTheme.colors.onSurface
             )
         }
 
@@ -91,8 +79,8 @@ fun ChatTopBar(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(22.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
-                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(22.dp))
+                .background(GlassTheme.colors.surface.copy(alpha = 0.55f))
+                .border(1.dp, GlassTheme.colors.primary.copy(alpha = 0.35f), RoundedCornerShape(22.dp))
                 .clickable { isModelMenuExpanded = true }
                 .padding(horizontal = 14.dp, vertical = 6.dp),
             contentAlignment = Alignment.Center
@@ -101,40 +89,40 @@ fun ChatTopBar(
                 if (activeModel != null) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
+                            GText(
                                 text = activeModel.name,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurface
+                                style = GlassTheme.type.titleSmall,
+                                color = GlassTheme.colors.onSurface
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
+                            GIcon(
+                                imageVector = GIcons.ArrowDown,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = GlassTheme.colors.onSurfaceVariant,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
+                            GText(
                                 text = activeModel.runtimeBadge,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                style = GlassTheme.type.labelSmall,
+                                color = GlassTheme.colors.primary,
                                 fontSize = 10.sp
                             )
                             if (activeModel.isVisionDownloaded || activeModel.hasMmproj) {
-                                Text(
+                                GText(
                                     text = " • Vision",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.tertiary,
+                                    style = GlassTheme.type.labelSmall,
+                                    color = GlassTheme.colors.tertiary,
                                     fontSize = 10.sp
                                 )
                             }
                             if (activeModel.isMtpDownloaded || (isMtpOn && activeModel.supportsMtp)) {
-                                Text(
+                                GText(
                                     text = " • MTP 2x",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.secondary,
+                                    style = GlassTheme.type.labelSmall,
+                                    color = GlassTheme.colors.secondary,
                                     fontSize = 10.sp
                                 )
                             }
@@ -142,23 +130,23 @@ fun ChatTopBar(
                     }
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.CloudDownload,
+                        GIcon(
+                            imageVector = GIcons.CloudDownload,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
+                        GText(
                             text = "모델 다운로드 필요",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary
+                            style = GlassTheme.type.titleSmall,
+                            color = GlassTheme.colors.primary
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
+                        GIcon(
+                            imageVector = GIcons.ArrowDown,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -166,24 +154,24 @@ fun ChatTopBar(
             }
 
             // Model Dropdown
-            DropdownMenu(
+            GMenu(
                 expanded = isModelMenuExpanded,
                 onDismissRequest = { isModelMenuExpanded = false }
             ) {
-                DropdownMenuItem(
+                GMenuItem(
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.CloudDownload,
+                            GIcon(
+                                imageVector = GIcons.CloudDownload,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = GlassTheme.colors.primary,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(
+                            GText(
                                 text = "모델 다운로드 및 관리",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
+                                style = GlassTheme.type.labelLarge,
+                                color = GlassTheme.colors.primary
                             )
                         }
                     },
@@ -193,32 +181,32 @@ fun ChatTopBar(
                     }
                 )
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                GDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-                Text(
+                GText(
                     text = "로컬 모델 목록",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = GlassTheme.type.labelMedium,
+                    color = GlassTheme.colors.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                 )
 
                 allModels.forEach { model ->
                     val isSelected = model.id == activeModel?.id
-                    DropdownMenuItem(
+                    GMenuItem(
                         text = {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
+                                    GText(
                                         text = model.name,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        style = GlassTheme.type.bodyMedium,
+                                        color = if (isSelected) GlassTheme.colors.primary else GlassTheme.colors.onSurface
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     if (model.supportsMtp) {
-                                        Icon(
-                                            imageVector = Icons.Default.Bolt,
+                                        GIcon(
+                                            imageVector = GIcons.Bolt,
                                             contentDescription = "MTP 지원",
-                                            tint = MaterialTheme.colorScheme.primary,
+                                            tint = GlassTheme.colors.primary,
                                             modifier = Modifier.size(14.dp)
                                         )
                                     }
@@ -227,31 +215,31 @@ fun ChatTopBar(
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(4.dp))
-                                                .background(MaterialTheme.colorScheme.errorContainer)
+                                                .background(GlassTheme.colors.errorContainer)
                                                 .padding(horizontal = 4.dp, vertical = 1.dp)
                                         ) {
-                                            Text(
+                                            GText(
                                                 text = "미다운로드",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                                style = GlassTheme.type.labelSmall,
+                                                color = GlassTheme.colors.onErrorContainer,
                                                 fontSize = 9.sp
                                             )
                                         }
                                     }
                                 }
-                                Text(
+                                GText(
                                     text = "${model.runtimeBadge} • ${model.displaySize} • ${model.quantization}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    style = GlassTheme.type.labelSmall,
+                                    color = GlassTheme.colors.onSurfaceVariant
                                 )
                             }
                         },
                         trailingIcon = if (isSelected) {
                             {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
+                                GIcon(
+                                    imageVector = GIcons.Check,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = GlassTheme.colors.primary
                                 )
                             }
                         } else null,
@@ -270,77 +258,78 @@ fun ChatTopBar(
 
         // Right Actions: New Chat & More
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onNewChat) {
-                Icon(
-                    imageVector = Icons.Default.Add,
+            GIconButton(onClick = onNewChat) {
+                GIcon(
+                    imageVector = GIcons.Add,
                     contentDescription = stringResource(R.string.new_chat),
-                    tint = MaterialTheme.colorScheme.onSurface
+                    tint = GlassTheme.colors.onSurface
                 )
             }
 
-            IconButton(onClick = { isMoreMenuExpanded = true }) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = stringResource(R.string.details),
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-            }
+            Box {
+                GIconButton(onClick = { isMoreMenuExpanded = true }) {
+                    GIcon(
+                        imageVector = GIcons.MoreVert,
+                        contentDescription = stringResource(R.string.details),
+                        tint = GlassTheme.colors.onSurface
+                    )
+                }
 
-            DropdownMenu(
-                expanded = isMoreMenuExpanded,
-                onDismissRequest = { isMoreMenuExpanded = false }
-            ) {
-                DropdownMenuItem(
-                    text = {
-                        Text(stringResource(R.string.nav_models))
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.CloudDownload, contentDescription = null)
-                    },
-                    onClick = {
-                        onOpenModelManager()
-                        isMoreMenuExpanded = false
-                    }
-                )
+                GMenu(
+                    expanded = isMoreMenuExpanded,
+                    onDismissRequest = { isMoreMenuExpanded = false }
+                ) {
+                    GMenuItem(
+                        text = {
+                            GText(stringResource(R.string.nav_models))
+                        },
+                        leadingIcon = {
+                            GIcon(GIcons.CloudDownload, contentDescription = null)
+                        },
+                        onClick = {
+                            onOpenModelManager()
+                            isMoreMenuExpanded = false
+                        }
+                    )
 
-                DropdownMenuItem(
-                    text = {
-                        Text("런타임: ${if (currentRuntime == ModelRuntimeType.LLAMA_CPP) "llama.cpp" else "LiteRT LM"}")
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Tune, contentDescription = null)
-                    },
-                    onClick = {
-                        val next = if (currentRuntime == ModelRuntimeType.LLAMA_CPP) ModelRuntimeType.LITE_RT else ModelRuntimeType.LLAMA_CPP
-                        onSwitchRuntime(next)
-                        isMoreMenuExpanded = false
-                    }
-                )
+                    GMenuItem(
+                        text = {
+                            GText("런타임: ${if (currentRuntime == ModelRuntimeType.LLAMA_CPP) "llama.cpp" else "LiteRT LM"}")
+                        },
+                        leadingIcon = {
+                            GIcon(GIcons.Tune, contentDescription = null)
+                        },
+                        onClick = {
+                            val next = if (currentRuntime == ModelRuntimeType.LLAMA_CPP) ModelRuntimeType.LITE_RT else ModelRuntimeType.LLAMA_CPP
+                            onSwitchRuntime(next)
+                            isMoreMenuExpanded = false
+                        }
+                    )
 
+                    GMenuItem(
+                        text = {
+                            GText(stringResource(R.string.nav_api_mode))
+                        },
+                        leadingIcon = {
+                            GIcon(GIcons.Dns, contentDescription = null, tint = GlassTheme.colors.primary)
+                        },
+                        onClick = {
+                            onOpenApiMode()
+                            isMoreMenuExpanded = false
+                        }
+                    )
 
-                DropdownMenuItem(
-                    text = {
-                        Text(stringResource(R.string.nav_api_mode))
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    },
-                    onClick = {
-                        onOpenApiMode()
-                        isMoreMenuExpanded = false
-                    }
-                )
-
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.nav_settings)) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Tune, contentDescription = null)
-                    },
-                    onClick = {
-                        onOpenSettings()
-                        isMoreMenuExpanded = false
-                    }
-                )
+                    GMenuItem(
+                        text = { GText(stringResource(R.string.nav_settings)) },
+                        leadingIcon = {
+                            GIcon(GIcons.Tune, contentDescription = null)
+                        },
+                        onClick = {
+                            onOpenSettings()
+                            isMoreMenuExpanded = false
+                        }
+                    )
+                }
             }
         }
     }

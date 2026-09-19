@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,25 +28,7 @@ import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDrawerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,9 +38,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -69,8 +51,18 @@ import com.localllm.android.model.LlmModel
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
 import com.localllm.android.ui.drawer.ChatDrawer
-import com.localllm.android.ui.theme.GlassCard
-import com.localllm.android.ui.theme.LiquidBackground
+import com.localllm.android.ui.glass.GButton
+import com.localllm.android.ui.glass.GCard
+import com.localllm.android.ui.glass.GDialog
+import com.localllm.android.ui.glass.GDrawer
+import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GLinearProgress
+import com.localllm.android.ui.glass.GScaffold
+import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GTextButton
+import com.localllm.android.ui.glass.GlassTheme
+import com.localllm.android.ui.glass.LiquidBackground
 import kotlinx.coroutines.launch
 
 @Composable
@@ -80,7 +72,8 @@ fun ChatScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    var drawerOpen by remember { mutableStateOf(false) }
+    BackHandler(enabled = drawerOpen) { drawerOpen = false }
 
     val conversations by viewModel.conversations.collectAsState()
     val currentConvId by viewModel.currentConversationId.collectAsState()
@@ -192,49 +185,51 @@ fun ChatScreen(
         }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
+    GDrawer(
+        open = drawerOpen,
+        onClose = { drawerOpen = false },
         drawerContent = {
             ChatDrawer(
                 conversations = conversations,
                 currentConversationId = currentConvId,
                 onSelectConversation = { id ->
                     viewModel.selectConversation(id)
-                    scope.launch { drawerState.close() }
+                    drawerOpen = false
                 },
                 onNewChat = {
                     viewModel.createNewConversation()
-                    scope.launch { drawerState.close() }
+                    drawerOpen = false
                 },
                 onDeleteConversation = { id -> viewModel.deleteConversation(id) },
                 onRenameConversation = { id, title -> viewModel.renameConversation(id, title) },
                 onOpenModelManager = {
                     viewModel.navigateTo(AppScreen.MODELS)
-                    scope.launch { drawerState.close() }
+                    drawerOpen = false
                 },
                 onOpenVoiceMode = {
                     viewModel.navigateTo(AppScreen.VOICE_MODE)
-                    scope.launch { drawerState.close() }
+                    drawerOpen = false
                 },
                 onOpenApiMode = {
                     viewModel.navigateTo(AppScreen.API_MODE)
-                    scope.launch { drawerState.close() }
+                    drawerOpen = false
                 },
                 onOpenSettings = {
                     viewModel.navigateTo(AppScreen.SETTINGS)
-                    scope.launch { drawerState.close() }
+                    drawerOpen = false
                 }
             )
-        }
+        },
+        modifier = modifier.fillMaxSize()
     ) {
-        Scaffold(
+        GScaffold(
             topBar = {
                 ChatTopBar(
                     activeModel = activeModel,
                     allModels = allModels,
                     currentRuntime = settings.runtime,
                     isMtpOn = settings.enableMtp,
-                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                    onOpenDrawer = { drawerOpen = true },
                     onNewChat = { viewModel.createNewConversation() },
                     onSelectModel = { viewModel.selectModel(it) },
                     onOpenSettings = { viewModel.navigateTo(AppScreen.SETTINGS) },
@@ -283,327 +278,336 @@ fun ChatScreen(
                     onOpenVoiceMode = { viewModel.navigateTo(AppScreen.VOICE_MODE) }
                 )
             },
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            modifier = modifier.fillMaxSize()
-        ) { innerPadding ->
+            modifier = Modifier.fillMaxSize()
+        ) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
+                modifier = Modifier.fillMaxSize()
             ) {
                 LiquidBackground()
                 Column(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                // Model Loading Progress Bar (Visible during loading, disappears when loading finishes)
-                AnimatedVisibility(visible = isModelLoading) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                            ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    // Model Loading Progress Bar (Visible during loading, disappears when loading finishes)
+                    AnimatedVisibility(visible = isModelLoading) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Memory,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (modelLoadingStage.isNotBlank()) "모델 로딩 중: $modelLoadingStage" else "모델 로딩 중...",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            Text(
-                                text = if (modelLoadingProgress > 0f) String.format("%.0f%%", modelLoadingProgress * 100f) else "",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        if (modelLoadingProgress <= 0f) {
-                            LinearProgressIndicator(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(4.dp)
-                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp)),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        } else {
-                            LinearProgressIndicator(
-                                progress = { modelLoadingProgress },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(4.dp)
-                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp)),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        }
-                            }
-                        }
-                    }
-                }
-
-                // API Dedicated Mode Active Banner
-                AnimatedVisibility(visible = isApiModeEnabled) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { viewModel.navigateTo(AppScreen.API_MODE) }
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                            ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Dns,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "API 모드 실행 중 (포트 $apiPort) • 탭하여 API 정보 확인",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                            }
-                            Text(
-                                text = "상세보기 >",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-                            }
-                        }
-                    }
-                }
-
-                // Engine Status Pill Banner
-                if (!engineStatus.isNullOrBlank()) {
-                    val isErrorStatus = engineStatus?.contains("오류") == true ||
-                            engineStatus?.contains("실패") == true ||
-                            engineStatus?.contains("Error") == true ||
-                            engineStatus?.contains("Failed") == true
-
-                    val bannerTextColor = if (isErrorStatus) {
-                        MaterialTheme.colorScheme.onErrorContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-
-                    val bannerIcon = if (isErrorStatus) Icons.Default.ErrorOutline else Icons.Default.Info
-                    val bannerIconTint = if (isErrorStatus) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        if (isErrorStatus) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
-                                        else Color.Transparent
-                                    )
-                                    .clickable { showStatusDetailDialog = true }
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                            ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(
-                                imageVector = bannerIcon,
-                                contentDescription = null,
-                                tint = bannerIconTint,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = engineStatus ?: "",
-                                fontSize = 11.sp,
-                                color = bannerTextColor,
-                                maxLines = 3,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "[상세]",
-                                fontSize = 10.sp,
-                                color = bannerIconTint,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                            }
-                        }
-                    }
-                }
-
-                // Full Engine Status & Diagnostics Dialog
-                if (showStatusDetailDialog && !engineStatus.isNullOrBlank()) {
-                    AlertDialog(
-                        onDismissRequest = { showStatusDetailDialog = false },
-                        title = {
-                            Text(
-                                text = if (engineStatus?.contains("오류") == true || engineStatus?.contains("실패") == true) "엔진 오류 상세 정보" else "엔진 상태 정보",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                        },
-                        text = {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Text(
-                                    text = engineStatus ?: "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                    val clip = ClipData.newPlainText("Engine Status", engineStatus ?: "")
-                                    clipboard?.setPrimaryClip(clip)
-                                    Toast.makeText(context, "클립보드에 복사되었습니다.", Toast.LENGTH_SHORT).show()
-                                }
-                            ) {
-                                Text("복사")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showStatusDetailDialog = false }) {
-                                Text("닫기")
-                            }
-                        }
-                    )
-                }
-
-                // Chat Messages Container
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                ) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        if (messages.isEmpty() && streamingMessage == null) {
-                            item {
-                                EmptyChatPlaceholder(
-                                    activeModel = activeModel,
-                                    onOpenModelManager = { viewModel.navigateTo(AppScreen.MODELS) },
-                                    onSampleClick = { sampleText ->
-                                        viewModel.sendMessage(sampleText)
+                            GCard(cornerRadius = 16.dp) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            GIcon(
+                                                imageVector = GIcons.Memory,
+                                                contentDescription = null,
+                                                tint = GlassTheme.colors.primary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            GText(
+                                                text = if (modelLoadingStage.isNotBlank()) "모델 로딩 중: $modelLoadingStage" else "모델 로딩 중...",
+                                                style = GlassTheme.type.labelSmall,
+                                                color = GlassTheme.colors.primary
+                                            )
+                                        }
+                                        GText(
+                                            text = if (modelLoadingProgress > 0f) String.format("%.0f%%", modelLoadingProgress * 100f) else "",
+                                            style = GlassTheme.type.labelSmall,
+                                            color = GlassTheme.colors.primary
+                                        )
                                     }
-                                )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    if (modelLoadingProgress <= 0f) {
+                                        GLinearProgress(
+                                            progress = null,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(4.dp)
+                                                .clip(RoundedCornerShape(2.dp)),
+                                            color = GlassTheme.colors.primary,
+                                            trackColor = GlassTheme.colors.surfaceVariant
+                                        )
+                                    } else {
+                                        GLinearProgress(
+                                            progress = modelLoadingProgress,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(4.dp)
+                                                .clip(RoundedCornerShape(2.dp)),
+                                            color = GlassTheme.colors.primary,
+                                            trackColor = GlassTheme.colors.surfaceVariant
+                                        )
+                                    }
+                                }
                             }
-                        } else {
-                            items(messages, key = { it.id }) { msg ->
-                                ChatMessageItem(
-                                    message = msg,
-                                    showMetrics = settings.showPerformanceMetrics,
-                                    isMtpOn = settings.enableMtp && (activeModel?.supportsMtp == true),
-                                    reasoningEffortLabel = settings.reasoningEffortLabel,
-                                    onSpeak = { text -> viewModel.voiceManager.speak(text) }
-                                )
-                            }
+                        }
+                    }
 
-                            // Ongoing streaming message
-                            if (streamingMessage != null) {
-                                item(key = "streaming_current_message") {
+                    // API Dedicated Mode Active Banner
+                    AnimatedVisibility(visible = isApiModeEnabled) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            GCard(cornerRadius = 16.dp) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { viewModel.navigateTo(AppScreen.API_MODE) }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            GIcon(
+                                                imageVector = GIcons.Dns,
+                                                contentDescription = null,
+                                                tint = GlassTheme.colors.secondary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            GText(
+                                                text = "API 모드 실행 중 (포트 $apiPort) • 탭하여 API 정보 확인",
+                                                fontSize = 11.sp,
+                                                color = GlassTheme.colors.onSecondaryContainer
+                                            )
+                                        }
+                                        GText(
+                                            text = "상세보기 >",
+                                            fontSize = 11.sp,
+                                            color = GlassTheme.colors.secondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Engine Status Pill Banner
+                    if (!engineStatus.isNullOrBlank()) {
+                        val isErrorStatus = engineStatus?.contains("오류") == true ||
+                                engineStatus?.contains("실패") == true ||
+                                engineStatus?.contains("Error") == true ||
+                                engineStatus?.contains("Failed") == true
+
+                        val bannerTextColor = if (isErrorStatus) {
+                            GlassTheme.colors.onErrorContainer
+                        } else {
+                            GlassTheme.colors.onSurfaceVariant
+                        }
+
+                        val bannerIcon = if (isErrorStatus) GIcons.ErrorOutline else GIcons.Info
+                        val bannerIconTint = if (isErrorStatus) GlassTheme.colors.error else GlassTheme.colors.primary
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            GCard(cornerRadius = 16.dp) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            if (isErrorStatus) GlassTheme.colors.errorContainer.copy(alpha = 0.35f)
+                                            else Color.Transparent
+                                        )
+                                        .clickable { showStatusDetailDialog = true }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        GIcon(
+                                            imageVector = bannerIcon,
+                                            contentDescription = null,
+                                            tint = bannerIconTint,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        GText(
+                                            text = engineStatus ?: "",
+                                            fontSize = 11.sp,
+                                            color = bannerTextColor,
+                                            maxLines = 3,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        GText(
+                                            text = "[상세]",
+                                            fontSize = 10.sp,
+                                            color = bannerIconTint,
+                                            style = GlassTheme.type.labelSmall
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Full Engine Status & Diagnostics Dialog
+                    if (showStatusDetailDialog && !engineStatus.isNullOrBlank()) {
+                        GDialog(
+                            onDismissRequest = { showStatusDetailDialog = false },
+                            title = {
+                                GText(
+                                    text = if (engineStatus?.contains("오류") == true || engineStatus?.contains("실패") == true) "엔진 오류 상세 정보" else "엔진 상태 정보",
+                                    style = GlassTheme.type.titleMedium
+                                )
+                            },
+                            text = {
+                                GText(
+                                    text = engineStatus ?: "",
+                                    style = GlassTheme.type.bodySmall,
+                                    color = GlassTheme.colors.onSurface
+                                )
+                            },
+                            confirmButton = {
+                                GTextButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        val clip = ClipData.newPlainText("Engine Status", engineStatus ?: "")
+                                        clipboard?.setPrimaryClip(clip)
+                                        Toast.makeText(context, "클립보드에 복사되었습니다.", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    GText("복사")
+                                }
+                            },
+                            dismissButton = {
+                                GTextButton(onClick = { showStatusDetailDialog = false }) {
+                                    GText("닫기")
+                                }
+                            }
+                        )
+                    }
+
+                    // Chat Messages Container
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            if (messages.isEmpty() && streamingMessage == null) {
+                                item {
+                                    EmptyChatPlaceholder(
+                                        activeModel = activeModel,
+                                        onOpenModelManager = { viewModel.navigateTo(AppScreen.MODELS) },
+                                        onSampleClick = { sampleText ->
+                                            viewModel.sendMessage(sampleText)
+                                        }
+                                    )
+                                }
+                            } else {
+                                items(messages, key = { it.id }) { msg ->
                                     ChatMessageItem(
-                                        message = streamingMessage!!,
+                                        message = msg,
                                         showMetrics = settings.showPerformanceMetrics,
                                         isMtpOn = settings.enableMtp && (activeModel?.supportsMtp == true),
                                         reasoningEffortLabel = settings.reasoningEffortLabel,
                                         onSpeak = { text -> viewModel.voiceManager.speak(text) }
                                     )
                                 }
-                            }
 
-                            // Dedicated bottom anchor to guarantee the bottom of the answer is always followed and never cut off
-                            item(key = "chat_bottom_anchor") {
-                                Spacer(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(28.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    // Floating Button: Jump to latest / re-enable auto-scroll when user manually scrolled up
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = !autoScrollEnabled && (streamingMessage != null || isGenerating),
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 12.dp)
-                    ) {
-                        Surface(
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            shadowElevation = 6.dp,
-                            modifier = Modifier
-                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
-                                .clickable {
-                                    autoScrollEnabled = true
-                                    scope.launch {
-                                        val totalCount = listState.layoutInfo.totalItemsCount
-                                        if (totalCount > 0) {
-                                            listState.scrollToItem(totalCount - 1, scrollOffset = 100000)
-                                        }
+                                // Ongoing streaming message
+                                if (streamingMessage != null) {
+                                    item(key = "streaming_current_message") {
+                                        ChatMessageItem(
+                                            message = streamingMessage!!,
+                                            showMetrics = settings.showPerformanceMetrics,
+                                            isMtpOn = settings.enableMtp && (activeModel?.supportsMtp == true),
+                                            reasoningEffortLabel = settings.reasoningEffortLabel,
+                                            onSpeak = { text -> viewModel.voiceManager.speak(text) }
+                                        )
                                     }
                                 }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+
+                                // Dedicated bottom anchor to guarantee the bottom of the answer is always followed and never cut off
+                                item(key = "chat_bottom_anchor") {
+                                    Spacer(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(28.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Floating Button: Jump to latest / re-enable auto-scroll when user manually scrolled up
+                        val jumpVisible = !autoScrollEnabled && (streamingMessage != null || isGenerating)
+                        val jumpAlpha by androidx.compose.animation.core.animateFloatAsState(
+                            targetValue = if (jumpVisible) 1f else 0f,
+                            label = "jumpAlpha"
+                        )
+                        if (jumpAlpha > 0.01f) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 12.dp)
+                                    .alpha(jumpAlpha)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "최신 답변으로 이동",
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "답변 따라가기",
-                                    style = MaterialTheme.typography.labelMedium
+                                JumpToLatestButton(
+                                    onClick = {
+                                        autoScrollEnabled = true
+                                        scope.launch {
+                                            val totalCount = listState.layoutInfo.totalItemsCount
+                                            if (totalCount > 0) {
+                                                listState.scrollToItem(totalCount - 1, scrollOffset = 100000)
+                                            }
+                                        }
+                                    }
                                 )
                             }
                         }
                     }
                 }
             }
-            }
+        }
+    }
+}
+
+@Composable
+private fun JumpToLatestButton(onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(GlassTheme.colors.primaryContainer)
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GIcon(
+                imageVector = GIcons.ArrowDown,
+                contentDescription = "최신 답변으로 이동",
+                tint = GlassTheme.colors.onPrimaryContainer,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            GText(
+                text = "답변 따라가기",
+                style = GlassTheme.type.labelMedium,
+                color = GlassTheme.colors.onPrimaryContainer
+            )
         }
     }
 }
@@ -629,70 +633,72 @@ private fun EmptyChatPlaceholder(
                     .background(
                         androidx.compose.ui.graphics.Brush.radialGradient(
                             colors = listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
+                                GlassTheme.colors.primary.copy(alpha = 0.35f),
+                                GlassTheme.colors.surfaceVariant.copy(alpha = 0.8f),
                                 Color.Transparent
                             )
                         )
                     )
                     .border(
                         width = 1.5.dp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                        color = GlassTheme.colors.primary.copy(alpha = 0.6f),
                         shape = androidx.compose.foundation.shape.CircleShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.CloudDownload,
+                GIcon(
+                    imageVector = GIcons.CloudDownload,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = GlassTheme.colors.primary,
                     modifier = Modifier.size(36.dp)
                 )
             }
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            Text(
+            GText(
                 text = "로컬 LLM 다운로드 필요",
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                    letterSpacing = 0.5.sp
-                ),
-                color = MaterialTheme.colorScheme.onBackground
+                style = GlassTheme.type.headlineMedium,
+                color = GlassTheme.colors.onBackground
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Text(
+            GText(
                 text = "기본 모델이 없습니다. 모델 관리에서 모델을 다운로드하여 기기에서 바로 실행할 수 있습니다.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = GlassTheme.type.bodyMedium,
+                color = GlassTheme.colors.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            Button(
+            GButton(
                 onClick = onOpenModelManager,
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                modifier = Modifier.clip(RoundedCornerShape(16.dp))
             ) {
-                Icon(
-                    imageVector = Icons.Default.CloudDownload,
+                GIcon(
+                    imageVector = GIcons.CloudDownload,
                     contentDescription = null,
+                    tint = GlassTheme.colors.onPrimary,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("모델 다운로드")
+                GText(
+                    text = "모델 다운로드",
+                    color = GlassTheme.colors.onPrimary,
+                    style = GlassTheme.type.labelLarge
+                )
             }
 
             Spacer(modifier = Modifier.height(18.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
+                GText(
                     text = "GGUF / LiteRT 지원 • 비전 및 가속 지원",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = GlassTheme.type.bodySmall,
+                    color = GlassTheme.colors.onSurfaceVariant
                 )
             }
         } else {
@@ -704,54 +710,51 @@ private fun EmptyChatPlaceholder(
                     .background(
                         androidx.compose.ui.graphics.Brush.radialGradient(
                             colors = listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
+                                GlassTheme.colors.primary.copy(alpha = 0.35f),
+                                GlassTheme.colors.surfaceVariant.copy(alpha = 0.8f),
                                 Color.Transparent
                             )
                         )
                     )
                     .border(
                         width = 1.5.dp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                        color = GlassTheme.colors.primary.copy(alpha = 0.6f),
                         shape = androidx.compose.foundation.shape.CircleShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Info,
+                GIcon(
+                    imageVector = GIcons.Info,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = GlassTheme.colors.primary,
                     modifier = Modifier.size(32.dp)
                 )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text(
+            GText(
                 text = "Local LLM",
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                    letterSpacing = 0.5.sp
-                ),
-                color = MaterialTheme.colorScheme.onBackground
+                style = GlassTheme.type.headlineMedium,
+                color = GlassTheme.colors.onBackground
             )
             Spacer(modifier = Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GlassTheme.colors.primary.copy(alpha = 0.15f))
                         .border(
                             1.dp,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                            androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                            GlassTheme.colors.primary.copy(alpha = 0.4f),
+                            RoundedCornerShape(12.dp)
                         )
                         .padding(horizontal = 10.dp, vertical = 3.dp)
                 ) {
-                    Text(
+                    GText(
                         text = "${activeModel.name} • ${activeModel.runtimeBadge}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        style = GlassTheme.type.labelMedium,
+                        color = GlassTheme.colors.primary
                     )
                 }
             }
@@ -762,10 +765,10 @@ private fun EmptyChatPlaceholder(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
+                GText(
                     text = "로컬 실행 • 기기 내 저장",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = GlassTheme.type.bodySmall,
+                    color = GlassTheme.colors.onSurfaceVariant
                 )
             }
 
@@ -783,20 +786,20 @@ private fun EmptyChatPlaceholder(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 5.dp)
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(GlassTheme.colors.surface.copy(alpha = 0.55f))
                         .border(
                             1.dp,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-                            androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                            GlassTheme.colors.primary.copy(alpha = 0.25f),
+                            RoundedCornerShape(16.dp)
                         )
                         .clickable { onSampleClick(prompt) }
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
-                    Text(
+                    GText(
                         text = prompt,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface
+                        style = GlassTheme.type.bodyMedium,
+                        color = GlassTheme.colors.onSurface
                     )
                 }
             }

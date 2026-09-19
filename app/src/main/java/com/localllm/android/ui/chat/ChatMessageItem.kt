@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -20,16 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +30,11 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.localllm.android.model.ChatMessage
 import com.localllm.android.model.MessageRole
+import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIconButton
+import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GlassTheme
 
 @Composable
 fun ChatMessageItem(
@@ -66,10 +60,10 @@ fun ChatMessageItem(
                 modifier = Modifier
                     .widthIn(max = 320.dp)
                     .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 6.dp, bottomStart = 20.dp, bottomEnd = 20.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .background(GlassTheme.colors.primaryContainer)
                     .border(
                         1.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                        GlassTheme.colors.primary.copy(alpha = 0.25f),
                         RoundedCornerShape(topStart = 20.dp, topEnd = 6.dp, bottomStart = 20.dp, bottomEnd = 20.dp)
                     )
                     .padding(14.dp)
@@ -97,20 +91,20 @@ fun ChatMessageItem(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                                .background(GlassTheme.colors.surface.copy(alpha = 0.5f))
                                 .padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Description,
+                            GIcon(
+                                imageVector = GIcons.Description,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = GlassTheme.colors.primary,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(
+                            GText(
                                 text = att.fileName,
-                                style = MaterialTheme.typography.bodySmall,
+                                style = GlassTheme.type.bodySmall,
                                 maxLines = 1
                             )
                         }
@@ -119,10 +113,10 @@ fun ChatMessageItem(
                 }
 
                 if (message.content.isNotBlank()) {
-                    Text(
+                    GText(
                         text = message.content,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        style = GlassTheme.type.bodyLarge,
+                        color = GlassTheme.colors.onPrimaryContainer
                     )
                 }
             }
@@ -137,14 +131,14 @@ fun ChatMessageItem(
                     modifier = Modifier
                         .size(30.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape),
+                        .background(GlassTheme.colors.primary)
+                        .border(1.dp, GlassTheme.colors.outline.copy(alpha = 0.3f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
+                    GIcon(
+                        imageVector = GIcons.AutoAwesome,
                         contentDescription = "AI",
-                        tint = MaterialTheme.colorScheme.onPrimary,
+                        tint = GlassTheme.colors.onPrimary,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -164,19 +158,19 @@ fun ChatMessageItem(
 
                     // Main Text Content
                     if (message.content.isNotBlank()) {
-                        Text(
+                        GText(
                             text = message.content,
-                            style = MaterialTheme.typography.bodyLarge.copy(
+                            style = GlassTheme.type.bodyLarge.copy(
                                 lineHeight = 24.sp,
-                                color = MaterialTheme.colorScheme.onBackground
+                                color = GlassTheme.colors.onBackground
                             )
                         )
                     } else if (message.isStreaming && !message.isReasoningStreaming) {
                         // Pulsing cursor
-                        Text(
+                        GText(
                             text = "●",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.primary
+                            style = GlassTheme.type.bodyLarge,
+                            color = GlassTheme.colors.primary
                         )
                     }
 
@@ -202,7 +196,7 @@ fun ChatMessageItem(
                         // Action Icons: Copy, Speak
                         if (!message.isStreaming && message.content.isNotBlank()) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
+                                GIconButton(
                                     onClick = {
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                         clipboard.setPrimaryClip(ClipData.newPlainText("AI Response", message.content))
@@ -210,22 +204,22 @@ fun ChatMessageItem(
                                     },
                                     modifier = Modifier.size(32.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ContentCopy,
+                                    GIcon(
+                                        imageVector = GIcons.ContentCopy,
                                         contentDescription = "복사",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        tint = GlassTheme.colors.onSurfaceVariant,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
 
-                                IconButton(
+                                GIconButton(
                                     onClick = { onSpeak(message.content) },
                                     modifier = Modifier.size(32.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.VolumeUp,
+                                    GIcon(
+                                        imageVector = GIcons.VolumeUp,
                                         contentDescription = "읽기",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        tint = GlassTheme.colors.onSurfaceVariant,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
