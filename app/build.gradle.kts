@@ -12,8 +12,14 @@ val hasReleaseSigning = releaseKeystoreFile.isFile &&
   !releaseStorePassword.isNullOrBlank() && !releaseKeyPassword.isNullOrBlank()
 
 val validateReleaseCredentials = tasks.register("validateReleaseCredentials") {
+  // Reads process environment at execution time: not configuration-cache safe by
+  // design (a cached pass/fail would be a lie when credentials change).
+  notCompatibleWithConfigurationCache("validates release signing credentials from the environment at execution time")
   doLast {
-    check(hasReleaseSigning) {
+    val ksFile = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
+    val storePw = System.getenv("STORE_PASSWORD")
+    val keyPw = System.getenv("KEY_PASSWORD")
+    check(ksFile.isFile && !storePw.isNullOrBlank() && !keyPw.isNullOrBlank()) {
       "Release signing requires a keystore (KEYSTORE_PATH or my-upload-key.jks), STORE_PASSWORD and KEY_PASSWORD. Debug signing is never used for release builds."
     }
   }
@@ -30,8 +36,8 @@ android {
     applicationId = "com.localllm.android"
     minSdk = 24
     targetSdk = 36
-    versionCode = 14
-    versionName = "1.3.1"
+    versionCode = 15
+    versionName = "1.4.0"
     ndk { abiFilters.addAll(listOf("arm64-v8a", "x86_64")) }
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
