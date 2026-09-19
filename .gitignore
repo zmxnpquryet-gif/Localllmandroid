@@ -18,6 +18,7 @@ local.properties
 debug.keystore
 my-upload-key.jks
 *.jks
+keystore.properties
 
 # Large model weights and native binaries: fetched at runtime or vendored locally.
 # Never commit these — they bloat the repo (the vendored sherpa-onnx AAR alone is ~50MB).

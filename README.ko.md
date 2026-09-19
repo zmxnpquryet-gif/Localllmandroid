@@ -168,6 +168,21 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 ./gradlew assembleRelease
 ```
 
+### 릴리즈 서명
+
+릴리즈 빌드는 debug 키로 서명되지 않습니다. 업로드 키스토어 자격증명을 환경 변수
+(`KEYSTORE_PATH`, `STORE_PASSWORD`, `KEY_PASSWORD`, 선택 `KEY_ALIAS`)로 넘기거나, 로컬 빌드의
+경우 저장소 루트의 gitignore 처리된 `keystore.properties`에 넣으세요:
+
+```properties
+storeFile=my-upload-key.jks
+storePassword=...
+keyAlias=upload
+keyPassword=...
+```
+
+계측 테스트는 연결된 기기/에뮬레이터에서 실행합니다: `./gradlew connectedDebugAndroidTest`.
+
 ---
 
 ## 📄 라이선스 (License)

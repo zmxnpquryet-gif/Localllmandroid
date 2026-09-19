@@ -1,5 +1,6 @@
 import java.net.URI
 import java.security.MessageDigest
+import java.util.Properties
 
 plugins {
   alias(libs.plugins.android.application)
@@ -8,22 +9,48 @@ plugins {
   alias(libs.plugins.roborazzi)
 }
 
-val releaseKeystoreFile = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
-val releaseStorePassword = System.getenv("STORE_PASSWORD")
-val releaseKeyPassword = System.getenv("KEY_PASSWORD")
+// Release signing credentials. Environment variables win (CI); a local, gitignored
+// keystore.properties at the repository root is the fallback, so a local release
+// build does not depend on a shell that has the secrets exported. Expected keys:
+//   storeFile=my-upload-key.jks
+//   storePassword=...
+//   keyAlias=upload
+//   keyPassword=...
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+
+fun keystoreProperties(): Properties = Properties().apply {
+  if (keystorePropertiesFile.isFile) keystorePropertiesFile.inputStream().use { load(it) }
+}
+
+fun signingCredential(environmentVariable: String, propertyName: String): String? =
+  System.getenv(environmentVariable)?.takeIf { it.isNotBlank() }
+    ?: keystoreProperties().getProperty(propertyName)?.takeIf { it.isNotBlank() }
+
+fun resolveKeystoreFile(path: String?): File = when {
+  path.isNullOrBlank() -> rootProject.file("my-upload-key.jks")
+  File(path).isAbsolute -> File(path)
+  else -> rootProject.file(path)
+}
+
+val releaseKeystoreFile = resolveKeystoreFile(signingCredential("KEYSTORE_PATH", "storeFile"))
+val releaseStorePassword = signingCredential("STORE_PASSWORD", "storePassword")
+val releaseKeyPassword = signingCredential("KEY_PASSWORD", "keyPassword")
+val releaseKeyAlias = signingCredential("KEY_ALIAS", "keyAlias") ?: "upload"
 val hasReleaseSigning = releaseKeystoreFile.isFile &&
   !releaseStorePassword.isNullOrBlank() && !releaseKeyPassword.isNullOrBlank()
 
 val validateReleaseCredentials = tasks.register("validateReleaseCredentials") {
-  // Reads process environment at execution time: not configuration-cache safe by
-  // design (a cached pass/fail would be a lie when credentials change).
-  notCompatibleWithConfigurationCache("validates release signing credentials from the environment at execution time")
+  // Reads credentials at execution time: not configuration-cache safe by design
+  // (a cached pass/fail would be a lie when the credentials change).
+  notCompatibleWithConfigurationCache("validates release signing credentials at execution time")
   doLast {
-    val ksFile = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
-    val storePw = System.getenv("STORE_PASSWORD")
-    val keyPw = System.getenv("KEY_PASSWORD")
+    val ksFile = resolveKeystoreFile(signingCredential("KEYSTORE_PATH", "storeFile"))
+    val storePw = signingCredential("STORE_PASSWORD", "storePassword")
+    val keyPw = signingCredential("KEY_PASSWORD", "keyPassword")
     check(ksFile.isFile && !storePw.isNullOrBlank() && !keyPw.isNullOrBlank()) {
-      "Release signing requires a keystore (KEYSTORE_PATH or my-upload-key.jks), STORE_PASSWORD and KEY_PASSWORD. Debug signing is never used for release builds."
+      "Release signing requires a keystore (KEYSTORE_PATH / keystore.properties storeFile, or my-upload-key.jks), " +
+        "storePassword and keyPassword (env STORE_PASSWORD/KEY_PASSWORD or keystore.properties). " +
+        "Debug signing is never used for release builds."
     }
   }
 }
@@ -85,7 +112,7 @@ android {
       create("release") {
         storeFile = releaseKeystoreFile
         storePassword = releaseStorePassword
-        keyAlias = "upload"
+        keyAlias = releaseKeyAlias
         keyPassword = releaseKeyPassword
       }
     }

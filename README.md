@@ -169,6 +169,23 @@ A first-party MoE-only inference core is being built in the open as a separate A
 ./gradlew assembleRelease
 ```
 
+### Release signing
+
+Release builds are never debug-signed. Supply the upload keystore credentials either as
+environment variables (`KEYSTORE_PATH`, `STORE_PASSWORD`, `KEY_PASSWORD`, optional
+`KEY_ALIAS`) or — for local builds — in a gitignored `keystore.properties` at the
+repository root:
+
+```properties
+storeFile=my-upload-key.jks
+storePassword=...
+keyAlias=upload
+keyPassword=...
+```
+
+Instrumented tests run against a connected device or emulator:
+`./gradlew connectedDebugAndroidTest`.
+
 ---
 
 ## 📄 License
