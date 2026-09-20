@@ -122,8 +122,10 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
   - Material3를 완전히 제거하고 자체 글래스 UI 툴킷(`GlassTheme`, `GButtons`, `GControls`, `GOverlays` 등)으로 모든 화면을 커버합니다.
 - **인앱 이중 언어 UI (영어 / 한국어)**:
   - 설정에서 시스템 기본값 / English / 한국어를 앱 재시작 없이 즉시 실시간 전환합니다.
-- **사전 OOM 진단 및 보호 가드 (`checkMemoryDiagnostics`)**:
-  - 모델 로딩 전 `ActivityManager.MemoryInfo`를 통해 가용 RAM과 모델 파일 크기를 대조하여 메모리 고갈로 인한 네이티브 프로세스 비정상 종료(SIGSEGV)를 사전 예방.
+- **안드로이드 인지 OOM 보호 가드**:
+  - 모델 매핑 전 실제 필요 메모리(가중치 + KV 캐시 + 연산 버퍼)를 추정하여, OOM 킬로 밀려 들어가는 대신 컨텍스트 길이를 자동으로 낮춥니다.
+  - 추론마다 in-flight 마커를 기록합니다. 다음 실행에서 마커가 남아 있으면 이전 프로세스가 추론 중 강제 종료된 것이므로 사고로 기록하고 다음 실행의 메모리 사용이 큰 설정을 자동으로 낮춥니다 (설정 화면에서 로그·사고 이력 확인 가능).
+  - 생성 중 가용 RAM을 주기적으로 확인해 위험 수준이면 앱이 죽기 전에 생성을 안전하게 중단합니다.
 - **타입 안전한 전역 네비게이션 (`AppScreen`) & 시스템 제스처 핸들링**:
   - 모든 UI 화면 컴포넌트의 화면 전환을 `AppScreen` enum으로 관리하며, 서브 화면에서 시스템 뒤로가기 제스처 시 메인 채팅으로 자연스럽게 복귀.
 
@@ -133,17 +135,18 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 
 독립 안드로이드 라이브러리 모듈로 자체 MoE 전용 추론 코어를 오픈소스로 개발하고 있습니다.
 
-**범위(의도된 설계):** 안드로이드에서 C++로 동작하는 gated-expert Mixture-of-Experts 전용. Dense 전용 모델 및 비-MoE 하이브리드는 범위 밖입니다.
+**범위(의도된 설계):** 안드로이드에서 동작하는 gated-expert Mixture-of-Experts 전용 (Kotlin/JVM 코어 + C++ JNI 스텁, NEON/GPU 커널은 예정). Dense 전용 모델 및 비-MoE 하이브리드는 범위 밖입니다.
 
 **현재 포함된 것:**
 - GGUF 리더 + 메타데이터 감지, BPE 토크나이저, 샘플러, KV 캐시 (`GgufReader`, `BpeTokenizer`, `Sampler`, `KvCache`)
 - 페이징 전문가 스트리밍: dense 가중치는 상한 내 상주 디코딩, expert 타일은 스토리지에 두고 `ExpertPager`로 스트리밍
 - NDK 27 + CMake 기반 C++ JNI 코어 (`arm64-v8a`, `x86_64`)
 - 실제 MoE 가중치 기반 수치 검증 (라이브 Qwen3-30B-A3B를 HTTP range 스트리밍으로 검증)
+- gated-expert GGUF 엔드투엔드 생성 — `SDEngineEndToEndTest`가 합성 MoE 모델로 로드·토큰 스트리밍·중단·상주 상한 거부까지 검증
 
-**상태: TEST BUILD / 실험체 — 프로덕션 사용 금지.**
-- 레퍼런스 스칼라 커널로 수학을 검증 중이며, NEON/GPU 커널이 다음 단계입니다.
-- 온디바이스 엔드투엔드 추론은 아직 준비되지 않았으며, 앱 레이어는 조용한 추론을 거부하고 엔진 어드바이저리(`SDEngine.ADVISORIES`)를 표시합니다.
+**상태: TEST BUILD / 실험체 — 실행은 되지만 프로덕션 사용 금지.**
+- 레퍼런스 스칼라 커널로 수학을 검증 중이며, NEON/GPU 커널이 다음 단계입니다. 그래서 실기기에서 실제 MoE 모델은 초당 한 자릿수 토큰 속도로 동작합니다.
+- 앱은 자동 감지된 MoE GGUF(가져온 모델)를 SDengine으로 라우팅하고 엔진 어드바이저리(`SDEngine.ADVISORIES`)를 계속 표시합니다. SDengine 로드가 실패하면 모델 없이 남는 대신 llama.cpp로 한 번 재시도하며, 모델 관리자에서 런타임을 직접 바꿀 수 있습니다.
 
 ---
 

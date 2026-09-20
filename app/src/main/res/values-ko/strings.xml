@@ -201,7 +201,7 @@
     <string name="chat_voice_mic_permission_required">음성 입력을 위해 마이크 권한이 필요합니다.</string>
     <string name="chat_api_banner_active">API 모드 실행 중 (포트 %1$d) • 탭하여 API 정보 확인</string>
     <string name="chat_api_banner_details">상세보기 ></string>
-    <string name="chat_sdengine_banner_prefix">"⚠ SDengine (TEST) — 자체 엔진 실험체. "</string>
+    <string name="chat_sdengine_banner_prefix">"⚠ SDengine (TEST) — 자체 엔진 실험체 (MoE 전용, 매우 느림). "</string>
     <string name="chat_status_details_short">[상세]</string>
     <string name="chat_jump_latest_desc">최신 답변으로 이동</string>
     <string name="chat_jump_latest">답변 따라가기</string>
@@ -217,7 +217,7 @@
     <string name="chat_attach_text_only">텍스트 전용 모델</string>
     <string name="chat_attach_document">문서 및 텍스트 파일 첨부</string>
     <string name="chat_attach_document_hint">TXT, PDF, 코드 파일 콘텍스트 주입</string>
-    <string name="chat_sdengine_unavailable">자체 엔진 실험체 • 실행 불가</string>
+    <string name="chat_sdengine_unavailable">자체 엔진 실험체 • MoE 전용, 매우 느림</string>
     <string name="chat_model_download_required">모델 다운로드 필요</string>
     <string name="chat_model_manage">모델 다운로드 및 관리</string>
     <string name="chat_local_models">로컬 모델 목록</string>
@@ -354,8 +354,17 @@
     <string name="voice_state_local_thinking">로컬 모델이 생각 중입니다...</string>
     <string name="voice_state_speaking_answer">답변을 말하는 중입니다...</string>
     <string name="voice_state_idle_hint">중앙 오브를 눌러 대화를 시작하세요</string>
-    <string name="voice_template_section">한국어 음성 모델 템플릿 (STT / TTS)</string>
-    <string name="voice_template_updated">%1$s 설정이 갱신되었습니다.</string>
+    <string name="voice_tts_section">음성 출력 (TTS 엔진)</string>
+    <string name="voice_tts_system_title">시스템 TTS</string>
+    <string name="voice_tts_system_desc">기기 TTS 엔진 사용 (다운로드 없음)</string>
+    <string name="voice_tts_local_title">Supertonic 3 (로컬)</string>
+    <string name="voice_tts_local_missing">탭하여 한국어 신경망 음성 설치 (~145MB)</string>
+    <string name="voice_tts_local_ready">한국어 신경망 음성 준비됨 (화자 10명)</string>
+    <string name="voice_tts_speaker">화자</string>
+    <string name="voice_tts_speed">속도 %1$s</string>
+    <string name="voice_tts_preview">미리듣기</string>
+    <string name="voice_tts_preview_text">안녕하세요. 로컬 한국어 신경망 음성입니다.</string>
+    <string name="voice_stt_delete">삭제</string>
     <string name="voice_mic_desc">마이크</string>
     <string name="voice_dialogue_start">대화 시작</string>
     <string name="voice_stt_ondevice">온디바이스 STT (Whisper tiny • 다국어)</string>
@@ -367,4 +376,28 @@
     <string name="voice_stt_failed">다운로드 실패: %1$s</string>
     <string name="voice_stt_retry">재시도 (75MB)</string>
     <string name="voice_stt_get">받기 (75MB)</string>
+
+    <string name="vm_status_memory_reduced">이전 실행이 추론 중 종료되어 메모리 사용이 큰 설정을 자동으로 낮췄습니다 (레벨 %1$d)</string>
+    <string name="vm_status_memory_stop">메모리가 부족해 생성을 중단했습니다. 다음 실행은 낮춘 설정으로 시작합니다 (레벨 %1$d)</string>
+    <string name="vm_status_tts_installed">로컬 한국어 TTS 음성을 설치하고 선택했습니다</string>
+    <string name="vm_status_runtime_override">%1$s의 런타임을 %2$s(으)로 설정했습니다</string>
+    <string name="vm_desc_imported_moe_sdengine"> • MoE 감지 → SDengine(TEST) 자동 배정</string>
+
+    <string name="settings_gpu_title">GPU 가속</string>
+    <string name="settings_gpu_desc">LiteRT GPU(OpenCL) 및 llama.cpp GPU 오프로드. OpenCL 드라이버가 없거나 초기화에 실패하면 자동으로 건너뜁니다.</string>
+    <string name="settings_memory_title">메모리 보호</string>
+    <string name="settings_memory_desc">비정상 종료를 감지·기록하고 다음 실행에서 메모리 사용이 큰 설정을 자동으로 낮춥니다</string>
+    <string name="settings_memory_auto">자동 감축</string>
+    <string name="settings_memory_level">현재 레벨: %1$d / %2$d</string>
+    <string name="settings_memory_level_0">감축 없음</string>
+    <string name="settings_memory_level_1">MTP 비활성</string>
+    <string name="settings_memory_level_2">MTP + KV 인덱싱 비활성</string>
+    <string name="settings_memory_level_3">컨텍스트 2048 제한</string>
+    <string name="settings_memory_level_4">컨텍스트 1024 + GPU 오프로드 해제</string>
+    <string name="settings_memory_incidents">최근 사고</string>
+    <string name="settings_memory_no_incidents">기록된 사고 없음</string>
+    <string name="settings_memory_view_log">로그 보기</string>
+    <string name="settings_memory_log_title">메모리 가드 로그</string>
+    <string name="settings_memory_reset">초기화</string>
+    <string name="settings_memory_close">닫기</string>
 </resources>

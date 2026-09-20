@@ -22,7 +22,13 @@ import com.localllm.android.model.MessageRole
 import com.localllm.android.model.ModelCatalog
 import com.localllm.android.model.ModelRuntimeType
 import com.localllm.android.R
+import com.localllm.android.LocalLlmApp
+import com.localllm.android.memory.MemoryGuard
+import com.localllm.android.memory.MemoryGuardStore
+import com.localllm.android.memory.MemorySnapshot
+import com.localllm.android.memory.MemoryWatchdog
 import com.localllm.android.voice.InteractiveVoiceState
+import com.localllm.android.voice.TtsEngineMode
 import com.localllm.android.voice.VoiceManager
 import android.net.Uri
 import com.localllm.android.server.OllamaApiServer
@@ -76,6 +82,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _settings = MutableStateFlow(
         GenerationSettings(
             hfToken = settingsPrefs.getString("hf_token", "") ?: "",
+            runtime = parseStoredRuntime(settingsPrefs.getString("runtime", null)),
             themeColorName = settingsPrefs.getString("theme_color", "artistic") ?: "artistic",
             darkModePreference = settingsPrefs.getString("dark_mode", "system") ?: "system",
             systemPrompt = settingsPrefs.getString("system_prompt", "") ?: "",
@@ -86,6 +93,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repetitionPenalty = settingsPrefs.getFloat("repetition_penalty", 1.1f),
             enableMtp = settingsPrefs.getBoolean("enable_mtp", true),
             enableIndexingAcceleration = settingsPrefs.getBoolean("enable_indexing", true),
+            enableGpuAcceleration = settingsPrefs.getBoolean("enable_gpu", true),
+            gpuLayers = settingsPrefs.getInt("gpu_layers", 99),
             showPerformanceMetrics = settingsPrefs.getBoolean("show_metrics", true),
             apiServerBindAddress = settingsPrefs.getString("api_server_bind_address", "127.0.0.1") ?: "127.0.0.1",
             apiServerRequireAuth = settingsPrefs.getBoolean("api_server_require_auth", true),
@@ -95,6 +104,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     )
     val settings: StateFlow<GenerationSettings> = _settings.asStateFlow()
+
+    // ---- memory protection ----
+    private val memoryGuard: MemoryGuardStore? = MemoryGuard.get()
+    private val memoryWatchdog = MemoryWatchdog(
+        scope = viewModelScope,
+        memory = { MemorySnapshot.read(getApplication()) },
+        onCritical = { snapshot -> onMemoryCritical(snapshot) }
+    )
+    private val _memoryGuardState = MutableStateFlow(currentMemoryGuardUiState())
+    val memoryGuardState: StateFlow<MemoryGuardUiState> = _memoryGuardState.asStateFlow()
+    private var duplicateVoiceTurns = 0
 
     // Models catalog restored from persistent metadata and reconciled with physical storage
     private val _models = MutableStateFlow(modelStorageManager.loadModels())
@@ -188,6 +208,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _activeModel.value = null
             _engineStatusMessage.value = localizedString(R.string.vm_status_no_default_model)
         }
+
+        // Memory protection: apply the degradation ladder accumulated by previous
+        // abnormal runs (OOM kill / native crash mid-inference) before the first load.
+        memoryGuard?.let { guard ->
+            if (guard.isEnabled() && guard.level() > 0) {
+                _settings.value = guard.applyLevel(_settings.value)
+            }
+            val report = LocalLlmApp.consumeStartupReport()
+            if (report != null && report.abnormalPreviousRun) {
+                _engineStatusMessage.value = localizedString(R.string.vm_status_memory_reduced, guard.level())
+            }
+        }
+        refreshMemoryGuardState()
 
         // Restore MCP session: tool handles live per-process, so re-list them when
         // the user left MCP enabled with a saved URL.
@@ -388,12 +421,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _modelLoadingProgress.value = 0.05f
             _modelLoadingStage.value = localizedString(R.string.vm_stage_preparing_load)
 
-            // Sync runtime type and auto-apply MTP if model supports it
+            // Sync runtime type and auto-apply MTP if model supports it. A user-chosen
+            // runtime wins: picking an SDengine model must not silently fall back to
+            // llama.cpp, and vice versa.
+            val isGguf = model.runtimeType != ModelRuntimeType.LITE_RT
+            val runtimeToApply = when {
+                model.runtimeTypeOverrideByUser -> model.runtimeType
+                _settings.value.runtime == ModelRuntimeType.SD_ENGINE && isGguf -> ModelRuntimeType.SD_ENGINE
+                else -> model.runtimeType
+            }
             _settings.value = _settings.value.copy(
-                runtime = model.runtimeType,
+                runtime = runtimeToApply,
                 enableMtp = if (model.supportsMtp) true else _settings.value.enableMtp
             )
+            settingsPrefs.edit().putString("runtime", runtimeToApply.name).apply()
 
+            // Model loading is the biggest single allocation in the app: mark it so an
+            // OS kill during the load is recorded and lowers the next run's settings.
+            val loadSettings = _settings.value
+            memoryGuard?.markInferenceStart(
+                modelName = model.name,
+                runtime = loadSettings.runtime.name,
+                contextWindow = loadSettings.contextWindow,
+                gpuLayers = loadSettings.gpuLayers,
+                gpuAcceleration = loadSettings.enableGpuAcceleration
+            )
             try {
                 val status = llmEngine.loadModel(model, _settings.value) { stage, progress ->
                     _modelLoadingStage.value = stage
@@ -423,6 +475,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 delay(2000)
             } finally {
                 // Loading completes -> hide loading bar
+                memoryGuard?.markInferenceEnd()
                 _isModelLoading.value = false
                 _modelLoadingProgress.value = 0f
                 _modelLoadingStage.value = ""
@@ -432,7 +485,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun switchRuntime(runtime: ModelRuntimeType) {
         _settings.value = _settings.value.copy(runtime = runtime)
-        val downloadedMatch = _models.value.firstOrNull { it.runtimeType == runtime && it.isDownloaded }
+        settingsPrefs.edit().putString("runtime", runtime.name).apply()
+        // SDengine runs GGUF containers, so any downloaded GGUF is a candidate; the
+        // other runtimes match on their own model type.
+        val downloadedMatch = when (runtime) {
+            ModelRuntimeType.SD_ENGINE -> _models.value.firstOrNull {
+                it.isDownloaded && it.runtimeType != ModelRuntimeType.LITE_RT
+            }
+            else -> _models.value.firstOrNull { it.runtimeType == runtime && it.isDownloaded }
+        }
         if (downloadedMatch != null) {
             selectModel(downloadedMatch)
         } else {
@@ -449,6 +510,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ModelRuntimeType.LITE_RT -> localizedString(R.string.vm_status_no_litert_model)
                 ModelRuntimeType.SD_ENGINE -> com.localllm.engine.SDEngine.advisoryText()
             }
+        }
+    }
+
+    /**
+     * Explicit runtime choice for one model (Model Manager). Marks the choice as a
+     * user override so MoE auto-detection never flips it back.
+     */
+    fun setModelRuntime(modelId: String, runtime: ModelRuntimeType) {
+        val updated = _models.value.map { model ->
+            if (model.id == modelId) {
+                model.copy(runtimeType = runtime, runtimeTypeOverrideByUser = true)
+            } else {
+                model
+            }
+        }
+        _models.value = updated
+        modelStorageManager.saveModels(updated)
+        val target = updated.firstOrNull { it.id == modelId } ?: return
+        if (_activeModel.value?.id == modelId) {
+            _settings.value = _settings.value.copy(runtime = runtime)
+            settingsPrefs.edit().putString("runtime", runtime.name).apply()
+            selectModel(target)
+        } else {
+            _engineStatusMessage.value = localizedString(R.string.vm_status_runtime_override, target.name, runtime.label)
         }
     }
 
@@ -473,6 +558,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putFloat("repetition_penalty", newSettings.repetitionPenalty)
             putBoolean("enable_mtp", newSettings.enableMtp)
             putBoolean("enable_indexing", newSettings.enableIndexingAcceleration)
+            putBoolean("enable_gpu", newSettings.enableGpuAcceleration)
+            putInt("gpu_layers", newSettings.gpuLayers)
+            putString("runtime", newSettings.runtime.name)
             putBoolean("show_metrics", newSettings.showPerformanceMetrics)
             putString("api_server_bind_address", newSettings.apiServerBindAddress)
             putBoolean("api_server_require_auth", newSettings.apiServerRequireAuth)
@@ -480,6 +568,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putString("mcp_server_url", newSettings.mcpServerUrl)
             putBoolean("is_mcp_enabled", newSettings.isMcpEnabled)
             apply()
+        }
+        // Re-enabling GPU is an explicit retry: forget the remembered driver failure
+        // so LiteRT offers the GPU backend again.
+        if (!previous.enableGpuAcceleration && newSettings.enableGpuAcceleration) {
+            settingsPrefs.edit().putBoolean(LlmEngine.KEY_LITERT_GPU_UNAVAILABLE, false).apply()
         }
         // Sampling options (temperature/topP/topK/system prompt) apply per request,
         // so only runtime-affecting changes justify a full weight reload. Reloading on
@@ -514,6 +607,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             voiceManager.localStt.downloadModel()
         }
+    }
+
+    fun deleteLocalStt() {
+        viewModelScope.launch {
+            voiceManager.localStt.deleteModel()
+        }
+    }
+
+    /**
+     * Installs the Korean neural TTS voice (sherpa-onnx supertonic-3, ~145MB) and
+     * switches to it, so picking a voice in the UI actually changes what is spoken.
+     */
+    fun downloadLocalTts() {
+        viewModelScope.launch {
+            val installed = voiceManager.localTts.downloadModel()
+            if (installed) {
+                voiceManager.setTtsMode(TtsEngineMode.LOCAL_NEURAL)
+                _engineStatusMessage.value = localizedString(R.string.vm_status_tts_installed)
+            }
+        }
+    }
+
+    fun deleteLocalTts() {
+        viewModelScope.launch {
+            voiceManager.localTts.deleteModel()
+            voiceManager.setTtsMode(TtsEngineMode.SYSTEM)
+        }
+    }
+
+    fun selectTtsMode(mode: TtsEngineMode) = voiceManager.setTtsMode(mode)
+
+    fun setTtsSpeaker(speakerId: Int) = voiceManager.setTtsSpeaker(speakerId)
+
+    fun setTtsSpeed(speed: Float) = voiceManager.setTtsSpeed(speed)
+
+    fun previewTts() {
+        voiceManager.speak(localizedString(R.string.voice_tts_preview_text))
     }
 
     fun connectMcp(url: String) {        viewModelScope.launch {
@@ -964,6 +1094,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             currentStreamJob?.cancel()
             currentStreamJob = launch {
+                beginInferenceGuard()
                 try {
                     llmEngine.streamGenerate(
                         prompt = trimmed,
@@ -989,6 +1120,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                             _streamingMessage.value = null
                             _isGenerating.value = false
+                            // Surfaces an automatic backend switch (e.g. LiteRT GPU → CPU)
+                            // that happened during this generation.
+                            llmEngine.consumeBackendNote()?.let { note ->
+                                _engineStatusMessage.value = note
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -1002,9 +1138,98 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     repository.saveMessage(errorMsg)
                     _streamingMessage.value = null
                     _isGenerating.value = false
+                } finally {
+                    // Clears the in-flight marker: reaching this point means the process
+                    // survived the generation (an OS kill would leave the marker behind).
+                    endInferenceGuard()
                 }
             }
         }
+    }
+
+    // ==========================================
+    // Memory protection
+    // ==========================================
+
+    data class MemoryGuardUiState(
+        val enabled: Boolean,
+        val level: Int,
+        val incidents: List<MemoryGuardStore.Incident>
+    )
+
+    private fun parseStoredRuntime(stored: String?): ModelRuntimeType = try {
+        if (stored.isNullOrBlank()) ModelRuntimeType.LLAMA_CPP else ModelRuntimeType.valueOf(stored)
+    } catch (_: Throwable) {
+        ModelRuntimeType.LLAMA_CPP
+    }
+
+    private fun currentMemoryGuardUiState(): MemoryGuardUiState {
+        val guard = memoryGuard
+        return MemoryGuardUiState(
+            enabled = guard?.isEnabled() ?: false,
+            level = guard?.level() ?: 0,
+            incidents = guard?.incidents() ?: emptyList()
+        )
+    }
+
+    private fun refreshMemoryGuardState() {
+        _memoryGuardState.value = currentMemoryGuardUiState()
+    }
+
+    fun setMemoryGuardEnabled(enabled: Boolean) {
+        memoryGuard?.setEnabled(enabled)
+        refreshMemoryGuardState()
+    }
+
+    fun resetMemoryGuard() {
+        memoryGuard?.reset()
+        refreshMemoryGuardState()
+    }
+
+    fun memoryGuardLog(): String = memoryGuard?.logTail() ?: ""
+
+    /** Marks an inference as in flight, so an OS kill during it is detected next launch. */
+    private fun beginInferenceGuard() {
+        val current = _settings.value
+        memoryGuard?.markInferenceStart(
+            modelName = _activeModel.value?.name,
+            runtime = current.runtime.name,
+            contextWindow = current.contextWindow,
+            gpuLayers = current.gpuLayers,
+            gpuAcceleration = current.enableGpuAcceleration
+        )
+        memoryWatchdog.start()
+    }
+
+    private fun endInferenceGuard() {
+        memoryWatchdog.stop()
+        memoryGuard?.markInferenceEnd()
+    }
+
+    /**
+     * The watchdog fires while the process still has room to react: stop the
+     * generation, record why, and lower the next run's settings instead of letting
+     * the OS kill the app with no chance to write anything down.
+     */
+    private fun onMemoryCritical(snapshot: MemorySnapshot) {
+        android.util.Log.w(
+            "MainViewModel",
+            "Critical memory during inference: avail=${snapshot.availMb}MB total=${snapshot.totalMb}MB low=${snapshot.lowMemory}"
+        )
+        memoryGuard?.record(
+            cause = MemoryGuardStore.Cause.LOW_MEMORY_STOP,
+            detail = "watchdog stop: avail=${snapshot.availMb}MB total=${snapshot.totalMb}MB low=${snapshot.lowMemory}",
+            modelName = _activeModel.value?.name,
+            raiseLevel = true
+        )
+        refreshMemoryGuardState()
+        stopGeneration()
+        try {
+            llmEngine.stopGeneration()
+        } catch (t: Throwable) {
+            android.util.Log.w("MainViewModel", "Engine stop after memory warning failed", t)
+        }
+        _engineStatusMessage.value = localizedString(R.string.vm_status_memory_stop, memoryGuard?.level() ?: 0)
     }
 
     fun stopGeneration() {
@@ -1034,22 +1259,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * User speaks -> Local LLM generates response -> TTS speaks back
      */
     fun startInteractiveVoiceSession() {
-        if (_settings.value.runtime == ModelRuntimeType.SD_ENGINE) {
-            voiceManager.speak(com.localllm.engine.SDEngine.advisoryText())
-            return
-        }
         if (_activeModel.value == null || !_activeModel.value!!.isDownloaded) {
+            _engineStatusMessage.value = localizedString(R.string.vm_voice_no_model)
             voiceManager.speak(localizedString(R.string.vm_voice_no_model))
             return
         }
         voiceManager.startListening(
             onResult = { userSpokenText ->
-                // Anti-feedback guard: silence hallucinations and TTS echo would
-                // otherwise loop forever (blank or repeated input ends the session).
+                // Anti-feedback guard: silence hallucinations and TTS echo would otherwise
+                // loop forever. A single repeat re-listens instead of ending the session,
+                // because one mis-recognition should not hang up the conversation.
                 if (userSpokenText.isBlank() || userSpokenText == lastVoiceInput) {
-                    voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                    duplicateVoiceTurns++
+                    if (duplicateVoiceTurns >= 2) {
+                        voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                        return@startListening
+                    }
+                    startInteractiveVoiceSession()
                     return@startListening
                 }
+                duplicateVoiceTurns = 0
                 lastVoiceInput = userSpokenText
                 voiceManager.setVoiceState(InteractiveVoiceState.PROCESSING)
                 viewModelScope.launch {
@@ -1083,29 +1312,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                         // Stream or generate response
                         val voiceHistory = _messages.value.takeLast(6).map { it.role.name to it.content }
-                        llmEngine.streamGenerate(
-                            prompt = userSpokenText,
-                            history = voiceHistory,
-                            settings = _settings.value,
-                            attachment = null
-                        ).collect { chunk ->
-                            if (chunk.isComplete) {
-                                val assistantMsg = ChatMessage(
-                                    conversationId = convId,
-                                    role = MessageRole.ASSISTANT,
-                                    content = chunk.currentContentText,
-                                    reasoning = chunk.currentReasoningText.ifBlank { null },
-                                    tps = chunk.tps,
-                                    promptSpeed = chunk.promptSpeed
-                                )
-                                repository.saveMessage(assistantMsg)
+                        beginInferenceGuard()
+                        try {
+                            llmEngine.streamGenerate(
+                                prompt = userSpokenText,
+                                history = voiceHistory,
+                                settings = _settings.value,
+                                attachment = null
+                            ).collect { chunk ->
+                                if (chunk.isComplete) {
+                                    val assistantMsg = ChatMessage(
+                                        conversationId = convId,
+                                        role = MessageRole.ASSISTANT,
+                                        content = chunk.currentContentText,
+                                        reasoning = chunk.currentReasoningText.ifBlank { null },
+                                        tps = chunk.tps,
+                                        promptSpeed = chunk.promptSpeed
+                                    )
+                                    repository.saveMessage(assistantMsg)
 
-                                // Speak response back
-                                voiceManager.speak(chunk.currentContentText) {
-                                    // Once done speaking, listen again for natural dialogue
-                                    startInteractiveVoiceSession()
+                                    // Speak response back
+                                    voiceManager.speak(chunk.currentContentText) {
+                                        // Once done speaking, listen again for natural dialogue
+                                        startInteractiveVoiceSession()
+                                    }
                                 }
                             }
+                        } finally {
+                            endInferenceGuard()
                         }
                     } catch (e: Exception) {
                         android.util.Log.w("MainViewModel", "Voice session error", e)
@@ -1116,7 +1350,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             },
             onError = { _ ->
                 voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
-            }
+            },
+            // Hands-free: the recorder ends the turn itself when the speaker goes quiet.
+            autoEndpoint = true
         )
     }
 
@@ -1165,12 +1401,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .replace("-", " ")
                     .replace("_", " ")
 
+                val sdEngineCandidate = !isLiteRt && detected.isSdEngineCandidate
                 val customModel = LlmModel(
                     id = "custom-${UUID.randomUUID()}",
                     name = cleanName,
                     repoId = if (isLiteRt) "local/litert-imported" else "local/imported",
                     fileName = targetFileName,
-                    runtimeType = detected.detectedRuntime,
+                    runtimeType = if (sdEngineCandidate) ModelRuntimeType.SD_ENGINE else detected.detectedRuntime,
                     sizeBytes = destFile.length(),
                     isDownloaded = true,
                     downloadStatus = "COMPLETED",
@@ -1185,6 +1422,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             append(localizedString(R.string.vm_desc_imported_gguf))
                             if (hasVision) append(localizedString(R.string.vm_desc_imported_gguf_vision))
                             if (hasDrafter) append(localizedString(R.string.vm_desc_imported_gguf_drafter))
+                            if (sdEngineCandidate) append(localizedString(R.string.vm_desc_imported_moe_sdengine))
                         }
                         if (engineNote != null) append(" • $engineNote")
                     },

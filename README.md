@@ -122,8 +122,10 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
   - Material3 stripped out entirely; a custom glass UI toolkit (`GlassTheme`, `GButtons`, `GControls`, `GOverlays`...) covers every screen.
 - **In-App Bilingual UI (EN / KO)**:
   - Instant real-time language switching (system default / English / 한국어) from Settings—no app restart required.
-- **Smart Out-of-Memory (OOM) Protection**:
-  - Inspects `ActivityManager.MemoryInfo` before model allocation to prevent native memory exhaustion crashes (`SIGSEGV`).
+- **Out-of-Memory Protection (Android-aware)**:
+  - Estimates the real footprint (weights + KV cache + compute buffers) before mapping a model and reduces the context window instead of walking into an OOM kill.
+  - Writes an in-flight marker per generation: a marker found at startup means the previous process was killed mid-inference, which is recorded and lowers the memory-heavy settings for the next run (memory guard log + incidents in Settings).
+  - Polls available RAM while generating and stops the run safely when the device runs critical, before the LMK kills the app.
 - **Resilient Mobile Downloader**:
   - Background foreground-service downloads with pause/resume support and integrity verification.
 
@@ -133,17 +135,18 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
 
 A first-party MoE-only inference core is being built in the open as a separate Android library module.
 
-**Scope (deliberate):** gated-expert Mixture-of-Experts on Android, in C++. Dense-only models and non-MoE hybrids are out of scope.
+**Scope (deliberate):** gated-expert Mixture-of-Experts on Android (Kotlin/JVM core plus a C++ JNI stub; NEON/GPU kernels pending). Dense-only models and non-MoE hybrids are out of scope.
 
 **What's inside today:**
 - GGUF format reader + metadata detection, BPE tokenizer, sampler, KV cache (`GgufReader`, `BpeTokenizer`, `Sampler`, `KvCache`)
 - Paged expert streaming: dense weights decode resident under a cap while expert tiles stay on storage and stream through `ExpertPager`
 - C++ JNI core via NDK 27 + CMake (`arm64-v8a`, `x86_64`)
 - Numerical validation against real MoE weights (live Qwen3-30B-A3B tested via HTTP range streaming)
+- End-to-end generation over a gated-expert GGUF, covered by `SDEngineEndToEndTest` (synthetic MoE model: load, stream tokens, cancel, resident-cap enforcement)
 
-**Status: TEST BUILD / EXPERIMENTAL — not for production.**
-- Reference scalar kernels prove the math; NEON/GPU kernels are next.
-- On-device end-to-end inference is not ready yet; the app layer refuses silent inference and surfaces engine advisories (`SDEngine.ADVISORIES`).
+**Status: TEST BUILD / EXPERIMENTAL — runs, but not for production.**
+- Reference scalar kernels prove the math; NEON/GPU kernels are next, so real MoE models decode at single-digit tokens per second on device.
+- The app routes auto-detected MoE GGUFs (imported models) to SDengine and keeps the engine advisories (`SDEngine.ADVISORIES`) visible; a failed SDengine load retries once on llama.cpp instead of leaving no model. Each model's runtime can be overridden by hand in Model Manager.
 
 ---
 

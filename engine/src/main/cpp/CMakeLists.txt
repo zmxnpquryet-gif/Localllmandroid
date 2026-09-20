@@ -19,3 +19,8 @@ target_link_libraries(
     sdengine
     ${log-lib}
 )
+
+# 16KB page-size devices (Android 15+) refuse to load libs whose LOAD segments are
+# only 4KB-aligned; the Play/Samsung compatibility checker flags it. Aligning our own
+# lib now is free, and it keeps libsdengine.so out of that warning list.
+target_link_options(sdengine PRIVATE "-Wl,-z,max-page-size=16384")

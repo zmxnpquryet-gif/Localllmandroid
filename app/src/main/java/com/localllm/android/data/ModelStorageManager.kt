@@ -108,12 +108,24 @@ class ModelStorageManager(private val context: Context) {
         val mainExists = mainFile.exists() && mainFile.length() > 0
 
         // Auto-detect embedded features from GGUF metadata or filename
-        val detected = if (mainExists && model.runtimeType == ModelRuntimeType.LLAMA_CPP) {
+        val detected = if (mainExists && model.runtimeType != ModelRuntimeType.LITE_RT) {
             GgufMetadataDetector.detect(mainFile)
         } else null
 
         val effectiveHasMmproj = model.hasMmproj || (detected?.hasVisionTower == true)
         val effectiveSupportsMtp = model.supportsMtp || (detected?.hasDrafter == true)
+
+        // Imported models are routed to the first-party engine when they are gated-expert
+        // MoE, unless the user already chose a runtime for this model by hand.
+        val effectiveRuntime = if (detected != null && model.id.startsWith("custom-") && !model.runtimeTypeOverrideByUser) {
+            when {
+                detected.detectedRuntime == ModelRuntimeType.LITE_RT -> ModelRuntimeType.LITE_RT
+                detected.isSdEngineCandidate -> ModelRuntimeType.SD_ENGINE
+                else -> ModelRuntimeType.LLAMA_CPP
+            }
+        } else {
+            model.runtimeType
+        }
 
         // Vision tower file (external mmproj OR embedded vision)
         val visionFile = if (!model.localMmprojPath.isNullOrBlank()) {
@@ -157,6 +169,7 @@ class ModelStorageManager(private val context: Context) {
         val templateExists = templateFile?.let { it.exists() && it.length() > 0 } ?: false
 
         return model.copy(
+            runtimeType = effectiveRuntime,
             hasMmproj = effectiveHasMmproj,
             supportsMtp = effectiveSupportsMtp,
             isDownloaded = mainExists,
@@ -221,6 +234,7 @@ class ModelStorageManager(private val context: Context) {
         obj.put("repoId", m.repoId)
         obj.put("fileName", m.fileName)
         obj.put("runtimeType", m.runtimeType.name)
+        obj.put("runtimeTypeOverrideByUser", m.runtimeTypeOverrideByUser)
         obj.put("sizeBytes", m.sizeBytes)
         obj.put("supportsMtp", m.supportsMtp)
         obj.put("supportsReasoning", m.supportsReasoning)
@@ -264,6 +278,7 @@ class ModelStorageManager(private val context: Context) {
             repoId = obj.optString("repoId", ""),
             fileName = obj.optString("fileName", "model.gguf"),
             runtimeType = runtimeType,
+            runtimeTypeOverrideByUser = obj.optBoolean("runtimeTypeOverrideByUser", false),
             sizeBytes = obj.optLong("sizeBytes", 2_000_000_000L),
             supportsMtp = obj.optBoolean("supportsMtp", false),
             supportsReasoning = obj.optBoolean("supportsReasoning", false),

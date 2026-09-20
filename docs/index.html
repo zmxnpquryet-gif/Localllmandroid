@@ -126,13 +126,13 @@
       <div class="card"><div class="icon">🧠</div><h3>Reasoning-aware streaming</h3><p>DeepSeek-R1 style think tags are parsed reliably even when split across streaming chunks.</p></div>
       <div class="card"><div class="icon">🔌</div><h3>MCP client</h3><p>Native Model Context Protocol client with per-session isolation guards, bringing tool use into on-device chats.</p></div>
       <div class="card"><div class="icon">🧊</div><h3>First-party glass UI</h3><p>Material3 stripped out. A custom glass design system covers every screen, with instant English/Korean switching built in.</p></div>
-      <div class="card"><div class="icon">🛡️</div><h3>OOM protection</h3><p>Available RAM is checked before model load to prevent native crashes. Downloads pause/resume with integrity checks.</p></div>
+      <div class="card"><div class="icon">🛡️</div><h3>OOM protection</h3><p>Footprint estimate (weights + KV cache) before load, an in-flight marker so a kill mid-inference is detected on the next start, automatic setting reduction after an abnormal exit, and a live memory watchdog that stops generation before Android kills the app.</p></div>
     </div>
   </section>
 
   <section id="lab">
     <h2>In the lab: SDengine</h2>
-    <p class="sub">A first-party MoE-only inference core, built in the open as the <code>:engine</code> module. GGUF reader, BPE tokenizer, paged expert streaming, C++ JNI core (NDK). Numerical validation running on real Qwen3-30B-A3B weights. <b>Experimental - not for production yet.</b> Dense engines (llama.cpp / LiteRT-LM) remain the production path.</p>
+    <p class="sub">A first-party MoE-only inference core, built in the open as the <code>:engine</code> module. GGUF reader, BPE tokenizer, paged expert streaming, C++ JNI core (NDK). Numerical validation running on real Qwen3-30B-A3B weights, plus end-to-end generation over gated-expert GGUFs. Imported MoE models are auto-routed here, advisories stay visible, and a failed load falls back to llama.cpp. <b>Experimental - runs, but not for production yet.</b> Dense engines (llama.cpp / LiteRT-LM) remain the production path.</p>
   </section>
 
   <section id="build">

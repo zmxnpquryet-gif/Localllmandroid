@@ -2,17 +2,36 @@
 
 import android.util.Log
 import com.localllm.android.model.ModelRuntimeType
+import com.localllm.engine.GgufReader
 import java.io.File
 import java.io.FileInputStream
+
+/**
+ * Architectures the first-party SDengine refuses (mirrors `SDEngine.DEFERRED`:
+ * MLA/compressed-KV attention, SSM mixers, short-convolution hybrids). A MoE GGUF
+ * with one of these architectures stays on llama.cpp instead of being routed to
+ * an engine that cannot load it.
+ */
+private val SD_DEFERRED_ARCHITECTURES = setOf(
+    "deepseek2", "deepseek3", "qwen4_exp", "mamba", "mamba2", "lfm2", "jamba", "granitehybrid"
+)
 
 data class GgufFeatureDetection(
     val hasVisionTower: Boolean,
     val hasDrafter: Boolean,
     val details: String = "",
     val detectedRuntime: ModelRuntimeType = ModelRuntimeType.LLAMA_CPP,
-    val isUnifiedBundle: Boolean = false
+    val isUnifiedBundle: Boolean = false,
+    val expertCount: Int = 0,
+    val architecture: String? = null
 ) {
     val hasVision: Boolean get() = hasVisionTower
+
+    val isMoe: Boolean get() = expertCount > 1
+
+    /** Gated-expert GGUF that the first-party SDengine can attempt to run. */
+    val isSdEngineCandidate: Boolean
+        get() = isMoe && architecture != null && architecture !in SD_DEFERRED_ARCHITECTURES
 }
 
 /**
@@ -139,9 +158,30 @@ object GgufMetadataDetector {
             // LiteRT models are inherently unified bundles
             val isUnified = detectedRuntime == ModelRuntimeType.LITE_RT || finalVision || finalDrafter
 
+            // MoE routing needs the real metadata (expert_count), not a byte scan: the
+            // container type decides the runtime, the expert count decides SDengine.
+            var expertCount = 0
+            var architecture: String? = null
+            if (hasGgufMagic) {
+                try {
+                    val reader = GgufReader.open(file)
+                    try {
+                        architecture = reader.architecture()
+                        expertCount = reader.archU32("expert_count")?.toInt() ?: 0
+                    } finally {
+                        reader.close()
+                    }
+                } catch (t: Throwable) {
+                    Log.d(TAG, "GGUF metadata peek failed for ${file.name}: ${t.message}")
+                }
+            }
+
             val detailsList = mutableListOf<String>()
             if (detectedRuntime == ModelRuntimeType.LITE_RT) {
                 detailsList.add("LiteRT 올인원 통합 모델")
+            }
+            if (expertCount > 1) {
+                detailsList.add("MoE 전문가 ${expertCount}개 (SDengine 후보)")
             }
             if (finalVision) {
                 detailsList.add(if (detectedRuntime == ModelRuntimeType.LITE_RT) "통합 비전타워(Vision Encoder) 내장" else "비전타워 내장 감지")
@@ -150,14 +190,20 @@ object GgufMetadataDetector {
                 detailsList.add(if (detectedRuntime == ModelRuntimeType.LITE_RT) "통합 추측 디코딩 드래프터 내장" else "드래프터(MTP) 내장 감지")
             }
 
-            Log.d(TAG, "Detection for ${file.name}: runtime=$detectedRuntime, vision=$finalVision, drafter=$finalDrafter, unified=$isUnified")
+            Log.d(
+                TAG,
+                "Detection for ${file.name}: runtime=$detectedRuntime, vision=$finalVision, drafter=$finalDrafter, " +
+                        "unified=$isUnified, arch=${architecture ?: "?"}, experts=$expertCount"
+            )
 
             GgufFeatureDetection(
                 hasVisionTower = finalVision,
                 hasDrafter = finalDrafter,
                 details = detailsList.joinToString(" • "),
                 detectedRuntime = detectedRuntime,
-                isUnifiedBundle = isUnified
+                isUnifiedBundle = isUnified,
+                expertCount = expertCount,
+                architecture = architecture
             )
         } catch (e: Exception) {
             Log.w(TAG, "Error detecting model features: ${e.message}")

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,17 +30,22 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import com.localllm.android.ui.glass.GButton
 import com.localllm.android.ui.glass.GIcon
 import com.localllm.android.ui.glass.GIconButton
 import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GSlider
 import com.localllm.android.ui.glass.GText
 import com.localllm.android.ui.glass.GTextButton
 import com.localllm.android.ui.glass.GlassTheme
 import com.localllm.android.voice.LocalSttEngine
+import com.localllm.android.voice.LocalTtsEngine
 import com.localllm.android.voice.SttEngine
+import com.localllm.android.voice.TtsEngineMode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -59,7 +65,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.localllm.android.R
-import com.localllm.android.model.VoiceModelTemplate
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
 import com.localllm.android.voice.InteractiveVoiceState
@@ -73,7 +78,10 @@ fun VoiceModeScreen(
     val voiceState by viewModel.voiceManager.voiceState.collectAsState()
     val amplitude by viewModel.voiceManager.audioAmplitude.collectAsState()
     val recognizedText by viewModel.voiceManager.recognizedText.collectAsState()
-    val voiceTemplates by viewModel.voiceManager.installedVoiceTemplates.collectAsState()
+    val ttsMode by viewModel.voiceManager.ttsMode.collectAsState()
+    val localTtsState by viewModel.voiceManager.localTts.modelState.collectAsState()
+    val ttsSpeaker by viewModel.voiceManager.ttsSpeakerId.collectAsState()
+    val ttsSpeed by viewModel.voiceManager.ttsSpeed.collectAsState()
 
     var isMicMuted by remember { mutableStateOf(false) }
 
@@ -173,6 +181,9 @@ fun VoiceModeScreen(
                     )
                 )
         )
+        // Content column: the orb area flexes and the controls below stay reachable on
+        // short screens (large system nav bars / small phones).
+        Column(modifier = Modifier.fillMaxSize()) {
         // Top Bar: Exit button & Mode indicator
         Row(
             modifier = Modifier
@@ -204,16 +215,19 @@ fun VoiceModeScreen(
             Spacer(modifier = Modifier.width(36.dp))
         }
 
-        // Center: Interactive Voice Orb
-        Column(
+        // Center: Interactive Voice Orb (flexible area: it gives room to the controls)
+        Box(
             modifier = Modifier
-                .align(Alignment.Center)
-                .padding(bottom = 60.dp),
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+        Column(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
                 modifier = Modifier
-                    .size(190.dp)
+                    .size(150.dp)
                     .scale(currentScale)
                     .clip(CircleShape)
                     .background(orbGradient)
@@ -240,7 +254,7 @@ fun VoiceModeScreen(
                     imageVector = if (voiceState == InteractiveVoiceState.SPEAKING) GIcons.VolumeUp else GIcons.Mic,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(54.dp)
+                    modifier = Modifier.size(46.dp)
                 )
             }
 
@@ -262,37 +276,70 @@ fun VoiceModeScreen(
                 )
             }
         }
+        }
 
-        // Bottom: Korean Voice Model Templates & Control Bar
+        // Bottom: engine selection and voice controls. Height-capped and scrollable so a
+        // short screen (or a 3-button system nav bar) can never push a control out of reach.
         Column(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(bottom = 16.dp)
+                .heightIn(max = 330.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 12.dp)
         ) {
             GText(
-                text = stringResource(R.string.voice_template_section),
+                text = stringResource(R.string.voice_tts_section),
                 style = GlassTheme.type.labelSmall,
                 color = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
             )
 
-            LazyRow(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(voiceTemplates) { template ->
-                    val templateUpdatedToast = stringResource(R.string.voice_template_updated, template.name)
-                    VoiceTemplateCard(
-                        template = template,
-                        onToggle = {
-                            viewModel.voiceManager.toggleVoiceModelInstall(template.id)
-                            Toast.makeText(context, templateUpdatedToast, Toast.LENGTH_SHORT).show()
+                TtsEngineCard(
+                    modifier = Modifier.weight(1f),
+                    title = stringResource(R.string.voice_tts_system_title),
+                    subtitle = stringResource(R.string.voice_tts_system_desc),
+                    selected = ttsMode == TtsEngineMode.SYSTEM,
+                    installed = true,
+                    onClick = { viewModel.selectTtsMode(TtsEngineMode.SYSTEM) }
+                )
+                TtsEngineCard(
+                    modifier = Modifier.weight(1f),
+                    title = stringResource(R.string.voice_tts_local_title),
+                    subtitle = when (val state = localTtsState) {
+                        is LocalTtsEngine.ModelState.Missing -> stringResource(R.string.voice_tts_local_missing)
+                        is LocalTtsEngine.ModelState.Downloading ->
+                            stringResource(R.string.voice_stt_downloading, (state.progress * 100).toInt())
+                        is LocalTtsEngine.ModelState.Ready -> stringResource(R.string.voice_tts_local_ready)
+                        is LocalTtsEngine.ModelState.Failed -> stringResource(R.string.voice_stt_failed, state.message)
+                    },
+                    selected = ttsMode == TtsEngineMode.LOCAL_NEURAL,
+                    installed = localTtsState is LocalTtsEngine.ModelState.Ready,
+                    onClick = {
+                        when (localTtsState) {
+                            is LocalTtsEngine.ModelState.Ready -> viewModel.selectTtsMode(TtsEngineMode.LOCAL_NEURAL)
+                            is LocalTtsEngine.ModelState.Downloading -> Unit
+                            else -> viewModel.downloadLocalTts()
                         }
-                    )
-                }
+                    }
+                )
+            }
+
+            if (ttsMode == TtsEngineMode.LOCAL_NEURAL && localTtsState is LocalTtsEngine.ModelState.Ready) {
+                Spacer(modifier = Modifier.height(8.dp))
+                TtsVoiceControls(
+                    speakerId = ttsSpeaker,
+                    speed = ttsSpeed,
+                    onSpeakerChange = { viewModel.setTtsSpeaker(it) },
+                    onSpeedChange = { viewModel.setTtsSpeed(it) },
+                    onPreview = { viewModel.previewTts() },
+                    onDelete = { viewModel.deleteLocalTts() }
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -352,6 +399,7 @@ fun VoiceModeScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -403,51 +451,114 @@ private fun SttStatusRow(viewModel: MainViewModel) {
 }
 
 @Composable
-private fun VoiceTemplateCard(
-    template: VoiceModelTemplate,
-    onToggle: () -> Unit
+private fun TtsEngineCard(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    installed: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = Modifier
+    Column(
+        modifier = modifier
             .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF1E293B))
             .border(
                 width = 1.dp,
-                color = if (template.isInstalled) GlassTheme.colors.primary else Color.White.copy(alpha = 0.1f),
+                color = if (selected) GlassTheme.colors.primary else Color.White.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(10.dp)
             )
-            .clickable { onToggle() }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                GText(
-                    text = template.name,
-                    fontSize = 12.sp,
-                    color = Color.White
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            GText(text = title, fontSize = 12.sp, color = Color.White, maxLines = 1)
+            Spacer(modifier = Modifier.width(4.dp))
+            when {
+                selected -> GIcon(
+                    imageVector = GIcons.Done,
+                    contentDescription = null,
+                    tint = GlassTheme.colors.primary,
+                    modifier = Modifier.size(14.dp)
                 )
-                Spacer(modifier = Modifier.width(4.dp))
-                if (template.koreanSupport) {
-                    GText(
-                        text = "KR",
-                        fontSize = 10.sp,
-                        color = GlassTheme.colors.primary
-                    )
+                !installed -> GIcon(
+                    imageVector = GIcons.CloudDownload,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+        GText(
+            text = subtitle,
+            fontSize = 10.sp,
+            color = Color.White.copy(alpha = 0.6f),
+            maxLines = 2
+        )
+    }
+}
+
+@Composable
+private fun TtsVoiceControls(
+    speakerId: Int,
+    speed: Float,
+    onSpeakerChange: (Int) -> Unit,
+    onSpeedChange: (Float) -> Unit,
+    onPreview: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            GText(
+                text = stringResource(R.string.voice_tts_speaker),
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.8f)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(LocalTtsEngine.SPEAKER_COUNT) { index ->
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (index == speakerId) GlassTheme.colors.primary else Color(0xFF1E293B)
+                            )
+                            .clickable { onSpeakerChange(index) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        GText(text = "${index + 1}", fontSize = 10.sp, color = Color.White)
+                    }
                 }
             }
-            GText(
-                text = "${template.type} • ${template.sizeText}",
-                fontSize = 10.sp,
-                color = Color.White.copy(alpha = 0.6f)
-            )
         }
-        Spacer(modifier = Modifier.width(8.dp))
-        GIcon(
-            imageVector = if (template.isInstalled) GIcons.Done else GIcons.CloudDownload,
-            contentDescription = null,
-            tint = if (template.isInstalled) GlassTheme.colors.primary else Color.White.copy(alpha = 0.6f),
-            modifier = Modifier.size(16.dp)
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            GText(
+                text = stringResource(R.string.voice_tts_speed, String.format("%.1f", speed)),
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.8f)
+            )
+            Box(modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp)
+            ) {
+                GSlider(
+                    value = speed,
+                    onValueChange = onSpeedChange,
+                    valueRange = 0.5f..2.0f,
+                    steps = 14
+                )
+            }
+            GTextButton(onClick = onPreview) {
+                GText(text = stringResource(R.string.voice_tts_preview), color = Color.White, fontSize = 12.sp)
+            }
+            GTextButton(onClick = onDelete) {
+                GText(text = stringResource(R.string.voice_stt_delete), color = Color.White, fontSize = 12.sp)
+            }
+        }
     }
 }

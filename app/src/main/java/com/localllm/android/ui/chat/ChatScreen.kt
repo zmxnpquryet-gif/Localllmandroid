@@ -633,6 +633,9 @@ fun ChatScreen(
 /** Language-independent error detection for the engine status banner. */
 private fun isEngineErrorStatus(status: String?): Boolean {
     if (status.isNullOrBlank()) return false
+    // A load that succeeded on a fallback backend (GPU/OpenCL → CPU, SDengine → llama.cpp)
+    // reports the failure that caused it but is a working state, so it stays a warning.
+    if (status.contains("대체 실행") || status.lowercase().contains("fallback")) return false
     val lower = status.lowercase()
     return lower.contains("error") || lower.contains("failed") || lower.contains("exception") ||
         status.contains("오류") || status.contains("실패") || status.contains("예외")

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -72,6 +73,9 @@ fun ChatDrawer(
             .width(310.dp)
             .background(GlassTheme.colors.surface.copy(alpha = 0.82f))
             .statusBarsPadding()
+            // The bottom items (Settings last) sat under the system taskbar / 3-button
+            // nav bar, so tapping them did nothing and they looked cut off.
+            .navigationBarsPadding()
             .padding(vertical = 12.dp)
     ) {
         // 1. New Chat Button

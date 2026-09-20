@@ -179,5 +179,76 @@ Verified: `compileDebugKotlin` + `compileDebugUnitTestKotlin` green, `testDebugU
 4. Status text already on screen is not re-localized when the language changes at runtime (snapshot strings in `MainViewModel`).
 5. Backup *transport* behaviour is still only verified at the config level (`BackupRulesTest`), not by a real device restore.
 
+---
+
+## Session State — 2026-09-20 (voice / engines / memory pass)
+
+### Reported issues → what was actually wrong
+
+| Report | Root cause found | Fix |
+| --- | --- | --- |
+| Local STT does nothing in conversation mode | `isRecording` was never cleared when the capture loop ended on its own (90s cap / thread error), after which `startListening()` returned early for the rest of the process. Also: no end-of-speech detection, so the hands-free loop had nothing to trigger a turn (`VoiceManager.kt`). | Capture loop clears `isRecording` in `finally`; energy-based endpointing (noise-floor calibration → 900ms trailing silence after ≥250ms speech) enabled for conversation mode via `startListening(autoEndpoint = true)`; `stopListening()` no longer blocks the main thread with a 3s join; leading/trailing silence is trimmed before transcription. |
+| TTS "swap" does nothing | `toggleVoiceModelInstall()` only flipped an in-memory boolean; the templates pointed at files that do not exist (`myshell-ai/MeloTTS-Korean/melo_tts_ko_fast.onnx`); the only synthesizer was the system `TextToSpeech`, created once and pinned to Korean. | Real engine layer: `LocalTtsEngine` downloads the official sherpa-onnx supertonic-3 int8 Korean voice (7 files, ~145MB, 31 languages, 10 speakers) from HF, `TtsAudioPlayer` streams 24kHz PCM through `AudioTrack`, engine/speaker/speed persist in `voice_prefs`, and `speak()` routes local-vs-system. The dead `VoiceTemplates` list was deleted. |
+| LiteRT load fails with an "OpenCL" error | `Backend.GPU()` is OpenCL-based and was **always** tried first (`enableGpuAcceleration` defaults true, has no UI switch, was not even persisted); failures leaked the partially built `Engine` and only the last error survived, so the user saw an OpenCL message with no fallback rationale. | `LiteRtAcceleratorPolicy` (pure, tested) only offers GPU when an OpenCL driver actually exists, gates NPU on a vendor runtime, closes failed attempts, aggregates every backend failure into the message, remembers driver-level GPU failures (`litert_gpu_unavailable`) so the next load goes straight to CPU, and reports a successful CPU fallback as a warning in the status banner. GPU switch added to Settings and `runtime`/`enable_gpu`/`gpu_layers` are now persisted. |
+| SDengine: keep the warning, make it work | Two hard gates (`LlmEngine.kt:145` load refusal, `:622` generate refusal) and no path for a model to carry `SD_ENGINE` (no catalog entry, detector never emitted it, `selectModel` overwrote the runtime). | Gates removed; `loadModelLocked` opens MoE GGUFs through `SDEngine.openModel` (resident cap = min(avail×0.4, 3GB)) and `inferenceFlow` streams `SDEngine.generate` on IO with cancellation wired to `stopGeneration`. MoE GGUFs are auto-detected (`expert_count > 1`, deferred architectures excluded) on import and re-reconcile, with a per-model runtime override in Model Manager. A failed SDengine load retries once on llama.cpp and says so. Advisories were rewritten to match reality (TEST build, MoE-only, scalar kernels = very slow) and stay visible. |
+| OOM protection is useless (Android just kills the app) | The only check compared the model file size with available RAM; nothing was recorded and nothing changed after a kill. | `MemoryGuardStore` (in-flight marker → abnormal-exit detection + level 0-4 degradation ladder + JSON state + append-only log), `MemoryEstimator` (weights + KV cache + buffers, refuses or reduces context instead of walking into the kill), `MemoryWatchdog` (2s polling during generation, stops the run at critical), `LocalLlmApp` (Application-level `UncaughtExceptionHandler` for `OutOfMemoryError`, `onTrimMemory` recording), Settings card with level, incidents, log viewer and reset. Model loading is marked too, since that is the largest single allocation. |
+
+### Verification (all green)
+- `:engine:test` → **42 tests, 0 failures** (new `SDEngineEndToEndTest`: synthetic gated-expert MoE GGUF → load, deterministic token stream, `shouldStop`, resident-cap rejection, contiguous expert tiles).
+- `:app:testDebugUnitTest` → **78 tests, 0 failures** (new: `LiteRtAcceleratorPolicyTest` 6, `MemoryGuardTest` 8, `MemoryEstimatorTest` 6, `MoeRoutingTest` 5, `LocalTtsEngineTest` 3; `StringResourceParityTest` still passes with the new keys added to both locales).
+- `:app:connectedDebugAndroidTest` → **14 tests, 0 failures**, `:engine:connectedDebugAndroidTest` → **1 test**, both on a freshly created `Pixel_API35(AVD)` (x86_64; the old AVD was gone). The sherpa instrumented test now also pins the `OfflineTts` supertonic bindings, verified present in the pinned AAR via `javap` before writing the code.
+- Emulator shut down after the run.
+
+### Honest limitations (not verified)
+1. The reported OpenCL failure was **not reproduced** (no affected device here): the fix gates and reports it instead. If a device has an OpenCL driver that fails later, the first attempt still fails — it is then remembered and skipped.
+2. supertonic-3-ko synthesis was not exercised with the real 145MB weights (emulator run covers the binding path only). First download + speak on a real device should be treated as the real test.
+3. SDengine end-to-end uses a synthetic MoE GGUF; a real model (e.g. a Qwen3-MoE GGUF) is still the meaningful performance test, and scalar kernels mean it will be slow.
+4. VAD thresholds (900ms silence, 250ms minimum speech, noise floor ×4) are constants chosen by reasoning, not measured on a device with real speech.
+5. `generateWithConfigAndCallback` returning 0 to abort is wired to the stop flag, but the stop latency of the native synthesis path is unmeasured.
+
+### Still open from before
+- v1.5.0 GitHub Release still needs the signed APK and the upload-keystore credentials.
+- Catalog content (`LlmModel` descriptions) is still Korean-only; runtime language switch still does not re-localize strings already on screen; backup transport is still only config-verified.
+
+---
+
+## Device pass — Galaxy S23 FE (SM-S731N, Android 16, arm64-v8a)
+
+The reported issues were finally reproduced/fixed against real hardware over adb (Tailscale `100.69.250.9:43371`). Everything below was observed on the device, not inferred.
+
+### What the device proved (and what it broke)
+
+1. **LiteRT "OpenCL" error — real root cause found.** Load is *not* where it fails: `Backend.GPU()` loads the model fine (`온디바이스 로드 완료 [GPU 가속 (4096 ctx)]`), then the first decode fails because LiteRT-LM's sampler dlopens `libLiteRtTopKOpenClSampler.so`, which is not part of the bundled `litertlm-android` AAR:
+   ```
+   Failed to load OpenCL library with dlopen: library "libvndksupport.so" not found
+   sampler_factory.cc: OpenCL sampler not available, falling back to statically linked C API
+   litertlm.cc: Receive callback OnError: UNKNOWN: Can not find OpenCL library on this device
+   ```
+   **Fix added:** the inference path now detects a driver-related failure on a GPU-backed run with zero tokens emitted, persists `litert_gpu_unavailable`, reloads the same model on CPU, and retries *inside the same request*. Verified live: `LiteRT GPU 샘플러 실패 → CPU 백엔드로 재시도` → `CPU 멀티스레드(6T, 4096 ctx)` reload → answer streamed at 32.5 t/s, with the switch surfaced as a warning banner (not an error).
+2. **TTS crashed the app (would have crashed for the user).** `OfflineTts.generateWithConfigAndCallback` resolves the callback reflectively as `invoke([F)Ljava/lang/Integer;`. A Kotlin lambda is desugared by D8 into `$$ExternalSyntheticLambda0`, which does not expose that method, and the native side aborts the process (`JNI DETECTED ERROR ... NoSuchMethodError`, SIGABRT). **Fix:** an explicit `SampleCallback` class; the required signature was verified in the built dex (`dexdump`) before re-running on device, then verified by a passing on-device test.
+3. **Actual sample rate is 44.1kHz**, not 24kHz as the sherpa docs page suggests. Playback always asks the engine, so audio was already correct; the constant/fallback and the test assertion were corrected.
+4. **Synthesis runs ~1.8x slower than realtime** on this phone (4.3s of audio needed ~8s), so the streaming player can underrun mid-utterance; buffer raised to ~1s and TTS threads to cores (≤6).
+5. **`onTrimMemory` noise bug.** The guard recorded every trim level ≥ 15, so simply backgrounding the app (level 20/40) created fake "memory critical" incidents. Only the running levels (10–15) are memory pressure; fixed and re-verified.
+6. **16KB page-size alignment.** Samsung's compatibility dialog listed the bundled libs. All prebuilt libs were actually already 16KB-aligned, but our own `libsdengine.so` was not; `-Wl,-z,max-page-size=16384` added to the engine CMake and verified (`readelf`: LOAD align 0x4000; `zipalign -c -P 16`: all .so OK).
+7. **AGP uninstalls the app after `connectedAndroidTest`**, which deletes downloaded models. Use `-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true` when the test needs on-device data (learned the hard way: the 145MB TTS model had to be downloaded three times).
+8. **"TTS is not audible" (user report) — audio route, not synthesis.** The local voice played through `USAGE_ASSISTANT`, which Samsung routes to a *separate* volume group: `STREAM_ASSISTANT` was at **2/15** while `STREAM_MUSIC` was at **14/15**, so playback delivered all frames but was effectively silent. Instrumented tests could not catch this (frames were delivered, no error). Fix: `USAGE_MEDIA` + `CONTENT_TYPE_SPEECH` (same stream the system TTS uses). Verified on device: `new player ... usage=USAGE_MEDIA`, audible to the reporter.
+9. **Speaker chip row clipped the 10th voice** on a 393dp-wide screen; chips reduced to 24dp/4dp spacing so all 10 fit, and the orb was lifted further (170dp) so the taller TTS block cannot collide with it.
+10. **Sections did not fit on the phone / hidden behind the system taskbar.** `GScaffold` deliberately does no inset handling ("callers own padding"), and the callers forgot it: the Settings, API server, Model Manager **and ChatDrawer** containers had no `navigationBarsPadding()`, so their last item sat under a 3-button nav bar (the drawer's "설정" entry was untappable). Fixed on all four. The voice screen was restructured from absolutely-positioned stacks (orb centred, controls bottom-aligned) to a column where the orb area takes `weight(1f)` and the control stack is `heightIn(max = 330.dp) + verticalScroll`, so nothing can be clipped on a short screen or with a tall nav bar. Verified by screenshot on the device for the voice screen and the chip row.
+
+### Verified on device
+- Memory guard: abnormal-exit detection (leftover marker → `[ABNORMAL_EXIT] level=1` + persisted state + marker consumed), clean boots afterwards, level reset works, no trim noise after the fix.
+- Local Korean TTS: 7 model files downloaded from HF with exact expected sizes, engine init, synthesis, and playback — `AudioTrack` delivered 190,694 frames of `USAGE_ASSISTANT/CONTENT_TYPE_SPEECH` audio, process healthy.
+- Instrumented suite on the device: **3/3** of `LocalTtsSynthesisInstrumentedTest` (synthesis, streaming player, `VoiceManager.speak()` completion callback), 14/16 of the wider suite earlier (the two failures were my own assertions, now fixed).
+- UI: TTS engine cards + speaker/speed/preview controls and the fixed orb layout confirmed by screenshots.
+
+### Device left in this state
+App installed (debug, latest build). Models on device: SmolLM2-360M GGUF, gemma3-1b-it-int4.litertlm, supertonic-3 TTS voice. `tts_mode=LOCAL_NEURAL`, `litert_gpu_unavailable=true` (so LiteRT starts on CPU; re-enable GPU acceleration in Settings to retry), memory guard level 0 with a clean log.
+
+### Not verified
+- STT end-to-end on device (needs a loaded LLM + someone speaking; the model was never downloaded there).
+- LiteRT with a *working* OpenCL sampler (no device available that ships `libLiteRtTopKOpenClSampler.so`).
+- The LiteRT retry path when tokens have already been emitted (deliberately not retried — the guard only fires with zero tokens to avoid mixing two answers).
+
+
 
 

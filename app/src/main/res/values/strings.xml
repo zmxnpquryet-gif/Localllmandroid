@@ -201,7 +201,7 @@
     <string name="chat_voice_mic_permission_required">Microphone permission is required for voice input.</string>
     <string name="chat_api_banner_active">API mode running (port %1$d) • Tap for API info</string>
     <string name="chat_api_banner_details">Details ></string>
-    <string name="chat_sdengine_banner_prefix">"⚠ SDengine (TEST) — experimental in-house engine. "</string>
+    <string name="chat_sdengine_banner_prefix">"⚠ SDengine (TEST) — experimental in-house engine (MoE only, very slow). "</string>
     <string name="chat_status_details_short">[Details]</string>
     <string name="chat_jump_latest_desc">Jump to latest answer</string>
     <string name="chat_jump_latest">Follow answer</string>
@@ -217,7 +217,7 @@
     <string name="chat_attach_text_only">Text-only model</string>
     <string name="chat_attach_document">Attach Documents &amp; Text Files</string>
     <string name="chat_attach_document_hint">Inject TXT, PDF and code file context</string>
-    <string name="chat_sdengine_unavailable">Experimental in-house engine • Cannot run</string>
+    <string name="chat_sdengine_unavailable">Experimental in-house engine • MoE only, very slow</string>
     <string name="chat_model_download_required">Model download required</string>
     <string name="chat_model_manage">Download &amp; manage models</string>
     <string name="chat_local_models">Local models</string>
@@ -354,8 +354,17 @@
     <string name="voice_state_local_thinking">The local model is thinking...</string>
     <string name="voice_state_speaking_answer">Speaking the answer...</string>
     <string name="voice_state_idle_hint">Tap the center orb to start a conversation</string>
-    <string name="voice_template_section">Korean voice model templates (STT / TTS)</string>
-    <string name="voice_template_updated">%1$s settings updated.</string>
+    <string name="voice_tts_section">Voice output (TTS engine)</string>
+    <string name="voice_tts_system_title">System TTS</string>
+    <string name="voice_tts_system_desc">Uses the device TTS engine (no download)</string>
+    <string name="voice_tts_local_title">Supertonic 3 (local)</string>
+    <string name="voice_tts_local_missing">Tap to install the Korean neural voice (~145MB)</string>
+    <string name="voice_tts_local_ready">Korean neural voice ready (10 speakers)</string>
+    <string name="voice_tts_speaker">Speaker</string>
+    <string name="voice_tts_speed">Speed %1$s</string>
+    <string name="voice_tts_preview">Preview</string>
+    <string name="voice_tts_preview_text">Hello. This is the local Korean neural voice.</string>
+    <string name="voice_stt_delete">Delete</string>
     <string name="voice_mic_desc">Microphone</string>
     <string name="voice_dialogue_start">Start Conversation</string>
     <string name="voice_stt_ondevice">On-device STT (Whisper tiny • multilingual)</string>
@@ -367,4 +376,28 @@
     <string name="voice_stt_failed">Download failed: %1$s</string>
     <string name="voice_stt_retry">Retry (75MB)</string>
     <string name="voice_stt_get">Get (75MB)</string>
+
+    <string name="vm_status_memory_reduced">Previous run ended during inference — memory-heavy settings were lowered (level %1$d)</string>
+    <string name="vm_status_memory_stop">Memory critically low — generation stopped. The next run starts with reduced settings (level %1$d)</string>
+    <string name="vm_status_tts_installed">Local Korean TTS voice installed and selected</string>
+    <string name="vm_status_runtime_override">Runtime for %1$s set to %2$s</string>
+    <string name="vm_desc_imported_moe_sdengine"> • MoE detected → SDengine (TEST) auto-assigned</string>
+
+    <string name="settings_gpu_title">GPU acceleration</string>
+    <string name="settings_gpu_desc">LiteRT GPU (OpenCL) and llama.cpp GPU offload. Skipped automatically when the device has no working OpenCL driver.</string>
+    <string name="settings_memory_title">Memory protection</string>
+    <string name="settings_memory_desc">Detects abnormal ends, records them, and lowers memory-heavy settings on the next run</string>
+    <string name="settings_memory_auto">Automatic reduction</string>
+    <string name="settings_memory_level">Current level: %1$d / %2$d</string>
+    <string name="settings_memory_level_0">No reduction</string>
+    <string name="settings_memory_level_1">MTP disabled</string>
+    <string name="settings_memory_level_2">MTP + KV indexing disabled</string>
+    <string name="settings_memory_level_3">Context window capped at 2048</string>
+    <string name="settings_memory_level_4">Context 1024 + GPU offload disabled</string>
+    <string name="settings_memory_incidents">Recent incidents</string>
+    <string name="settings_memory_no_incidents">No incidents recorded</string>
+    <string name="settings_memory_view_log">View log</string>
+    <string name="settings_memory_log_title">Memory guard log</string>
+    <string name="settings_memory_reset">Reset</string>
+    <string name="settings_memory_close">Close</string>
 </resources>

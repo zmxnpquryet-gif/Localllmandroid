@@ -12,13 +12,13 @@ class UnsupportedArchException(message: String) : Exception(message)
 /**
  * SDengine — first-party MoE-only inference facade (project "끔찍한 일").
  *
- * SCOPE (deliberate): gated-expert Mixture-of-Experts on Android, in C++.
+ * SCOPE (deliberate): gated-expert Mixture-of-Experts on Android, in Kotlin/JVM.
  * Dense-only models, non-MoE hybrids and exotic mixers are OUT:
  *
- * WARNING (TEST BUILD): this engine is an experiment scaffold. It is NOT ready
- * to run real models on-device (scalar reference kernels so far; NEON next).
- * Every entry point logs [ADVISORIES]; the app layer must refuse silent
- * inference and surface these warnings instead.
+ * WARNING (TEST BUILD): this engine is an experiment scaffold. It RUNS, but with
+ * scalar reference kernels (no NEON/GPU yet), so expect single-digit tokens per
+ * second on a real MoE. Every entry point logs [ADVISORIES]; the app layer must
+ * keep these warnings visible next to the output.
  *
  * Today: GGUF metadata + tokenizer + full forward pass with paged MoE experts.
  * Dense (non-expert) weights are decoded resident under a cap; expert tiles stay
@@ -33,13 +33,13 @@ class SDEngine : AutoCloseable {
 
         /**
          * Adhesive warnings. Displayed by every consumer surface (settings card,
-         * chat banner, refusal messages). Keep in sync, keep them loud.
+         * chat banner, load status). Keep in sync, keep them loud.
          */
         val ADVISORIES: List<String> = listOf(
-            "TEST 빌드: SDengine은 실험 단계의 자체 추론엔진입니다.",
-            "실기기 모델 실행을 지원하지 않습니다. K-퀀트 수치 검증과 NEON 커널이 남은 마일스톤입니다.",
-            "이 엔진을 선택해도 추론이 실행되지 않으며, 모든 요청은 경고와 함께 거부됩니다.",
-            "SDengine은 MoE 전용입니다. Dense 전용 모델과 MoE가 아닌 하이브리드는 범위 밖입니다."
+            "TEST 빌드: SDengine은 실험 단계의 자체 추론엔진입니다. 실행은 되지만 출력 품질을 신뢰하지 마세요.",
+            "스칼라 레퍼런스 커널만 구현되어 실기기에서는 매우 느립니다(토큰/초 단위). NEON 커널과 K-퀀트 수치 검증이 남은 마일스톤입니다.",
+            "SDengine은 MoE 전용입니다. Dense 전용 모델과 MoE가 아닌 하이브리드는 범위 밖이며, 로드에 실패하면 llama.cpp로 대체 실행됩니다.",
+            "dense 가중치는 상주 메모리에, expert 타일은 SSD에서 스트리밍됩니다. 상주 한도를 넘는 모델은 로드가 거부됩니다."
         )
 
         /**

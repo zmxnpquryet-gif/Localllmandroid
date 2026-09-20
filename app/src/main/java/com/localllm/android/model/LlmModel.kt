@@ -55,7 +55,12 @@ data class LlmModel(
     val mtpDownloadProgress: Float = 0f,
     val templateDownloadProgress: Float = 0f,
     val downloadEtaSeconds: Int = 0,
-    val hfToken: String? = null
+    val hfToken: String? = null,
+    /**
+     * Set when the user picked the runtime by hand. Auto-detection (MoE GGUF → SDengine)
+     * never overwrites an explicit choice, so nobody gets locked into a runtime.
+     */
+    val runtimeTypeOverrideByUser: Boolean = false
 ) {
     val displaySize: String
         get() {
@@ -275,62 +280,4 @@ object ModelCatalog {
     )
 }
 
-/**
- * Voice model templates (Korean-capable speech STT/TTS)
- */
-data class VoiceModelTemplate(
-    val id: String,
-    val name: String,
-    val type: String, // "STT" or "TTS"
-    val repoId: String,
-    val fileName: String,
-    val sizeText: String,
-    val koreanSupport: Boolean = true,
-    val isInstalled: Boolean = false
-)
-
-object VoiceTemplates {
-    val templates = listOf(
-        VoiceModelTemplate(
-            id = "whisper-tiny-ko",
-            name = "Whisper-Tiny (Korean STT)",
-            type = "STT",
-            repoId = "openai/whisper-tiny",
-            fileName = "ggml-tiny.bin",
-            sizeText = "75 MB",
-            koreanSupport = true,
-            isInstalled = false
-        ),
-        VoiceModelTemplate(
-            id = "whisper-base-ko",
-            name = "Whisper-Base Korean-Tuned",
-            type = "STT",
-            repoId = "whisper-korean/whisper-base-ko",
-            fileName = "ggml-base-ko.bin",
-            sizeText = "142 MB",
-            koreanSupport = true,
-            isInstalled = false
-        ),
-        VoiceModelTemplate(
-            id = "melo-tts-ko",
-            name = "MeloTTS Korean Neural (TTS)",
-            type = "TTS",
-            repoId = "myshell-ai/MeloTTS-Korean",
-            fileName = "melo_tts_ko_fast.onnx",
-            sizeText = "110 MB",
-            koreanSupport = true,
-            isInstalled = false
-        ),
-        VoiceModelTemplate(
-            id = "piper-ko-medium",
-            name = "Piper-TTS Korean Voice (TTS)",
-            type = "TTS",
-            repoId = "rhasspy/piper-voices",
-            fileName = "ko_KR-hyunjun-medium.onnx",
-            sizeText = "63 MB",
-            koreanSupport = true,
-            isInstalled = false
-        )
-    )
-}
 

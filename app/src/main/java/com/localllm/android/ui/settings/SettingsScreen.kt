@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -56,8 +57,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.localllm.android.model.GenerationSettings
 import com.localllm.android.model.ModelRuntimeType
+import com.localllm.android.memory.MemoryGuardStore
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
+
+@Composable
+private fun memoryLevelDescription(level: Int): String = stringResource(
+    when (level) {
+        0 -> R.string.settings_memory_level_0
+        1 -> R.string.settings_memory_level_1
+        2 -> R.string.settings_memory_level_2
+        3 -> R.string.settings_memory_level_3
+        else -> R.string.settings_memory_level_4
+    }
+)
 
 @Composable
 fun SettingsScreen(
@@ -71,8 +84,11 @@ fun SettingsScreen(
     val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsState()
     val apiPort by viewModel.apiServerPort.collectAsState()
     val localIpAddress by viewModel.localIpAddress.collectAsState()
+    val memoryGuardState by viewModel.memoryGuardState.collectAsState()
 
     var showClearDialog by remember { mutableStateOf(false) }
+    var showMemoryLog by remember { mutableStateOf(false) }
+    var memoryLogText by remember { mutableStateOf("") }
     var mcpUrlInput by remember { mutableStateOf(settings.mcpServerUrl) }
     var systemPromptInput by remember { mutableStateOf(settings.systemPrompt) }
     var hfTokenInput by remember { mutableStateOf(settings.hfToken) }
@@ -102,6 +118,8 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
+                    // Keeps the last card above the system taskbar / 3-button nav bar.
+                    .navigationBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -203,6 +221,115 @@ fun SettingsScreen(
                         onCheckedChange = { viewModel.updateSettings(settings.copy(showPerformanceMetrics = it)) }
                     )
                 }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        GText(stringResource(R.string.settings_gpu_title), style = GlassTheme.type.bodyMedium)
+                        GText(stringResource(R.string.settings_gpu_desc), fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
+                    }
+                    GSwitch(
+                        checked = settings.enableGpuAcceleration,
+                        onCheckedChange = { viewModel.updateSettings(settings.copy(enableGpuAcceleration = it)) }
+                    )
+                }
+            }
+
+            // 2b. Memory protection (abnormal-exit detection + automatic reduction)
+            SettingsCard(
+                title = stringResource(R.string.settings_memory_title),
+                icon = GIcons.Info
+            ) {
+                GText(
+                    text = stringResource(R.string.settings_memory_desc),
+                    style = GlassTheme.type.bodySmall,
+                    color = GlassTheme.colors.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        GText(
+                            text = stringResource(
+                                R.string.settings_memory_level,
+                                memoryGuardState.level,
+                                MemoryGuardStore.MAX_LEVEL
+                            ),
+                            style = GlassTheme.type.bodyMedium
+                        )
+                        GText(
+                            text = memoryLevelDescription(memoryGuardState.level),
+                            fontSize = 12.sp,
+                            color = GlassTheme.colors.onSurfaceVariant
+                        )
+                    }
+                    GSwitch(
+                        checked = memoryGuardState.enabled,
+                        onCheckedChange = { viewModel.setMemoryGuardEnabled(it) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                GText(stringResource(R.string.settings_memory_incidents), style = GlassTheme.type.bodyMedium)
+                val incidents = memoryGuardState.incidents
+                if (incidents.isEmpty()) {
+                    GText(
+                        text = stringResource(R.string.settings_memory_no_incidents),
+                        fontSize = 12.sp,
+                        color = GlassTheme.colors.onSurfaceVariant
+                    )
+                } else {
+                    incidents.takeLast(3).reversed().forEach { incident ->
+                        GText(
+                            text = "• ${incident.cause} — ${incident.detail}",
+                            fontSize = 11.sp,
+                            color = GlassTheme.colors.onSurfaceVariant,
+                            maxLines = 2
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    GTextButton(onClick = {
+                        memoryLogText = viewModel.memoryGuardLog().ifBlank { "—" }
+                        showMemoryLog = true
+                    }) {
+                        GText(stringResource(R.string.settings_memory_view_log), color = GlassTheme.colors.primary)
+                    }
+                    GTextButton(onClick = { viewModel.resetMemoryGuard() }) {
+                        GText(stringResource(R.string.settings_memory_reset), color = GlassTheme.colors.primary)
+                    }
+                }
+            }
+
+            if (showMemoryLog) {
+                GDialog(
+                    onDismissRequest = { showMemoryLog = false },
+                    title = { GText(stringResource(R.string.settings_memory_log_title), style = GlassTheme.type.titleSmall) },
+                    text = {
+                        Column(
+                            modifier = Modifier
+                                .height(320.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            GText(text = memoryLogText, fontSize = 11.sp, color = GlassTheme.colors.onSurfaceVariant)
+                        }
+                    },
+                    confirmButton = {
+                        GTextButton(onClick = { showMemoryLog = false }) {
+                            GText(stringResource(R.string.settings_memory_close), color = GlassTheme.colors.primary)
+                        }
+                    }
+                )
             }
 
             // 3. Generation Hyperparameters (Context 4096 default, Temp, Top-P, Top-K)

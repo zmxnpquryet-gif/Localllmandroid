@@ -1,10 +1,13 @@
 ﻿package com.localllm.android.engine
 
-import android.app.ActivityManager
 import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.localllm.android.memory.MemoryEstimator
+import com.localllm.android.memory.MemoryGuard
+import com.localllm.android.memory.MemoryGuardStore
+import com.localllm.android.memory.MemorySnapshot
 import com.localllm.android.model.ChatAttachment
 import com.localllm.android.model.GenerationSettings
 import com.localllm.android.model.LlmModel
@@ -18,6 +21,8 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.localllm.engine.SDEngine
+import com.localllm.engine.SampleConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -55,6 +60,15 @@ data class GenerationChunk(
  */
 class LlmEngine(private val context: Context) {
 
+    companion object {
+        /**
+         * Persisted after a driver-level GPU failure (OpenCL missing/broken). Keeping the
+         * GPU candidate in the list would make every load pay for the same failing native
+         * init; the user re-enabling GPU acceleration in settings clears it.
+         */
+        const val KEY_LITERT_GPU_UNAVAILABLE = "litert_gpu_unavailable"
+    }
+
     private val tag = "LlmEngine"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -64,6 +78,35 @@ class LlmEngine(private val context: Context) {
 
     private var litertEngine: Engine? = null
     private var litertConversation: Conversation? = null
+
+    private var sdEngine: SDEngine? = null
+
+    @Volatile
+    private var sdStopRequested = false
+    private var activeSdJob: Job? = null
+
+    /**
+     * Backend the LiteRT engine was actually loaded with, e.g. "GPU 가속 (4096 ctx)".
+     * LiteRT-LM's GPU path can load a model and still fail at sampling time when the
+     * separate `libLiteRtTopKOpenClSampler.so` is missing from the bundle (reproduced on
+     * a Galaxy S23 FE: "Can not find OpenCL library on this device"), so the inference
+     * path needs to know whether the failing run was GPU-backed.
+     */
+    @Volatile
+    private var litertBackendName = ""
+
+    @Volatile
+    private var backendNote: String? = null
+
+    /** One-shot note about an automatic backend switch, for the status banner. */
+    fun consumeBackendNote(): String? {
+        val note = backendNote
+        backendNote = null
+        return note
+    }
+
+    private class LiteRtGpuUnavailableException(reason: String) :
+        IllegalStateException("LiteRT GPU sampler unavailable: $reason")
 
     /**
      * Serializes all inference and model-swap operations. The native runtimes expose
@@ -98,56 +141,41 @@ class LlmEngine(private val context: Context) {
         } ?: throw IllegalStateException("모델 파일 디스크립터를 열 수 없습니다: ${file.path}")
     }
 
-    data class MemoryDiagnosticInfo(
-        val availMemMb: Long,
-        val totalMemMb: Long,
-        val modelSizeMb: Long,
-        val isLowMemory: Boolean,
-        val isCriticallyLow: Boolean
-    )
-
-    private fun checkMemoryDiagnostics(modelFile: File): MemoryDiagnosticInfo {
-        return try {
-            val actManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            val memInfo = ActivityManager.MemoryInfo()
-            actManager?.getMemoryInfo(memInfo)
-            val availMemMb = memInfo.availMem / (1024 * 1024)
-            val totalMemMb = memInfo.totalMem / (1024 * 1024)
-            val modelSizeMb = modelFile.length() / (1024 * 1024)
-            val isCriticallyLow = memInfo.lowMemory || (availMemMb < 150)
-            Log.i(tag, "메모리 진단: 가용 RAM=${availMemMb}MB / 전체 RAM=${totalMemMb}MB, 모델 크기=${modelSizeMb}MB, 저메모리 상태=${memInfo.lowMemory}")
-
-            if (modelSizeMb > availMemMb) {
-                Log.w(tag, "경고: 모델 크기(${modelSizeMb}MB)가 가용 메모리(${availMemMb}MB)를 초과하여 OOM 위험이 있습니다.")
-            }
-            MemoryDiagnosticInfo(availMemMb, totalMemMb, modelSizeMb, memInfo.lowMemory, isCriticallyLow)
-        } catch (e: Throwable) {
-            Log.w(tag, "메모리 진단 정보 조회 실패: ${e.message}")
-            MemoryDiagnosticInfo(availMemMb = 2048, totalMemMb = 4096, modelSizeMb = modelFile.length() / (1024 * 1024), isLowMemory = false, isCriticallyLow = false)
-        }
+    private val settingsPrefs by lazy {
+        context.getSharedPreferences("app_settings_prefs", Context.MODE_PRIVATE)
     }
 
     /**
-     * Loads a model into memory from local disk (LiteRT or llama.cpp GGUF).
+     * Footprint estimate taken before the weights are mapped: the GGUF weights
+     * (mmap) plus the KV cache plus compute buffers. The old check compared the
+     * file size with available RAM, which ignored the KV cache entirely.
+     */
+    private fun memoryDecision(
+        modelFile: File,
+        requestedContextWindow: Int
+    ): Pair<MemorySnapshot, MemoryEstimator.Decision?> {
+        val snapshot = memorySnapshot()
+        val estimate = MemoryEstimator.estimate(modelFile, requestedContextWindow)
+        return snapshot to estimate?.let { MemoryEstimator.decide(it, snapshot, requestedContextWindow) }
+    }
+
+    private fun memorySnapshot(): MemorySnapshot = MemorySnapshot.read(context)
+
+    /**
+     * Loads a model into memory from local disk (LiteRT, llama.cpp GGUF or SDengine).
      *
      * Holds [inferenceMutex] for the whole swap so a generation can never run
      * against a half-released native context.
      *
-     * SDengine gate: the first-party engine is TEST-stage and cannot run models
-     * on-device yet. Selecting it unloads everything and refuses loudly instead
-     * of silently falling back to another backend.
+     * SDengine loads run through the first-party MoE runtime and keep their TEST
+     * advisories attached to the status message. A failed SDengine load retries
+     * once through llama.cpp instead of leaving the user without a working model.
      */
     suspend fun loadModel(
         model: LlmModel?,
         settings: GenerationSettings,
         onStageUpdate: ((stage: String, progress: Float) -> Unit)? = null
     ): String {
-        if (settings.runtime == ModelRuntimeType.SD_ENGINE) {
-            release()
-            onStageUpdate?.invoke("SDengine (TEST)", 0f)
-            return com.localllm.engine.SDEngine.advisoryText() +
-                    " 모델 로드가 거부되었습니다. llama.cpp 또는 LiteRT LM을 선택하세요."
-        }
         inferenceMutex.lock()
         try {
             return withContext(Dispatchers.IO) {
@@ -200,18 +228,39 @@ class LlmEngine(private val context: Context) {
             return@withContext "모델 파일이 디스크에 존재하지 않거나 빈 파일입니다: ${modelFile.name}"
         }
 
-        val memDiag = checkMemoryDiagnostics(modelFile)
-        if (memDiag.isCriticallyLow && memDiag.modelSizeMb > memDiag.availMemMb * 1.5) {
-            unloadCurrentModel()
-            onStageUpdate?.invoke("가용 메모리 부족", 0f)
-            return@withContext "기기 가용 RAM(${memDiag.availMemMb}MB)이 극도로 부족하여 ${memDiag.modelSizeMb}MB 모델 로드를 중단했습니다. 백그라운드 앱을 정리하거나 더 작은 양자화 모델을 선택하세요."
+        var effectiveContext = settings.contextWindow
+        val (snapshot, decision) = memoryDecision(modelFile, settings.contextWindow)
+        if (decision?.estimate != null) {
+            Log.i(
+                tag,
+                "메모리 추정: 필요=${decision.estimate.totalMb()}MB (가중치=${decision.estimate.fileBytes / MemorySnapshot.MB}MB, " +
+                        "KV=${decision.estimate.kvBytes / MemorySnapshot.MB}MB), 가용=${snapshot.availMb}MB/${snapshot.totalMb}MB, 판정=${decision.status}"
+            )
         }
-
-        if (memDiag.modelSizeMb > memDiag.availMemMb) {
-            onStageUpdate?.invoke("메모리 경고: 가용(${memDiag.availMemMb}MB) < 모델(${memDiag.modelSizeMb}MB)", 0.10f)
-        } else {
-            onStageUpdate?.invoke("모델 무결성 검증 중...", 0.10f)
+        when (decision?.status) {
+            MemoryEstimator.Status.REFUSED -> {
+                unloadCurrentModel()
+                onStageUpdate?.invoke("가용 메모리 부족", 0f)
+                MemoryGuard.get()?.record(
+                    cause = MemoryGuardStore.Cause.LOAD_REFUSED,
+                    detail = "${modelFile.name}: ${decision.reason}",
+                    modelName = model.name
+                )
+                return@withContext "가용 메모리 부족: ${model.name} 로드에 약 ${decision.estimate?.totalMb()}MB가 필요하지만 " +
+                        "가용 RAM이 ${snapshot.availMb}MB입니다. 백그라운드 앱을 정리하거나 더 작은 양자화 모델을 선택하세요."
+            }
+            MemoryEstimator.Status.REDUCED -> {
+                effectiveContext = decision.effectiveContextWindow
+                onStageUpdate?.invoke(
+                    "메모리 보호: 컨텍스트 ${settings.contextWindow} → $effectiveContext 자동 하향 (${decision.reason})",
+                    0.10f
+                )
+                Log.w(tag, "컨텍스트 자동 하향: ${decision.reason}")
+            }
+            else -> onStageUpdate?.invoke("모델 무결성 검증 중...", 0.10f)
         }
+        val effectiveSettings =
+            if (effectiveContext == settings.contextWindow) settings else settings.copy(contextWindow = effectiveContext)
 
         // Branch by runtime type
         if (model.runtimeType == ModelRuntimeType.LITE_RT) {
@@ -252,125 +301,99 @@ class LlmEngine(private val context: Context) {
 
             val cacheDir = context.cacheDir.absolutePath
             val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
-            val maxTokens = settings.contextWindow.coerceIn(512, 8192)
+            val maxTokens = effectiveSettings.contextWindow.coerceIn(512, 8192)
 
-            val configsToTry = mutableListOf<Pair<String, EngineConfig>>()
+            val nativeLibDir = context.applicationInfo.nativeLibraryDir
+            val hasOpenCl = LiteRtAcceleratorPolicy.hasOpenClDriver()
+            val gpuPreviouslyFailed = settingsPrefs.getBoolean(KEY_LITERT_GPU_UNAVAILABLE, false)
+            val gpuAllowed = effectiveSettings.enableGpuAcceleration && hasOpenCl && !gpuPreviouslyFailed
+            when {
+                !effectiveSettings.enableGpuAcceleration ->
+                    Log.i(tag, "GPU 가속이 설정에서 꺼져 있어 CPU 백엔드로 시작합니다.")
+                gpuPreviouslyFailed ->
+                    onStageUpdate?.invoke("이전 GPU 초기화 실패 기록 → CPU로 시작", 0.30f)
+                !hasOpenCl ->
+                    onStageUpdate?.invoke("OpenCL 드라이버 없음 → GPU 건너뜀", 0.30f)
+            }
 
-            // 1. Hardware acceleration candidates (GPU / NPU)
-            if (settings.enableGpuAcceleration) {
-                if (model.hasMmproj) {
-                    configsToTry.add(
-                        "GPU 가속 (비전 연동)" to EngineConfig(
-                            modelPath = modelFile.absolutePath,
-                            backend = Backend.GPU(),
-                            visionBackend = Backend.GPU(),
-                            maxNumTokens = maxTokens,
-                            cacheDir = cacheDir
-                        )
-                    )
-                }
+            val candidates = LiteRtAcceleratorPolicy.buildCandidates(
+                gpuAllowed = gpuAllowed,
+                hasOpenCl = hasOpenCl,
+                hasNpu = LiteRtAcceleratorPolicy.hasNpuSupport(nativeLibDir),
+                hasVision = model.hasMmproj,
+                maxTokens = maxTokens,
+                threadCount = threadCount
+            )
 
-                configsToTry.add(
-                    "GPU 가속 (${maxTokens} ctx)" to EngineConfig(
-                        modelPath = modelFile.absolutePath,
-                        backend = Backend.GPU(),
-                        visionBackend = null,
-                        maxNumTokens = maxTokens,
-                        cacheDir = cacheDir
-                    )
-                )
+            fun backendOf(candidate: LiteRtAcceleratorPolicy.Candidate) = when (candidate.kind) {
+                LiteRtAcceleratorPolicy.Kind.GPU -> Backend.GPU()
+                LiteRtAcceleratorPolicy.Kind.NPU -> Backend.NPU(nativeLibDir)
+                LiteRtAcceleratorPolicy.Kind.CPU ->
+                    if (candidate.maxNumTokens == null && !candidate.useCacheDir) Backend.CPU()
+                    else Backend.CPU(threadCount = candidate.threadCount, numOfThreads = candidate.threadCount)
+            }
 
-                val nativeLibDir = context.applicationInfo.nativeLibraryDir
-                configsToTry.add(
-                    "NPU 가속 (${maxTokens} ctx)" to EngineConfig(
-                        modelPath = modelFile.absolutePath,
-                        backend = Backend.NPU(nativeLibDir),
-                        visionBackend = null,
-                        maxNumTokens = maxTokens,
-                        cacheDir = cacheDir
-                    )
+            val configsToTry = candidates.map { candidate ->
+                candidate.label to EngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = backendOf(candidate),
+                    visionBackend = if (candidate.withVision) backendOf(candidate) else null,
+                    maxNumTokens = candidate.maxNumTokens,
+                    cacheDir = if (candidate.useCacheDir) cacheDir else null
                 )
             }
 
-            // 2. Multithread CPU with vision
-            if (model.hasMmproj) {
-                configsToTry.add(
-                    "CPU 멀티스레드(${threadCount}T, 비전 연동)" to EngineConfig(
-                        modelPath = modelFile.absolutePath,
-                        backend = Backend.CPU(threadCount = threadCount, numOfThreads = threadCount),
-                        visionBackend = Backend.CPU(threadCount = threadCount, numOfThreads = threadCount),
-                        maxNumTokens = maxTokens,
-                        cacheDir = cacheDir
-                    )
-                )
-            }
-
-            // 3. Multithread CPU standard text decoder
-            configsToTry.add(
-                "CPU 멀티스레드(${threadCount}T, ${maxTokens} ctx)" to EngineConfig(
-                    modelPath = modelFile.absolutePath,
-                    backend = Backend.CPU(threadCount = threadCount, numOfThreads = threadCount),
-                    visionBackend = null,
-                    maxNumTokens = maxTokens,
-                    cacheDir = cacheDir
-                )
-            )
-
-            // 4. Pure CPU with native model context (maxNumTokens = null)
-            configsToTry.add(
-                "CPU 기본 컨텍스트(${threadCount}T)" to EngineConfig(
-                    modelPath = modelFile.absolutePath,
-                    backend = Backend.CPU(threadCount = threadCount, numOfThreads = threadCount),
-                    visionBackend = null,
-                    maxNumTokens = null,
-                    cacheDir = null
-                )
-            )
-
-            // 5. CPU default fallback
-            configsToTry.add(
-                "CPU 기본 백엔드" to EngineConfig(
-                    modelPath = modelFile.absolutePath,
-                    backend = Backend.CPU(),
-                    visionBackend = null,
-                    maxNumTokens = null,
-                    cacheDir = null
-                )
-            )
-
-            var lastError: Throwable? = null
             var successEngine: Engine? = null
             var successConv: Conversation? = null
             var usedBackendName = ""
+            val failures = mutableListOf<Pair<String, String>>()
 
             for ((backendName, config) in configsToTry) {
+                var attempt: Engine? = null
                 try {
                     onStageUpdate?.invoke("LiteRT $backendName 초기화 중...", 0.45f)
-                    val engine = Engine(config)
+                    attempt = Engine(config)
                     onStageUpdate?.invoke("LiteRT 가중치 매핑 및 모델 초기화...", 0.70f)
-                    engine.initialize()
+                    attempt.initialize()
 
-                    val conv = createConfiguredConversation(engine, settings)
+                    val conv = createConfiguredConversation(attempt, effectiveSettings)
 
-                    successEngine = engine
+                    successEngine = attempt
                     successConv = conv
                     usedBackendName = backendName
                     break
                 } catch (t: Throwable) {
-                    Log.w(tag, "LiteRT init failed with $backendName: ${t.message}", t)
-                    lastError = t
+                    val reason = (t.localizedMessage ?: t.message ?: t.javaClass.simpleName).take(160)
+                    failures.add(backendName to reason)
+                    Log.w(tag, "LiteRT init failed with $backendName: $reason", t)
+                    try {
+                        attempt?.close()
+                    } catch (_: Throwable) {
+                    }
+                    val gpuCandidate = configsToTry.firstOrNull { it.first == backendName } != null &&
+                            backendName.contains("GPU")
+                    if (gpuCandidate && LiteRtAcceleratorPolicy.isDriverRelatedFailure(reason)) {
+                        settingsPrefs.edit().putBoolean(KEY_LITERT_GPU_UNAVAILABLE, true).apply()
+                        Log.w(tag, "GPU/OpenCL 실패를 기록했습니다. 다음 로드부터는 GPU를 건너뜁니다: $reason")
+                    }
                 }
             }
 
             if (successEngine == null || successConv == null) {
                 unloadCurrentModel()
                 onStageUpdate?.invoke("LiteRT 초기화 실패", 0f)
-                val errMsg = lastError?.localizedMessage ?: lastError?.message ?: "알 수 없는 오류"
-                return@withContext "LiteRT LM 엔진 초기화 오류: $errMsg"
+                val summary = failures.joinToString(" | ") { "${it.first}: ${it.second}" }.ifBlank { "알 수 없는 오류" }
+                MemoryGuard.get()?.record(
+                    cause = MemoryGuardStore.Cause.LOAD_REFUSED,
+                    detail = summary.take(400),
+                    modelName = model.name
+                )
+                return@withContext "LiteRT LM 엔진 초기화 오류: $summary"
             }
 
             litertEngine = successEngine
             litertConversation = successConv
+            litertBackendName = usedBackendName
             activeModel = model
             isModelLoaded = true
             isVisionTowerLoaded = usedBackendName.contains("비전 연동")
@@ -378,7 +401,10 @@ class LlmEngine(private val context: Context) {
             val visionMsg = if (isVisionTowerLoaded) " + 통합 올인원 비전타워" else ""
             val drafterMsg = if (model.supportsMtp) " + 통합 드래프터" else ""
             val templateMsg = if (model.localTemplatePath != null) " (Jinja 템플릿 적용)" else ""
-            val resultMsg = "[LiteRT LM] ${model.name} 온디바이스 로드 완료 [$usedBackendName]$visionMsg$drafterMsg$templateMsg"
+            val fallbackNote = failures.firstOrNull { it.first.contains("GPU") }
+                ?.let { " · GPU/OpenCL 초기화 실패 → CPU 대체 실행 (${it.second})" }
+                ?: ""
+            val resultMsg = "[LiteRT LM] ${model.name} 온디바이스 로드 완료 [$usedBackendName]$visionMsg$drafterMsg$templateMsg$fallbackNote"
             Log.i(tag, resultMsg)
             onStageUpdate?.invoke("로드 완료", 1.0f)
             return@withContext resultMsg
@@ -421,6 +447,44 @@ class LlmEngine(private val context: Context) {
             return@withContext "모델 파일 형식 오류: $errorReason"
         }
 
+        if (effectiveSettings.runtime == ModelRuntimeType.SD_ENGINE) {
+            unloadCurrentModel()
+            onStageUpdate?.invoke("SDengine(TEST) 가중치 바인딩 중...", 0.30f)
+            val guard = MemoryGuard.get()
+            val availMb = memorySnapshot().availMb.takeIf { it > 0 } ?: 2048L
+            val residentCap = minOf((availMb * 0.4).toLong() * MemorySnapshot.MB, 3L * 1024L * 1024L * 1024L)
+            try {
+                val engine = SDEngine()
+                val info = engine.openModel(modelFile, residentCapBytes = residentCap)
+                sdEngine = engine
+                activeModel = model
+                isModelLoaded = true
+                isVisionTowerLoaded = false
+                val resultMsg = "[SDengine][TEST] ${model.name} 로드 완료 (layers=${info.nLayers}, experts=${info.nExperts}, " +
+                        "resident=${engine.residentBytes() / MemorySnapshot.MB}MB, tensors=${info.tensorCount}) · " +
+                        SDEngine.advisoryText()
+                Log.i(tag, resultMsg)
+                onStageUpdate?.invoke("로드 완료", 1.0f)
+                return@withContext resultMsg
+            } catch (t: Throwable) {
+                unloadCurrentModel()
+                val reason = (t.localizedMessage ?: t.message ?: t.javaClass.simpleName).take(200)
+                Log.e(tag, "SDengine 로드 실패: $reason", t)
+                guard?.record(
+                    cause = MemoryGuardStore.Cause.MANUAL,
+                    detail = "SDengine load failed: $reason",
+                    modelName = model.name
+                )
+                onStageUpdate?.invoke("SDengine 로드 실패 → llama.cpp 대체 실행", 0.30f)
+                val fallbackStatus = loadModelLocked(
+                    model,
+                    effectiveSettings.copy(runtime = ModelRuntimeType.LLAMA_CPP),
+                    onStageUpdate
+                )
+                return@withContext "SDengine 로드 실패($reason) — llama.cpp 대체 실행. $fallbackStatus"
+            }
+        }
+
         // Check mmproj if present (support external mmproj file only)
         val mmprojPath = if (model.hasMmproj) {
             val externalFile = if (!model.localMmprojPath.isNullOrBlank()) {
@@ -440,9 +504,9 @@ class LlmEngine(private val context: Context) {
 
         onStageUpdate?.invoke("llama.cpp 네이티브 컨텍스트 생성 중...", 0.35f)
 
-        val contextWindow = settings.contextWindow.coerceIn(512, 16384)
+        val contextWindow = effectiveSettings.contextWindow.coerceIn(512, 16384)
         val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
-        val targetGpuLayers = if (settings.enableGpuAcceleration) settings.gpuLayers.coerceIn(0, 99) else 0
+        val targetGpuLayers = if (effectiveSettings.enableGpuAcceleration) effectiveSettings.gpuLayers.coerceIn(0, 99) else 0
 
         val tokenCallback: (String) -> Unit = { token ->
             onTokenGenerated?.invoke(token)
@@ -591,6 +655,16 @@ class LlmEngine(private val context: Context) {
         }
         litertEngine = null
         litertConversation = null
+        litertBackendName = ""
+
+        try {
+            sdEngine?.close()
+        } catch (e: Throwable) {
+            Log.w(tag, "Error releasing SDengine: ${e.message}")
+        }
+        sdEngine = null
+        sdStopRequested = false
+        activeSdJob = null
 
         activeModel = null
         isModelLoaded = false
@@ -619,16 +693,31 @@ class LlmEngine(private val context: Context) {
         mcpToolsContext: String? = null,
         numPredictOverride: Int? = null
     ): Flow<GenerationChunk> = flow {
-        if (settings.runtime == ModelRuntimeType.SD_ENGINE) {
-            throw IllegalStateException(
-                com.localllm.engine.SDEngine.advisoryText() + " 추론 요청이 거부되었습니다."
-            )
-        }
         if (!inferenceMutex.tryLock()) {
             throw IllegalStateException("BUSY_INFERENCE: 다른 추론 요청이 진행 중입니다. 잠시 후 다시 시도하세요.")
         }
         try {
-            emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride))
+            try {
+                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride))
+            } catch (gpuFailure: LiteRtGpuUnavailableException) {
+                // The GPU backend can load a model and still fail at sampling (the OpenCL
+                // sampler library is not part of the bundled AAR). Remember the failure for
+                // the next load and finish *this* request on the CPU backend instead of
+                // handing the user a dead-end error.
+                val model = activeModel
+                if (model == null) throw gpuFailure
+                Log.w(tag, "LiteRT GPU 샘플러 실패 → CPU 백엔드로 재시도: ${gpuFailure.message}")
+                settingsPrefs.edit().putBoolean(KEY_LITERT_GPU_UNAVAILABLE, true).apply()
+                val reloadStatus = loadModelLocked(
+                    model,
+                    settings.copy(enableGpuAcceleration = false, gpuLayers = 0),
+                    null
+                )
+                Log.i(tag, "CPU 백엔드 재로드: $reloadStatus")
+                backendNote = "LiteRT GPU(OpenCL) 샘플러를 사용할 수 없어 CPU 백엔드로 전환했습니다. " +
+                        "다음 실행부터는 GPU를 건너뜁니다 (설정에서 GPU 가속을 다시 켜면 재시도)."
+                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride))
+            }
         } finally {
             clearActiveInferenceState()
             inferenceMutex.unlock()
@@ -687,6 +776,84 @@ class LlmEngine(private val context: Context) {
         var totalTokens = 0
 
         val reasoningParser = ReasoningStreamParser()
+
+        if (settings.runtime == ModelRuntimeType.SD_ENGINE && sdEngine != null) {
+            val engine = sdEngine
+                ?: throw IllegalStateException("SDengine이 준비되지 않았습니다.")
+            val maxNewTokens = numPredictOverride?.coerceIn(1, 16384) ?: 256
+            sdStopRequested = false
+            val tokenChannel = Channel<String>(Channel.UNLIMITED)
+            val worker = scope.launch(Dispatchers.IO) {
+                try {
+                    val stats = engine.generate(
+                        prompt = formattedPrompt,
+                        maxTokens = maxNewTokens,
+                        sample = SampleConfig(
+                            temperature = settings.temperature,
+                            topK = settings.topK,
+                            topP = settings.topP,
+                            seed = 0L
+                        ),
+                        shouldStop = { sdStopRequested },
+                        onToken = { tokenChannel.trySend(it) }
+                    )
+                    Log.i(
+                        tag,
+                        "SDengine 생성 완료: ${stats.generatedTokens}토큰 / ${stats.ms}ms " +
+                                "(stopped=${stats.stopped}, expertHits=${stats.expertHits}, " +
+                                "streamed=${stats.expertBytesStreamed / (1024 * 1024)}MB)"
+                    )
+                } catch (t: Throwable) {
+                    Log.e(tag, "SDengine 추론 오류", t)
+                } finally {
+                    tokenChannel.close()
+                }
+            }
+            activeSdJob = worker
+            try {
+                for (rawWord in tokenChannel) {
+                    if (firstTokenTime == null) firstTokenTime = System.currentTimeMillis()
+                    totalTokens++
+                    val now = System.currentTimeMillis()
+                    val elapsedSec = ((now - (firstTokenTime ?: now)) / 1000f).coerceAtLeast(0.001f)
+                    reasoningParser.processChunk(rawWord)
+                    emit(
+                        GenerationChunk(
+                            token = rawWord,
+                            isReasoning = reasoningParser.isInReasoningMode,
+                            currentReasoningText = reasoningParser.reasoningBuffer.toString(),
+                            currentContentText = reasoningParser.contentBuffer.toString(),
+                            tps = totalTokens / elapsedSec,
+                            promptSpeed = 0f,
+                            totalTokens = totalTokens,
+                            isComplete = false
+                        )
+                    )
+                }
+                reasoningParser.finish()
+                val finalElapsedSec =
+                    ((System.currentTimeMillis() - (firstTokenTime ?: startTime)) / 1000f).coerceAtLeast(0.001f)
+                emit(
+                    GenerationChunk(
+                        token = "",
+                        isReasoning = false,
+                        currentReasoningText = reasoningParser.reasoningBuffer.toString(),
+                        currentContentText = reasoningParser.contentBuffer.toString(),
+                        tps = if (totalTokens > 0) totalTokens / finalElapsedSec else 0f,
+                        promptSpeed = 0f,
+                        totalTokens = totalTokens,
+                        isComplete = true
+                    )
+                )
+            } finally {
+                if (activeSdJob === worker) activeSdJob = null
+                // A blocking generate() cannot be interrupted by cancel(): ask the
+                // decode loop to stop so the worker thread does not keep decoding.
+                sdStopRequested = true
+                worker.cancel()
+            }
+            return@flow
+        }
 
         if (model.runtimeType == ModelRuntimeType.LITE_RT) {
             // Fresh conversation per request: the app always passes the full formatted
@@ -818,7 +985,14 @@ class LlmEngine(private val context: Context) {
                     )
                 )
             } catch (e: Throwable) {
+                val reason = e.localizedMessage ?: e.message
                 Log.e(tag, "LiteRT inference error", e)
+                if (totalTokens == 0 &&
+                    litertBackendName.contains("GPU") &&
+                    LiteRtAcceleratorPolicy.isDriverRelatedFailure(reason)
+                ) {
+                    throw LiteRtGpuUnavailableException(reason ?: "unknown")
+                }
                 throw RuntimeException("LiteRT 추론 오류: ${e.localizedMessage ?: e.message}")
             } finally {
                 if (activeLitertConversation === conv) activeLitertConversation = null
@@ -953,6 +1127,7 @@ class LlmEngine(private val context: Context) {
      * native loop, leaving CPU/GPU work running in the background.
      */
     fun stopGeneration() {
+        sdStopRequested = true
         try {
             activeLitertConversation?.cancelProcess()
         } catch (e: Throwable) {
