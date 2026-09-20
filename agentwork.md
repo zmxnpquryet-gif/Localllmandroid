@@ -166,18 +166,22 @@ Verified: `compileDebugKotlin` + `compileDebugUnitTestKotlin` green, `testDebugU
 - Instrumented: `ChatCryptoInstrumentedTest`, `ChatRepositoryInstrumentedTest`, `SherpaNativeLibInstrumentedTest`.
 
 ### Pending — needs the project owner
-1. **Publish the v1.5.0 release with the signed APK.** Create `C:\Users\user\Downloads\Localllmandroid\keystore.properties` (gitignored) with the real upload-key values, then:
-   ```properties
-   storeFile=my-upload-key.jks
-   storePassword=<real store password>
-   keyAlias=upload
-   keyPassword=<real key password>
-   ```
-   Then `gradlew assembleRelease` → `app/build/outputs/apk/release/app-release.apk` → attach to a `v1.5.0` GitHub Release. (Release builds are never debug-signed.)
-2. **SDengine verdict: NOT settled — keep the warnings.** Evidence: `LlmEngine.loadModel` returns a refusal for `SD_ENGINE` (LlmEngine.kt:145) and `streamGenerate` throws (LlmEngine.kt:622); there is no end-to-end generation test (`RealModelTest` only opens the model); `SDBrandingTest` pins `STAGE == "TEST"` and the advisory text. To settle it: wire SDengine into `LlmEngine` as a real runtime and add an end-to-end generation test over a real MoE GGUF; then the app-side banners can come down.
+1. ~~**Publish the v1.5.0 release with the signed APK.**~~ **Resolved differently:** the v1.5.0 tag was never released, and the upload key's password could not be found anywhere on the machine (searched agent logs, notes, git history, PowerShell history; a small dictionary against the JKS also failed; CI only builds debug). With the owner's approval the signing key was **rotated** — see "Signing key rotation" below — and **v1.5.1 (17) is published** with a signed `app-release.apk`.
+2. **SDengine verdict: settled in favour of running it.** The two gates are gone, generation is wired (`SDEngineEndToEndTest` covers load/stream/cancel/cap over a synthetic MoE GGUF), MoE GGUFs are auto-routed, and the advisories were rewritten to describe the real state (TEST, MoE-only, scalar kernels = slow). Warnings stay intentionally.
 3. `LlmModel`/`ModelCatalog` model names and descriptions are still Korean — that is catalog *content* and needs translation, not string extraction.
 4. Status text already on screen is not re-localized when the language changes at runtime (snapshot strings in `MainViewModel`).
 5. Backup *transport* behaviour is still only verified at the config level (`BackupRulesTest`), not by a real device restore.
+
+### Signing key rotation (2026-09-20)
+
+- `my-upload-key.jks` (used for v1.4.0 and earlier) is **unusable**: its store/key password is not recorded anywhere on this machine. The file is kept for the record only.
+- A new upload key was generated: **`my-upload-key-v2.jks`**, alias `upload`, RSA 2048, 10000 days.
+  Certificate `CN=Localllmandroid Upload Key, O=Localllmandroid, C=KR`,
+  SHA-256 `791f2c263fdca4646c7946a5f689e19a779548d5f58f31e3b3a8356b0aa0f763`.
+- Credentials live in the gitignored `keystore.properties` (repo root) and in a Desktop backup note (`Localllmandroid-upload-key-backup.txt`). **Do not lose them again** — losing this one has the same consequence as before.
+- Consequence, stated in the v1.5.1 release notes: builds signed with the new key cannot update an existing v1.4.0-or-earlier install; the old app must be uninstalled once.
+- R8 pre-flight before releasing: verified in the minified dex that `com.k2fsa.sherpa.onnx.**` class names and `LocalTtsEngine$SampleCallback.invoke:([F)Ljava/lang/Integer;` survive (keep rules added to `proguard-rules.pro`); without them the release build would have shipped with broken ASR/TTS.
+- Published: tag `v1.5.1` → https://github.com/zmxnpquryet-gif/Localllmandroid/releases/tag/v1.5.1 (`app-release.apk`, 160.4 MB, `versionCode 17 / versionName 1.5.1`, verified `apksigner` exit 0 with the new certificate).
 
 ---
 
