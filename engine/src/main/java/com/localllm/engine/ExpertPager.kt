@@ -91,6 +91,8 @@ class ExpertPager(
         override fun removeEldestEntry(eldest: Map.Entry<ExpertTileKey, ByteArray>?): Boolean = false
     }
     private var residentBytes: Long = 0
+    /** Speculative keys, evicted before confirmed entries (adversarial finding). */
+    private val speculative = LinkedHashSet<ExpertTileKey>()
 
     fun residentCount(): Int = resident.size
 
@@ -100,6 +102,7 @@ class ExpertPager(
     fun acquire(key: ExpertTileKey): ByteArray {
         resident[key]?.let {
             stats.hits++
+            speculative.remove(key)
             return it.copyOf()
         }
         stats.misses++
@@ -113,7 +116,39 @@ class ExpertPager(
         return bytes.copyOf()
     }
 
-    /** Preloads predicted tiles; failures are swallowed (best effort). */
+    /**
+     * Zero-copy read for the fused matvec path: returns the resident array
+     * itself (or the freshly loaded bytes) without copying. Callers must treat
+     * it as read-only and must not retain it across [acquire]/[advise]/[evictAll]
+     * calls — eviction may drop the entry afterwards. Single-threaded use only,
+     * same confinement as the rest of this class (adversarial review finding:
+     * `acquire` memcpys the whole tile 3x per expert per token).
+     */
+    fun borrow(key: ExpertTileKey): ByteArray {
+        resident[key]?.let {
+            stats.hits++
+            speculative.remove(key)
+            return it
+        }
+        stats.misses++
+        val bytes = source.readTile(key)
+        stats.bytesStreamed += bytes.size
+        if (bytes.size.toLong() <= maxResidentBytes) {
+            makeRoom(bytes.size.toLong())
+            resident[key] = bytes
+            residentBytes += bytes.size
+            return bytes
+        }
+        return bytes
+    }
+
+    /**
+     * Preloads predicted tiles without disturbing resident entries: only free
+     * space is used, never eviction. A prefetch that evicts a tile the next
+     * acquire immediately needs turns a hit into a miss (adversarial finding),
+     * so speculative fills must be strictly non-destructive. Failures are
+     * swallowed (best effort).
+     */
     fun advise(keys: List<ExpertTileKey>) {
         if (!prefetch) return
         for (key in keys) {
@@ -121,12 +156,19 @@ class ExpertPager(
             try {
                 val size = source.tileBytes(key)
                 if (size > maxResidentBytes) continue
-                makeRoom(size)
+                if (residentBytes + size > maxResidentBytes) continue
                 resident[key] = source.readTile(key)
                 residentBytes += size
+                speculative.add(key)
                 stats.bytesStreamed += size
                 stats.prefetches++
-            } catch (_: Exception) {
+            } catch (e: java.io.IOException) {
+                // ClosedByInterruptException means the channel died with the
+                // interrupt: propagate so the decode loop fails loudly instead of
+                // crashing later with ClosedChannelException (adversarial finding).
+                if (e is java.nio.channels.ClosedByInterruptException ||
+                    Thread.currentThread().isInterrupted
+                ) throw e
             }
         }
     }
@@ -134,13 +176,24 @@ class ExpertPager(
     fun evictAll() {
         stats.evictions += resident.size
         resident.clear()
+        speculative.clear()
         residentBytes = 0
     }
 
     private fun makeRoom(need: Long) {
+        // Speculative tiles die first: confirmed in-use entries outrank
+        // unconfirmed lookahead (adversarial review finding).
+        val specIt = speculative.iterator()
+        while (residentBytes + need > maxResidentBytes && specIt.hasNext()) {
+            val key = specIt.next()
+            resident.remove(key)?.let { residentBytes -= it.size }
+            specIt.remove()
+            stats.evictions++
+        }
         val it = resident.entries.iterator()
         while (residentBytes + need > maxResidentBytes && it.hasNext()) {
             val e = it.next()
+            speculative.remove(e.key)
             residentBytes -= e.value.size
             it.remove()
             stats.evictions++

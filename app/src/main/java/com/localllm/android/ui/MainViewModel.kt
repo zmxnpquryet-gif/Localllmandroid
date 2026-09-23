@@ -193,6 +193,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var messageCollectionJob: Job? = null
 
     init {
+        // One-time stale-prefs migration (P1-1): versions with MoE auto-assign
+        // persisted runtime=SD_ENGINE into prefs via selectModel. After the
+        // default-to-llama.cpp change that stale value would silently route every
+        // GGUF through the TEST engine. Runs once against the RAW stored value
+        // (before active-model restoration overwrites _settings) and never touches
+        // an intentional global choice again (adversarial review finding).
+        if (!settingsPrefs.getBoolean("migrated_sd_engine_prefs_v1", false)) {
+            if (settingsPrefs.getString("runtime", null) == ModelRuntimeType.SD_ENGINE.name) {
+                val explicitSd = _models.value.any {
+                    it.isDownloaded && it.runtimeType == ModelRuntimeType.SD_ENGINE && it.runtimeTypeOverrideByUser
+                }
+                if (!explicitSd) {
+                    settingsPrefs.edit().putString("runtime", ModelRuntimeType.LLAMA_CPP.name).apply()
+                    if (_settings.value.runtime == ModelRuntimeType.SD_ENGINE) {
+                        _settings.value = _settings.value.copy(runtime = ModelRuntimeType.LLAMA_CPP)
+                    }
+                }
+            }
+            settingsPrefs.edit().putBoolean("migrated_sd_engine_prefs_v1", true).apply()
+        }
+
         val savedActiveId = modelStorageManager.getActiveModelId()
         val restoredModel = _models.value.firstOrNull { it.id == savedActiveId && it.isDownloaded }
             ?: _models.value.firstOrNull { it.isDownloaded }
@@ -1407,7 +1428,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     name = cleanName,
                     repoId = if (isLiteRt) "local/litert-imported" else "local/imported",
                     fileName = targetFileName,
-                    runtimeType = if (sdEngineCandidate) ModelRuntimeType.SD_ENGINE else detected.detectedRuntime,
+                    // Default is always llama.cpp for GGUF (even MoE): SDengine
+                    // is opt-in via Model Manager's per-model runtime override.
+                    runtimeType = detected.detectedRuntime,
                     sizeBytes = destFile.length(),
                     isDownloaded = true,
                     downloadStatus = "COMPLETED",

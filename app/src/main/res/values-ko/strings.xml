@@ -381,7 +381,7 @@
     <string name="vm_status_memory_stop">메모리가 부족해 생성을 중단했습니다. 다음 실행은 낮춘 설정으로 시작합니다 (레벨 %1$d)</string>
     <string name="vm_status_tts_installed">로컬 한국어 TTS 음성을 설치하고 선택했습니다</string>
     <string name="vm_status_runtime_override">%1$s의 런타임을 %2$s(으)로 설정했습니다</string>
-    <string name="vm_desc_imported_moe_sdengine"> • MoE 감지 → SDengine(TEST) 자동 배정</string>
+    <string name="vm_desc_imported_moe_sdengine"> • MoE 감지 → llama.cpp 기본 (TEST 엔진 사용은 모델 관리자에서 SDengine으로 전환)</string>
 
     <string name="settings_gpu_title">GPU 가속</string>
     <string name="settings_gpu_desc">LiteRT GPU(OpenCL) 및 llama.cpp GPU 오프로드. OpenCL 드라이버가 없거나 초기화에 실패하면 자동으로 건너뜁니다.</string>

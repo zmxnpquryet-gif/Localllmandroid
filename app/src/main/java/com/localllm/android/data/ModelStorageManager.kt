@@ -115,17 +115,17 @@ class ModelStorageManager(private val context: Context) {
         val effectiveHasMmproj = model.hasMmproj || (detected?.hasVisionTower == true)
         val effectiveSupportsMtp = model.supportsMtp || (detected?.hasDrafter == true)
 
-        // Imported models are routed to the first-party engine when they are gated-expert
-        // MoE, unless the user already chose a runtime for this model by hand.
-        val effectiveRuntime = if (detected != null && model.id.startsWith("custom-") && !model.runtimeTypeOverrideByUser) {
-            when {
-                detected.detectedRuntime == ModelRuntimeType.LITE_RT -> ModelRuntimeType.LITE_RT
-                detected.isSdEngineCandidate -> ModelRuntimeType.SD_ENGINE
-                else -> ModelRuntimeType.LLAMA_CPP
-            }
-        } else {
-            model.runtimeType
-        }
+        // Imported models always default to llama.cpp, even gated-expert MoE:
+        // SDengine is strictly opt-in via the per-model runtime override in
+        // Model Manager (or the global runtime switch). Auto-detection never
+        // flips a model to SDengine on its own, so nobody gets locked into
+        // the experimental engine by surprise.
+        val effectiveRuntime = resolveDefaultRuntime(
+            detected = detected,
+            isCustom = model.id.startsWith("custom-"),
+            userOverride = model.runtimeTypeOverrideByUser,
+            current = model.runtimeType
+        )
 
         // Vision tower file (external mmproj OR embedded vision)
         val visionFile = if (!model.localMmprojPath.isNullOrBlank()) {
@@ -336,6 +336,27 @@ class ModelStorageManager(private val context: Context) {
     companion object {
         private const val LEGACY_PLAINTEXT_TOKEN_PREFIX = "hf_"
         private val ILLEGAL_FILE_CHARS = Regex("[\\\\/:*?\"<>|\\p{Cntrl}]")
+
+        /**
+         * Pure default-runtime rule, extracted for unit tests (P2-7): imported
+         * models without a user override always land on llama.cpp (LiteRT
+         * containers excepted). A user override is never clobbered.
+         */
+        fun resolveDefaultRuntime(
+            detected: com.localllm.android.engine.GgufFeatureDetection?,
+            isCustom: Boolean,
+            userOverride: Boolean,
+            current: ModelRuntimeType
+        ): ModelRuntimeType {
+            if (detected != null && isCustom && !userOverride) {
+                return if (detected.detectedRuntime == ModelRuntimeType.LITE_RT) {
+                    ModelRuntimeType.LITE_RT
+                } else {
+                    ModelRuntimeType.LLAMA_CPP
+                }
+            }
+            return current
+        }
 
         /**
          * Normalizes a user/URL-supplied name so it can never traverse outside the

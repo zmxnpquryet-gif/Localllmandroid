@@ -381,7 +381,7 @@
     <string name="vm_status_memory_stop">Memory critically low — generation stopped. The next run starts with reduced settings (level %1$d)</string>
     <string name="vm_status_tts_installed">Local Korean TTS voice installed and selected</string>
     <string name="vm_status_runtime_override">Runtime for %1$s set to %2$s</string>
-    <string name="vm_desc_imported_moe_sdengine"> • MoE detected → SDengine (TEST) auto-assigned</string>
+    <string name="vm_desc_imported_moe_sdengine"> • MoE detected → llama.cpp default (switch to SDengine in Model Manager to try the TEST engine)</string>
 
     <string name="settings_gpu_title">GPU acceleration</string>
     <string name="settings_gpu_desc">LiteRT GPU (OpenCL) and llama.cpp GPU offload. Skipped automatically when the device has no working OpenCL driver.</string>

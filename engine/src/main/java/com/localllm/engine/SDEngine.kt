@@ -37,7 +37,7 @@ class SDEngine : AutoCloseable {
          */
         val ADVISORIES: List<String> = listOf(
             "TEST 빌드: SDengine은 실험 단계의 자체 추론엔진입니다. 실행은 되지만 출력 품질을 신뢰하지 마세요.",
-            "스칼라 레퍼런스 커널만 구현되어 실기기에서는 매우 느립니다(토큰/초 단위). NEON 커널과 K-퀀트 수치 검증이 남은 마일스톤입니다.",
+            "최적화 커널(융합 양자화 matvec, RoPE 캐시, 스크래치 재사용, top-k 힙)이 적용되었습니다. 성능 미측정, K-퀀트 bit-exact 검증은 pending이라 llama.cpp보다 느리고 수치 오차가 있을 수 있습니다.",
             "SDengine은 MoE 전용입니다. Dense 전용 모델과 MoE가 아닌 하이브리드는 범위 밖이며, 로드에 실패하면 llama.cpp로 대체 실행됩니다.",
             "dense 가중치는 상주 메모리에, expert 타일은 SSD에서 스트리밍됩니다. 상주 한도를 넘는 모델은 로드가 거부됩니다."
         )
@@ -63,6 +63,15 @@ class SDEngine : AutoCloseable {
                 "out of scope: MoE-only engine",
             "short-convolution hybrids (LFM2 family)" to
                 "out of scope: MoE-only engine"
+        )
+
+        /**
+         * GGUF `general.architecture` values that need the deferred kernels above.
+         * Mirrors the app-layer `SD_DEFERRED_ARCHITECTURES` (GgufMetadataDetector):
+         * keep both lists in sync when scope changes.
+         */
+        val DEFERRED_ARCHES: Set<String> = setOf(
+            "deepseek2", "deepseek3", "qwen4_exp", "mamba", "mamba2", "lfm2", "jamba", "granitehybrid"
         )
 
         fun advisoryText(): String = "[SDengine][$STAGE] " + ADVISORIES.joinToString(" ")
@@ -118,6 +127,17 @@ class SDEngine : AutoCloseable {
         // follow the {arch}.* convention and whose tensors use the llama-family
         // layout is attempted. Missing keys fail loudly below with the key name.
         val arch = r.architecture() ?: throw UnsupportedArchException("general.architecture missing")
+        // Fail fast with a clear message instead of a cryptic "Missing tensor":
+        // MLA/SSM/convolution hybrids need dedicated kernels (see DEFERRED).
+        // The app routes these to llama.cpp; a manual SDengine attempt lands here.
+        if (arch.lowercase() in DEFERRED_ARCHES) {
+            val reason = DEFERRED.entries.firstOrNull { (k, _) ->
+                k.contains(arch, ignoreCase = true) || arch.contains(k.substringBefore(" "), ignoreCase = true)
+            }?.value ?: "needs dedicated kernels (milestone)"
+            try { r.close() } catch (_: Exception) {}
+            reader = null
+            throw UnsupportedArchException("SDengine 미지원 아키텍처 '$arch': $reason (llama.cpp로 실행하세요)")
+        }
         val tok = BpeTokenizer.fromMetadata(r)
             ?: throw GgufException("tokenizer.ggml.tokens missing")
         tokenizer = tok
@@ -357,6 +377,41 @@ class SDEngine : AutoCloseable {
             override fun gate(e: Int) = mat(ExpertTileKey(layer, e, ExpertTileKey.GATE), hp.ffnDim, hp.dim)
             override fun up(e: Int) = mat(ExpertTileKey(layer, e, ExpertTileKey.UP), hp.ffnDim, hp.dim)
             override fun down(e: Int) = mat(ExpertTileKey(layer, e, ExpertTileKey.DOWN), hp.dim, hp.ffnDim)
+
+            // Fused path: dot directly off the quantized tile bytes via borrow()
+            // (no copy, no full-tile FloatArray). Delegates to the configured
+            // kernels instance so future NEON/GPU ports stay fused instead of
+            // silently falling back to the materialized path (adversarial finding).
+            private fun fused(key: ExpertTileKey, x: FloatArray, y: FloatArray, kernels: Kernels) {
+                val bytes = p.borrow(key)
+                kernels.matVecQuant(y, bytes, tileDtype(key), x, y.size, x.size)
+            }
+
+            override fun matVecGate(e: Int, x: FloatArray, y: FloatArray, kernels: Kernels) =
+                fused(ExpertTileKey(layer, e, ExpertTileKey.GATE), x, y, kernels)
+
+            override fun matVecUp(e: Int, x: FloatArray, y: FloatArray, kernels: Kernels) =
+                fused(ExpertTileKey(layer, e, ExpertTileKey.UP), x, y, kernels)
+
+            override fun matVecDown(e: Int, x: FloatArray, y: FloatArray, kernels: Kernels) =
+                fused(ExpertTileKey(layer, e, ExpertTileKey.DOWN), x, y, kernels)
+
+            override fun prefetch(experts: IntArray) {
+                // Next-layer same-index lookahead: best-effort, failures swallowed
+                // inside the pager. Warms the SSD streaming cache by one layer.
+                // Flat loop, no intermediate lists: this runs per layer per token.
+                // Only IOException is caught: cancellation/interrupts must propagate.
+                try {
+                    val keys = ArrayList<ExpertTileKey>(experts.size * 3)
+                    for (e in experts) {
+                        keys.add(ExpertTileKey(layer, e, ExpertTileKey.GATE))
+                        keys.add(ExpertTileKey(layer, e, ExpertTileKey.UP))
+                        keys.add(ExpertTileKey(layer, e, ExpertTileKey.DOWN))
+                    }
+                    p.advise(keys)
+                } catch (_: java.io.IOException) {
+                }
+            }
         }
     }
 }

@@ -26,6 +26,26 @@ interface ExpertSet {
     fun gate(e: Int): FloatArray
     fun up(e: Int): FloatArray
     fun down(e: Int): FloatArray
+
+    /**
+     * Fused matvec hooks. Default materializes the tile then dots (correctness
+     * path for tests); paged sets override to dot directly off quantized bytes
+     * via [Kernels.matVecQuant] with zero full-matrix allocation.
+     */
+    fun matVecGate(e: Int, x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, gate(e), x, y.size, x.size)
+    }
+
+    fun matVecUp(e: Int, x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, up(e), x, y.size, x.size)
+    }
+
+    fun matVecDown(e: Int, x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, down(e), x, y.size, x.size)
+    }
+
+    /** Best-effort prefetch of expert tiles; default no-op. */
+    fun prefetch(experts: IntArray) {}
 }
 
 /** Resident dense weights; experts come from [ExpertSet] (paged) or dense FFN fields. */
@@ -47,6 +67,11 @@ interface TransformerWeights {
     fun experts(layer: Int): ExpertSet
 }
 
+/**
+ * One decode step result. `logits` aliases Transformer scratch memory and is
+ * valid only until the next [Transformer.decodeStep] call on the same instance —
+ * sample or copy it immediately. `usedExperts` is a fresh list per call.
+ */
 data class StepResult(val logits: FloatArray, val usedExperts: List<Int>)
 
 /**
@@ -63,6 +88,26 @@ class Transformer(
 
     val position: Int get() = kv.length
 
+    // Scratch buffers reused across layers and decode steps. The old code
+    // allocated ~10 FloatArrays per layer per token (q/k/v/attn/gate/up/act +
+    // per-head scores), churning tens of MB per second through the GC on every
+    // decode step. These are sized to the model hyperparams once.
+    private val q = FloatArray(hp.nHeads * hp.headDim)
+    private val kRow = FloatArray(hp.kvDim)
+    private val vRow = FloatArray(hp.kvDim)
+    private val hBuf = FloatArray(hp.dim)
+    private val attnBuf = FloatArray(hp.nHeads * hp.headDim)
+    private val oBuf = FloatArray(hp.dim)
+    private val yBuf = FloatArray(hp.dim)
+    private val gateBuf = FloatArray(hp.ffnDim)
+    private val upBuf = FloatArray(hp.ffnDim)
+    private val actBuf = FloatArray(hp.ffnDim)
+    private val contribBuf = FloatArray(hp.dim)
+    private val routerScores = FloatArray(maxOf(1, hp.nExperts))
+    private val attnScores = FloatArray(if (maxSeqOverride > 0) maxSeqOverride else hp.maxSeq)
+    private val normedBuf = FloatArray(hp.dim)
+    private var logitsBuf = FloatArray(0)
+
     fun reset() = kv.clear()
 
     fun decodeStep(tokenId: Int): StepResult {
@@ -71,11 +116,11 @@ class Transformer(
         var x = w.embed(tokenId)
         val usedExperts = ArrayList<Int>()
 
-        val q = FloatArray(hp.nHeads * hp.headDim)
-        val k = FloatArray(hp.kvDim)
-        val v = FloatArray(hp.kvDim)
-        val h = FloatArray(hp.dim)
-        val attn = FloatArray(hp.nHeads * hp.headDim)
+        val q = this.q
+        val k = this.kRow
+        val v = this.vRow
+        val h = this.hBuf
+        val attn = this.attnBuf
 
         for (layer in 0 until hp.nLayers) {
             // --- attention ---
@@ -89,19 +134,20 @@ class Transformer(
 
             val scale = (1.0 / sqrt(hp.headDim.toDouble())).toFloat()
             val group = hp.nHeads / hp.nKvHeads
+            val kBase = kv.kBase(layer)
+            val vBase = kv.vBase(layer)
             for (head in 0 until hp.nHeads) {
                 val kvHead = head / group
-                val scores = FloatArray(pos + 1)
-                val kBase = kv.kBase(layer)
-                val vBase = kv.vBase(layer)
+                val scores = this.attnScores
+                val qb = head * hp.headDim
                 for (p in 0..pos) {
                     var acc = 0f
-                    val qb = head * hp.headDim
                     val kb = (p * hp.nKvHeads + kvHead) * hp.headDim
                     for (d in 0 until hp.headDim) acc += q[qb + d] * kBase[kb + d]
                     scores[p] = acc * scale
                 }
-                kernels.softmaxInPlace(scores)
+                // Softmax over [0, pos] only; reuse the leading slice.
+                kernels.softmaxPrefix(scores, pos + 1)
                 val ob = head * hp.headDim
                 for (d in 0 until hp.headDim) {
                     var acc = 0f
@@ -111,7 +157,7 @@ class Transformer(
                     attn[ob + d] = acc
                 }
             }
-            val o = FloatArray(hp.dim)
+            val o = this.oBuf
             kernels.matVec(o, w.attnO(layer), attn, hp.dim, hp.nHeads * hp.headDim)
             for (i in x.indices) x[i] += o[i]
 
@@ -125,27 +171,33 @@ class Transformer(
             for (i in x.indices) x[i] += y[i]
         }
 
-        val normed = FloatArray(hp.dim)
+        val normed = this.normedBuf
         kernels.rmsNorm(normed, x, w.outNorm(), hp.rmsNormEps)
-        val logits = FloatArray(hp.vocab)
+        if (logitsBuf.size != hp.vocab) logitsBuf = FloatArray(hp.vocab)
+        val logits = logitsBuf
         kernels.matVec(logits, w.head(), normed, hp.vocab, hp.dim)
+        // No copy: StepResult.logits aliases scratch and is valid only until the
+        // next decodeStep call (documented on StepResult). All in-repo consumers
+        // sample immediately; copying a 150k-vocab array per token is the largest
+        // remaining per-token allocation (adversarial review finding).
         return StepResult(logits, usedExperts)
     }
 
     private fun denseFfn(layer: Int, h: FloatArray): FloatArray {
-        val gate = FloatArray(hp.ffnDim)
-        val up = FloatArray(hp.ffnDim)
+        val gate = this.gateBuf
+        val up = this.upBuf
         kernels.matVec(gate, w.ffnGate(layer), h, hp.ffnDim, hp.dim)
         kernels.matVec(up, w.ffnUp(layer), h, hp.ffnDim, hp.dim)
-        val act = FloatArray(hp.ffnDim)
+        val act = this.actBuf
         kernels.siluMul(act, gate, up)
-        val y = FloatArray(hp.dim)
+        val y = this.yBuf
+        java.util.Arrays.fill(y, 0f)
         kernels.matVec(y, w.ffnDown(layer), act, hp.dim, hp.ffnDim)
         return y
     }
 
     private fun moeFfn(layer: Int, h: FloatArray, usedExperts: MutableList<Int>): FloatArray {
-        val scores = FloatArray(hp.nExperts)
+        val scores = this.routerScores
         kernels.matVec(scores, w.router(layer), h, hp.nExperts, hp.dim)
         kernels.softmaxInPlace(scores)
         val top = kernels.topK(scores, hp.moeTopK.coerceAtLeast(1).coerceAtMost(hp.nExperts))
@@ -154,18 +206,28 @@ class Transformer(
         for (e in top) mass += scores[e]
         val inv = if (mass > 0f) 1f / mass else 1f
 
-        val y = FloatArray(hp.dim)
-        val gate = FloatArray(hp.ffnDim)
-        val up = FloatArray(hp.ffnDim)
-        val act = FloatArray(hp.ffnDim)
-        val contrib = FloatArray(hp.dim)
+        val y = this.yBuf
+        java.util.Arrays.fill(y, 0f)
+        val gate = this.gateBuf
+        val up = this.upBuf
+        val act = this.actBuf
+        val contrib = this.contribBuf
         val experts = w.experts(layer)
+        // Prefetch next layer's same-index experts while we compute this layer.
+        // Best-effort cache warm; only IOException is caught so cancellation
+        // and interrupts propagate (adversarial review finding).
+        try {
+            if (layer + 1 < hp.nLayers) w.experts(layer + 1).prefetch(top)
+        } catch (_: java.io.IOException) {
+        }
         for (e in top) {
             usedExperts.add(e)
-            kernels.matVec(gate, experts.gate(e), h, hp.ffnDim, hp.dim)
-            kernels.matVec(up, experts.up(e), h, hp.ffnDim, hp.dim)
+            // Fused path dots directly off quantized tile bytes (paged); resident
+            // path falls back to materialized matvec with identical numerics.
+            experts.matVecGate(e, h, gate, kernels)
+            experts.matVecUp(e, h, up, kernels)
             kernels.siluMul(act, gate, up)
-            kernels.matVec(contrib, experts.down(e), act, hp.dim, hp.ffnDim)
+            experts.matVecDown(e, act, contrib, kernels)
             val weight = scores[e] * inv
             for (i in y.indices) y[i] += contrib[i] * weight
         }

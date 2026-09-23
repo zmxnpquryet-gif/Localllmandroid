@@ -253,6 +253,55 @@ App installed (debug, latest build). Models on device: SmolLM2-360M GGUF, gemma3
 - LiteRT with a *working* OpenCL sampler (no device available that ships `libLiteRtTopKOpenClSampler.so`).
 - The LiteRT retry path when tokens have already been emitted (deliberately not retried — the guard only fires with zero tokens to avoid mixing two answers).
 
+---
+
+## Session State — 2026-09-23 (SDengine optimization + default-llama.cpp routing)
+
+### Direction change (owner decision, mid-session)
+- Dense support for SDengine was explicitly **rejected**: resources go to MoE engine optimization instead. SDengine stays MoE-only.
+- Two standing requirements: (1) any GGUF must be *selectable* on SDengine without model restrictions (manual opt-in), (2) MoE imports default to **llama.cpp**, never auto-route to SDengine.
+
+### Routing: default llama.cpp, SDengine opt-in only
+- `ModelStorageManager`: auto-assign (`isSdEngineCandidate -> SD_ENGINE`) deleted in `reconcileWithDisk`. Imported GGUF always lands on `LLAMA_CPP` (LiteRT containers excepted). Pure rule extracted as `resolveDefaultRuntime()` for testability.
+- `MainViewModel.importCustomModel`: `runtimeType = detected.detectedRuntime` (was conditional `SD_ENGINE`). Description string now says llama.cpp default + manual switch (EN/KO `vm_desc_imported_moe_sdengine`).
+- `GgufMetadataDetector` details text: "MoE 전문가 N개 (SDengine 수동 전환 가능)" (was "SDengine 후보" implying auto-route).
+- Stale-prefs migration (`MainViewModel.init`, one-time flag `migrated_sd_engine_prefs_v1`): old versions persisted `runtime=SD_ENGINE` via `selectModel`; reset to `LLAMA_CPP` unless a model carries an explicit SDengine override. Checks the RAW pref before active-model restoration (agy caught the first version checking post-restore state, which never fired, and resetting intentional choices every boot).
+- New test: `ModelStorageRoutingTest` (5 tests: MoE default, stale SD_ENGINE reset, override preserved, LiteRT stays, catalog untouched).
+
+### Engine optimization (MoE-only, no behavior change)
+- `Kernels.matVecQuant`: fused streaming dot — one reusable ≤256-float scratch block, no full `rows*cols` tmp (was e.g. 64MB per expert tile per token). Direct branches for F32/F16/BF16/I8/I16/I32/I64/F64 (dtype branch hoisted out of loops). `require(cols % blockLength == 0)` fail-loud (old code only checked the product; partial row blocks would decode silently wrong).
+- `Kernels.matVec`: 4x unrolled, double accumulation kept (tolerance-equal, not bit-identical — comment says so).
+- `Kernels.rope`: `RopeCache` — invFreq per (headDim, theta) + cos/sin per pos, both LRU-bounded (tables 512, invFreq 16; `clear()` clears both).
+- `Kernels.topK`: fast paths k=1/k=2, min-heap for k*4<=n, empty/non-positive input returns empty (old sorted path returned empty; `coerceIn(1,0)` would throw).
+- `Kernels.softmaxPrefix(x, n)` added to the `Kernels` interface (default scalar impl) so attention no longer bypasses the kernel contract; `Transformer` calls it.
+- `Transformer`: all per-layer/per-token scratch hoisted to fields (q/k/v/h/attn/o/y/gate/up/act/contrib/routerScores/attnScores/normed/logits). `StepResult.logits` aliases scratch — documented valid-until-next-step; all in-repo consumers sample immediately. Fused expert hooks via `ExpertSet.matVecGate/Up/Down` defaults (materialized) with paged override (fused, delegates to the configured `kernels` instance, not hardcoded Reference). Next-layer same-index prefetch, `IOException`-only catch.
+- `ExpertPager`: `borrow()` zero-copy read (read-only, single-thread confinement contract). `advise()` strictly non-evicting (free space only) + speculative keys tracked separately and evicted first in `makeRoom`. `advise` catches only `IOException`, rethrows on `ClosedByInterruptException`/interrupt (old wildcard `Exception` swallowed cancellation and left the channel closed to crash later).
+- `SDEngine`: deferred-arch fail-fast with clear message (`DEFERRED_ARCHES` mirrors app `SD_DEFERRED_ARCHITECTURES`); advisories rewritten honestly (optimized kernels applied, perf unmeasured, K-quant bit-exactness still pending).
+
+### Adversarial review loop (sequential, one CLI at a time — parallel runs starved each other + cmdc self-updated mid-run)
+- **codex** (gpt-5.6-terra): 3 findings → RopeCache unbounded `invFreq`, `Throwable` swallow in prefetch, overstated "preserves numerics" comment. All fixed.
+- **cmdc** (v1.64.0 after auto-update): P1×3 (stale global SD_ENGINE hijack, prefetch LRU pollution, `acquire` memcpy overclaim) + P2×7 (block-alignment silent wrong, scalar ByteBuffer churn, logits copy, K-quant warning removal, cancellation swallow, softmax contract bypass, missing routing test). All fixed.
+- **agy**: 6 findings → migration ordering bug (checked post-restore state + no one-time guard; the one genuine P0-class bug of the session), `advise` swallowing vs documented contract, non-Reference kernels bypass, topK empty throw, per-element `when` + Int overflow, speculative MRU inversion. All fixed.
+- Review logs (not committed): `%LOCALAPPDATA%\Temp\opencode\review-{codex,cmdc,cmdc2,agy}.log`.
+
+### Verification (all green)
+- `:engine:testDebugUnitTest` → **42 tests, 0 failures**.
+- `:app:testDebugUnitTest` → **83 tests, 0 failures** (78 existing + 5 new routing).
+- `BUILD SUCCESSFUL`. Instrumented/on-device run NOT repeated this session.
+
+### Files changed (uncommitted)
+- `engine/.../Kernels.kt`, `Transformer.kt`, `ExpertPager.kt`, `SDEngine.kt`
+- `app/.../data/ModelStorageManager.kt`, `engine/GgufMetadataDetector.kt`, `ui/MainViewModel.kt`
+- `app/src/main/res/values/strings.xml`, `values-ko/strings.xml` (1 key each, parity kept)
+- New: `app/src/test/java/com/localllm/android/ModelStorageRoutingTest.kt`
+
+### Honest limitations (not verified)
+1. Speedup is unmeasured: synthetic-GGUF unit tests only. Real t/s needs a real MoE GGUF (e.g. Qwen3-MoE) on device.
+2. Same-index next-layer prefetch assumes layer-correlated routing; router lookahead would be better but is unbuilt.
+3. Fused `matVecQuant` assumes ggml row-major block layout (`rowBase = r*blocksPerRow*blockBytes`); cross-checked against `expertTileRange` for expert tiles, pinned by `require(cols % block)` fail-loud otherwise.
+4. `borrow()` zero-copy is safe only under the documented single-inference-thread confinement; a future multi-threaded decoder must revisit.
+
+
 
 
 

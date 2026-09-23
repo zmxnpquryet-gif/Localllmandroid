@@ -181,7 +181,7 @@ object GgufMetadataDetector {
                 detailsList.add("LiteRT 올인원 통합 모델")
             }
             if (expertCount > 1) {
-                detailsList.add("MoE 전문가 ${expertCount}개 (SDengine 후보)")
+                detailsList.add("MoE 전문가 ${expertCount}개 (SDengine 수동 전환 가능)")
             }
             if (finalVision) {
                 detailsList.add(if (detectedRuntime == ModelRuntimeType.LITE_RT) "통합 비전타워(Vision Encoder) 내장" else "비전타워 내장 감지")
