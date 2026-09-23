@@ -116,7 +116,6 @@
     <string name="settings_temperature">온도 (Temperature)</string>
     <string name="settings_top_p">Top-P</string>
     <string name="settings_top_k">Top-K</string>
-    <string name="settings_system_prompt_title">기본 시스템 프롬프트</string>
     <string name="settings_mcp_title">MCP (Model Context Protocol) 서버</string>
     <string name="settings_theme_title">외관 및 커스텀 테마</string>
     <string name="settings_theme_dark_mode">다크 모드 설정</string>
@@ -264,8 +263,6 @@
     <string name="settings_sdengine_label">⚠ SDengine (TEST) — 자체 엔진 실험체</string>
     <string name="settings_context_window_value">%1$d 토큰</string>
     <string name="settings_top_p_sampling">Top-P 샘플링</string>
-    <string name="settings_custom_system_prompt">사용자 지정 시스템 프롬프트</string>
-    <string name="settings_system_prompt_label">시스템 프롬프트 (System Instruction)</string>
     <string name="settings_reset">초기화</string>
     <string name="settings_mcp_section">MCP (Model Context Protocol) 도구 연동</string>
     <string name="settings_mcp_desc">MCP 서버에 JSON-RPC로 연결해 도구 목록을 조회하고, 그 정의를 채팅 프롬프트에 전달합니다. 모델의 자동 도구 실행(에이전틱 호출)은 아직 지원하지 않습니다.</string>

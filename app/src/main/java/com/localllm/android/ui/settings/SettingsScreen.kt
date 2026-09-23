@@ -90,7 +90,6 @@ fun SettingsScreen(
     var showMemoryLog by remember { mutableStateOf(false) }
     var memoryLogText by remember { mutableStateOf("") }
     var mcpUrlInput by remember { mutableStateOf(settings.mcpServerUrl) }
-    var systemPromptInput by remember { mutableStateOf(settings.systemPrompt) }
     var hfTokenInput by remember { mutableStateOf(settings.hfToken) }
     var isTokenVisible by remember { mutableStateOf(false) }
 
@@ -410,36 +409,7 @@ fun SettingsScreen(
                 )
             }
 
-            // 4. Custom System Prompt
-            SettingsCard(
-                title = stringResource(R.string.settings_custom_system_prompt),
-                icon = GIcons.Tune
-            ) {
-                GTextField(
-                    value = systemPromptInput,
-                    onValueChange = {
-                        systemPromptInput = it
-                        viewModel.updateSettings(settings.copy(systemPrompt = it))
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3,
-                    label = { GText(stringResource(R.string.settings_system_prompt_label)) }
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GButton(
-                        onClick = {
-                            val defaultPrompt = ""
-                            systemPromptInput = defaultPrompt
-                            viewModel.updateSettings(settings.copy(systemPrompt = defaultPrompt))
-                        }
-                    ) {
-                        GText(stringResource(R.string.settings_reset))
-                    }
-                }
-            }
-
-            // 5. MCP (Model Context Protocol) URL Integration
+            // 4. MCP (Model Context Protocol) URL Integration
             SettingsCard(
                 title = stringResource(R.string.settings_mcp_section),
                 icon = GIcons.Hub

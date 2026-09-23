@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -963,6 +964,9 @@ private fun FdmAddBundleDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // Tall forms must not push the download button off-screen:
+                    // cap the scrollable body so confirm/dismiss stay visible.
+                    .heightIn(max = 440.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {

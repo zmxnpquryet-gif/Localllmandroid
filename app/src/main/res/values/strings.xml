@@ -116,7 +116,6 @@
     <string name="settings_temperature">Temperature</string>
     <string name="settings_top_p">Top-P</string>
     <string name="settings_top_k">Top-K</string>
-    <string name="settings_system_prompt_title">Default System Prompt</string>
     <string name="settings_mcp_title">MCP (Model Context Protocol) Server</string>
     <string name="settings_theme_title">Appearance &amp; Custom Themes</string>
     <string name="settings_theme_dark_mode">Theme Mode</string>
@@ -264,8 +263,6 @@
     <string name="settings_sdengine_label">⚠ SDengine (TEST) — experimental in-house engine</string>
     <string name="settings_context_window_value">%1$d tokens</string>
     <string name="settings_top_p_sampling">Top-P Sampling</string>
-    <string name="settings_custom_system_prompt">Custom System Prompt</string>
-    <string name="settings_system_prompt_label">System prompt (System Instruction)</string>
     <string name="settings_reset">Reset</string>
     <string name="settings_mcp_section">MCP (Model Context Protocol) Tool Integration</string>
     <string name="settings_mcp_desc">Connects to an MCP server over JSON-RPC to list its tools and passes their definitions into the chat prompt. Automatic tool execution (agentic calls) is not supported yet.</string>

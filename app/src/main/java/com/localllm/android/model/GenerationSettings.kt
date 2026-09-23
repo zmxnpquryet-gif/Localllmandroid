@@ -7,7 +7,6 @@ data class GenerationSettings(
     val topP: Float = 0.9f,
     val topK: Int = 40,
     val repetitionPenalty: Float = 1.1f,
-    val systemPrompt: String = "",
     val enableMtp: Boolean = true, // Multi-token prediction
     val enableVision: Boolean = true, // Load mmproj vision tower
     val reasoningEffort: Float = 0.5f, // 0.2 (Low), 0.5 (Medium), 0.8 (High), 1.0 (Max)

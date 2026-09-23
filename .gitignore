@@ -28,7 +28,7 @@ keystore.properties
 *.litertlm
 *.task
 *.tflite
-models/
+/models/
 app/libs/*.aar
 
 # JVM crash dumps

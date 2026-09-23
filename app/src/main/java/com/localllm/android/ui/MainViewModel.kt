@@ -85,7 +85,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runtime = parseStoredRuntime(settingsPrefs.getString("runtime", null)),
             themeColorName = settingsPrefs.getString("theme_color", "artistic") ?: "artistic",
             darkModePreference = settingsPrefs.getString("dark_mode", "system") ?: "system",
-            systemPrompt = settingsPrefs.getString("system_prompt", "") ?: "",
             temperature = settingsPrefs.getFloat("temperature", 0.7f),
             topP = settingsPrefs.getFloat("top_p", 0.9f),
             topK = settingsPrefs.getInt("top_k", 40),
@@ -328,8 +327,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return Conversation(
             id = UUID.randomUUID().toString(),
             title = localizedString(R.string.vm_conversation_default_title),
-            modelId = _activeModel.value?.id ?: "",
-            systemPrompt = _settings.value.systemPrompt
+            modelId = _activeModel.value?.id ?: ""
         )
     }
 
@@ -571,7 +569,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putString("hf_token", newSettings.hfToken)
             putString("theme_color", newSettings.themeColorName)
             putString("dark_mode", newSettings.darkModePreference)
-            putString("system_prompt", newSettings.systemPrompt)
             putFloat("temperature", newSettings.temperature)
             putFloat("top_p", newSettings.topP)
             putInt("top_k", newSettings.topK)
