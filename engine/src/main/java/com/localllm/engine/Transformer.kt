@@ -65,6 +65,53 @@ interface TransformerWeights {
     fun ffnDown(layer: Int): FloatArray
     fun router(layer: Int): FloatArray
     fun experts(layer: Int): ExpertSet
+
+    /**
+     * Fused dense matvec hooks. Defaults materialize via the FloatArray getters
+     * (correctness path for tests); quantized-resident weights override to dot
+     * directly off stored bytes via [Kernels.matVecQuant], so big MoE dense
+     * prefixes no longer expand to F32 in RAM.
+     */
+    fun matVecAttnQ(layer: Int, x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, attnQ(layer), x, y.size, x.size)
+    }
+
+    fun matVecAttnK(layer: Int, x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, attnK(layer), x, y.size, x.size)
+    }
+
+    fun matVecAttnV(layer: Int, x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, attnV(layer), x, y.size, x.size)
+    }
+
+    fun matVecAttnO(layer: Int, x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, attnO(layer), x, y.size, x.size)
+    }
+
+    fun matVecFfnGate(layer: Int, x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, ffnGate(layer), x, y.size, x.size)
+    }
+
+    fun matVecFfnUp(layer: Int, x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, ffnUp(layer), x, y.size, x.size)
+    }
+
+    fun matVecFfnDown(layer: Int, x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, ffnDown(layer), x, y.size, x.size)
+    }
+
+    fun matVecRouter(layer: Int, x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, router(layer), x, y.size, x.size)
+    }
+
+    fun matVecHead(x: FloatArray, y: FloatArray, kernels: Kernels) {
+        kernels.matVec(y, head(), x, y.size, x.size)
+    }
+
+    /** Row gather; defaults to a copy of [embed] so quantized stores can override. */
+    fun embedInto(id: Int, out: FloatArray) {
+        embed(id).copyInto(out)
+    }
 }
 
 /**
@@ -106,6 +153,7 @@ class Transformer(
     private val routerScores = FloatArray(maxOf(1, hp.nExperts))
     private val attnScores = FloatArray(if (maxSeqOverride > 0) maxSeqOverride else hp.maxSeq)
     private val normedBuf = FloatArray(hp.dim)
+    private val xBuf = FloatArray(hp.dim)
     private var logitsBuf = FloatArray(0)
 
     fun reset() = kv.clear()
@@ -113,7 +161,8 @@ class Transformer(
     fun decodeStep(tokenId: Int): StepResult {
         val pos = kv.length
         require(pos < kv.maxSeq) { "Context exhausted at $pos" }
-        var x = w.embed(tokenId)
+        w.embedInto(tokenId, xBuf)
+        var x = xBuf
         val usedExperts = ArrayList<Int>()
 
         val q = this.q
@@ -125,9 +174,9 @@ class Transformer(
         for (layer in 0 until hp.nLayers) {
             // --- attention ---
             kernels.rmsNorm(h, x, w.attnNorm(layer), hp.rmsNormEps)
-            kernels.matVec(q, w.attnQ(layer), h, hp.nHeads * hp.headDim, hp.dim)
-            kernels.matVec(k, w.attnK(layer), h, hp.kvDim, hp.dim)
-            kernels.matVec(v, w.attnV(layer), h, hp.kvDim, hp.dim)
+            w.matVecAttnQ(layer, h, q, kernels)
+            w.matVecAttnK(layer, h, k, kernels)
+            w.matVecAttnV(layer, h, v, kernels)
             kernels.rope(q, pos, hp.headDim, hp.ropeTheta)
             kernels.rope(k, pos, hp.headDim, hp.ropeTheta)
             kv.append(layer, k, v)
@@ -158,7 +207,7 @@ class Transformer(
                 }
             }
             val o = this.oBuf
-            kernels.matVec(o, w.attnO(layer), attn, hp.dim, hp.nHeads * hp.headDim)
+            w.matVecAttnO(layer, attn, o, kernels)
             for (i in x.indices) x[i] += o[i]
 
             // --- FFN / MoE ---
@@ -175,7 +224,7 @@ class Transformer(
         kernels.rmsNorm(normed, x, w.outNorm(), hp.rmsNormEps)
         if (logitsBuf.size != hp.vocab) logitsBuf = FloatArray(hp.vocab)
         val logits = logitsBuf
-        kernels.matVec(logits, w.head(), normed, hp.vocab, hp.dim)
+        w.matVecHead(normed, logits, kernels)
         // No copy: StepResult.logits aliases scratch and is valid only until the
         // next decodeStep call (documented on StepResult). All in-repo consumers
         // sample immediately; copying a 150k-vocab array per token is the largest
@@ -186,19 +235,19 @@ class Transformer(
     private fun denseFfn(layer: Int, h: FloatArray): FloatArray {
         val gate = this.gateBuf
         val up = this.upBuf
-        kernels.matVec(gate, w.ffnGate(layer), h, hp.ffnDim, hp.dim)
-        kernels.matVec(up, w.ffnUp(layer), h, hp.ffnDim, hp.dim)
+        w.matVecFfnGate(layer, h, gate, kernels)
+        w.matVecFfnUp(layer, h, up, kernels)
         val act = this.actBuf
         kernels.siluMul(act, gate, up)
         val y = this.yBuf
         java.util.Arrays.fill(y, 0f)
-        kernels.matVec(y, w.ffnDown(layer), act, hp.dim, hp.ffnDim)
+        w.matVecFfnDown(layer, act, y, kernels)
         return y
     }
 
     private fun moeFfn(layer: Int, h: FloatArray, usedExperts: MutableList<Int>): FloatArray {
         val scores = this.routerScores
-        kernels.matVec(scores, w.router(layer), h, hp.nExperts, hp.dim)
+        w.matVecRouter(layer, h, scores, kernels)
         kernels.softmaxInPlace(scores)
         val top = kernels.topK(scores, hp.moeTopK.coerceAtLeast(1).coerceAtMost(hp.nExperts))
         // Renormalize gate over the selected experts (standard Switch-style).

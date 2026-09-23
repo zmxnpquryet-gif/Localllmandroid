@@ -75,6 +75,27 @@ object MemoryEstimator {
     }
 
     /**
+     * SDengine estimate: experts stream from SSD, so the resident base is the
+     * dense (non-expert) tensor bytes — not the file size. Same 80/95 policy via
+     * [decide]; this is what lets MoE models larger than RAM attempt a load.
+     */
+    fun sdResidentEstimate(
+        denseBytes: Long,
+        nLayers: Int,
+        kvHeads: Int,
+        headDim: Int,
+        contextWindow: Int
+    ): Estimate = Estimate(
+        fileBytes = denseBytes,
+        kvBytes = kvBytes(nLayers, kvHeads, headDim, contextWindow),
+        overheadBytes = OVERHEAD_BYTES,
+        contextWindow = contextWindow,
+        nLayers = nLayers,
+        kvHeads = kvHeads,
+        headDim = headDim
+    )
+
+    /**
      * Compares the footprint with the memory the device reports as available.
      * Above 80% of available RAM the context is reduced; above 95% the load is
      * refused with a reason the UI can show.

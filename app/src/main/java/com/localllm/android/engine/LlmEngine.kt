@@ -196,7 +196,7 @@ class LlmEngine(private val context: Context) {
                 seed = 0
             )
             val convConfig = ConversationConfig(
-                systemInstruction = if (settings.systemPrompt.isNotBlank()) Contents.of(Content.Text(settings.systemPrompt)) else null,
+                systemInstruction = null,
                 samplerConfig = sampler
             )
             engine.createConversation(convConfig)
@@ -229,13 +229,49 @@ class LlmEngine(private val context: Context) {
         }
 
         var effectiveContext = settings.contextWindow
-        val (snapshot, decision) = memoryDecision(modelFile, settings.contextWindow)
-        if (decision?.estimate != null) {
-            Log.i(
-                tag,
-                "메모리 추정: 필요=${decision.estimate.totalMb()}MB (가중치=${decision.estimate.fileBytes / MemorySnapshot.MB}MB, " +
-                        "KV=${decision.estimate.kvBytes / MemorySnapshot.MB}MB), 가용=${snapshot.availMb}MB/${snapshot.totalMb}MB, 판정=${decision.status}"
+        // SDengine gate: experts stream from SSD, so only dense + KV must fit RAM.
+        // The generic file-size gate would refuse every MoE larger than memory and
+        // make expert paging pointless — exactly the reported failure. When GGUF
+        // metadata is unreadable we fall back to the generic gate (safe side).
+        var sdEstimate: SDEngine.ResidentEstimate? = null
+        var sdCapBytes: Long = 0L
+        if (settings.runtime == ModelRuntimeType.SD_ENGINE) {
+            sdEstimate = try {
+                SDEngine().estimateResident(modelFile)
+            } catch (t: Throwable) {
+                Log.w(tag, "SDengine estimate unavailable, using generic gate: ${t.message}")
+                null
+            }
+        }
+        val (snapshot, decision) = if (sdEstimate != null) {
+            val est = MemoryEstimator.sdResidentEstimate(
+                denseBytes = sdEstimate.denseFileBytes,
+                nLayers = sdEstimate.nLayers,
+                kvHeads = sdEstimate.kvHeads,
+                headDim = sdEstimate.headDim,
+                contextWindow = settings.contextWindow
             )
+            val snap = memorySnapshot()
+            snap to MemoryEstimator.decide(est, snap, settings.contextWindow)
+        } else {
+            memoryDecision(modelFile, settings.contextWindow)
+        }
+        if (decision?.estimate != null) {
+            if (sdEstimate != null) {
+                Log.i(
+                    tag,
+                    "SDengine 메모리 추정: 상주 dense=${sdEstimate.denseFileBytes / MemorySnapshot.MB}MB + " +
+                            "KV=${decision.estimate.kvBytes / MemorySnapshot.MB}MB " +
+                            "(expert ${sdEstimate.expertFileBytes / MemorySnapshot.MB}MB SSD 스트리밍), " +
+                            "가용=${snapshot.availMb}MB/${snapshot.totalMb}MB, 판정=${decision.status}"
+                )
+            } else {
+                Log.i(
+                    tag,
+                    "메모리 추정: 필요=${decision.estimate.totalMb()}MB (가중치=${decision.estimate.fileBytes / MemorySnapshot.MB}MB, " +
+                            "KV=${decision.estimate.kvBytes / MemorySnapshot.MB}MB), 가용=${snapshot.availMb}MB/${snapshot.totalMb}MB, 판정=${decision.status}"
+                )
+            }
         }
         when (decision?.status) {
             MemoryEstimator.Status.REFUSED -> {
@@ -246,6 +282,13 @@ class LlmEngine(private val context: Context) {
                     detail = "${modelFile.name}: ${decision.reason}",
                     modelName = model.name
                 )
+                if (sdEstimate != null) {
+                    val denseMb = sdEstimate.denseFileBytes / MemorySnapshot.MB
+                    val expertMb = sdEstimate.expertFileBytes / MemorySnapshot.MB
+                    return@withContext "SDengine으로도 메모리 부족: dense ${denseMb}MB + KV가 RAM에 들어가야 하지만 " +
+                            "가용 RAM이 ${snapshot.availMb}MB입니다 (expert ${expertMb}MB는 SSD 스트리밍 대상이라 RAM과 무관). " +
+                            "컨텍스트를 512까지 낮춰도 안 되면 이 기기에서는 무리입니다."
+                }
                 return@withContext "가용 메모리 부족: ${model.name} 로드에 약 ${decision.estimate?.totalMb()}MB가 필요하지만 " +
                         "가용 RAM이 ${snapshot.availMb}MB입니다. 백그라운드 앱을 정리하거나 더 작은 양자화 모델을 선택하세요."
             }
@@ -258,6 +301,17 @@ class LlmEngine(private val context: Context) {
                 Log.w(tag, "컨텍스트 자동 하향: ${decision.reason}")
             }
             else -> onStageUpdate?.invoke("모델 무결성 검증 중...", 0.10f)
+        }
+        // Approved envelope for the SDengine resident cap: dense + KV + overhead at
+        // the effective context. The loader counts dense raw bytes only, so this cap
+        // guards runaway growth without refusing an approved load.
+        if (sdEstimate != null && decision?.estimate != null) {
+            sdCapBytes = decision.estimate.copy(
+                kvBytes = MemoryEstimator.kvBytes(
+                    sdEstimate.nLayers, sdEstimate.kvHeads, sdEstimate.headDim, effectiveContext
+                ),
+                contextWindow = effectiveContext
+            ).totalBytes
         }
         val effectiveSettings =
             if (effectiveContext == settings.contextWindow) settings else settings.copy(contextWindow = effectiveContext)
@@ -451,8 +505,15 @@ class LlmEngine(private val context: Context) {
             unloadCurrentModel()
             onStageUpdate?.invoke("SDengine(TEST) 가중치 바인딩 중...", 0.30f)
             val guard = MemoryGuard.get()
-            val availMb = memorySnapshot().availMb.takeIf { it > 0 } ?: 2048L
-            val residentCap = minOf((availMb * 0.4).toLong() * MemorySnapshot.MB, 3L * 1024L * 1024L * 1024L)
+            // Approved envelope from the SD-aware gate (dense + KV + overhead).
+            // Only when metadata was unreadable (generic gate fallback) use the
+            // old conservative fraction.
+            val residentCap = if (sdCapBytes > 0) {
+                minOf(sdCapBytes, 3L * 1024L * 1024L * 1024L)
+            } else {
+                val availMb = memorySnapshot().availMb.takeIf { it > 0 } ?: 2048L
+                minOf((availMb * 0.4).toLong() * MemorySnapshot.MB, 3L * 1024L * 1024L * 1024L)
+            }
             try {
                 val engine = SDEngine()
                 val info = engine.openModel(modelFile, residentCapBytes = residentCap)
@@ -461,7 +522,8 @@ class LlmEngine(private val context: Context) {
                 isModelLoaded = true
                 isVisionTowerLoaded = false
                 val resultMsg = "[SDengine][TEST] ${model.name} 로드 완료 (layers=${info.nLayers}, experts=${info.nExperts}, " +
-                        "resident=${engine.residentBytes() / MemorySnapshot.MB}MB, tensors=${info.tensorCount}) · " +
+                        "resident dense=${info.denseResidentBytes / MemorySnapshot.MB}MB, " +
+                        "experts ${info.expertBytes / MemorySnapshot.MB}MB SSD 스트리밍, tensors=${info.tensorCount}) · " +
                         SDEngine.advisoryText()
                 Log.i(tag, resultMsg)
                 onStageUpdate?.invoke("로드 완료", 1.0f)
@@ -761,10 +823,12 @@ class LlmEngine(private val context: Context) {
         }
 
         // Construct standard prompt formatted for on-device instruction-tuned model
+        // (no user system prompt: the setting was removed; tools/reasoning blocks
+        // are still composed by PromptFormatter itself).
         val formattedPrompt = PromptFormatter.formatPrompt(
             templateType = model.promptTemplateType,
             templateJsonPath = model.localTemplatePath,
-            systemPrompt = settings.systemPrompt,
+            systemPrompt = "",
             history = history,
             userPrompt = prompt,
             toolsContext = mcpToolsContext,

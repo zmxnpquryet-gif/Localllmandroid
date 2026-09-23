@@ -6,12 +6,13 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Minimal GGUF v3 writer for engine tests: metadata entries, F32 tensors (including
- * the 3-D expert layout `[D0, D1, nExperts]` the pager walks), 32-byte alignment.
+ * Minimal GGUF v3 writer for engine tests: metadata entries, F32/Q8_0 tensors
+ * (including the 3-D expert layout `[D0, D1, nExperts]` the pager walks),
+ * 32-byte alignment.
  */
 class GgufTestWriter {
 
-    private class TensorSpec(val name: String, val dims: LongArray, val values: FloatArray) {
+    private class TensorSpec(val name: String, val dims: LongArray, val dtypeId: Int, val payload: ByteArray) {
         var offset: Long = 0
     }
 
@@ -64,7 +65,21 @@ class GgufTestWriter {
         require(dims.fold(1L) { a, d -> a * d } == values.size.toLong()) {
             "Tensor $name dims ${dims.toList()} do not match ${values.size} values"
         }
-        tensors.add(TensorSpec(name, dims, values))
+        val bb = ByteBuffer.allocate(values.size * 4).order(ByteOrder.LITTLE_ENDIAN)
+        for (v in values) bb.putFloat(v)
+        tensors.add(TensorSpec(name, dims, GgufFormat.F32, bb.array()))
+    }
+
+    /** Q8_0-quantized tensor; element count must be a multiple of 32. */
+    fun q80Tensor(name: String, dims: LongArray, values: FloatArray) = apply {
+        val n = dims.fold(1L) { a, d -> a * d }
+        require(n == values.size.toLong()) {
+            "Tensor $name dims ${dims.toList()} do not match ${values.size} values"
+        }
+        require(n % 32 == 0L) { "Tensor $name has $n values, not a Q8_0 multiple of 32" }
+        val payload = ByteArray((n / 32 * 34).toInt())
+        Quant.quantizeQ80Row(values, 0, payload, 0, n.toInt())
+        tensors.add(TensorSpec(name, dims, GgufFormat.Q8_0, payload))
     }
 
     private val keys = mutableListOf<String>()
@@ -73,7 +88,7 @@ class GgufTestWriter {
         var relative = 0L
         for (tensor in tensors) {
             tensor.offset = relative
-            relative = alignUp(relative + tensor.values.size * 4L)
+            relative = alignUp(relative + tensor.payload.size)
         }
 
         val out = ByteArrayOutputStream()
@@ -89,12 +104,12 @@ class GgufTestWriter {
             out.str(tensor.name)
             out.le32(tensor.dims.size.toLong())
             tensor.dims.forEach { out.le64(it) }
-            out.le32(GgufFormat.F32.toLong())
+            out.le32(tensor.dtypeId.toLong())
             out.le64(tensor.offset)
         }
         while (out.size() % GgufFormat.DEFAULT_ALIGNMENT != 0L) out.write(0)
         for (tensor in tensors) {
-            for (value in tensor.values) out.le32(value.toRawBits().toLong())
+            out.write(tensor.payload)
             while (out.size() % GgufFormat.DEFAULT_ALIGNMENT != 0L) out.write(0)
         }
 
