@@ -99,6 +99,8 @@ class VoiceManager(private val context: Context) {
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var recordingThread: Thread? = null
     @Volatile private var isRecording = false
+    /** Set alongside the stop signal: the capture thread drops the fragment. */
+    @Volatile private var discardRecording = false
     private var pendingResult: ((String) -> Unit)? = null
     private var pendingError: ((String) -> Unit)? = null
 
@@ -223,6 +225,7 @@ class VoiceManager(private val context: Context) {
         _lastSttEngine.value = SttEngine.LOCAL_WHISPER
         _voiceState.value = InteractiveVoiceState.LISTENING
         isRecording = true
+        discardRecording = false
         recorder = record
         val thread = Thread({
             val chunks = ArrayList<FloatArray>(256)
@@ -287,6 +290,18 @@ class VoiceManager(private val context: Context) {
                 if (recordingThread === Thread.currentThread()) recordingThread = null
             }
 
+            // A Stop tap is a discard, not an early endpoint: transcribing the
+            // fragment would answer a question the user cancelled.
+            if (discardRecording) {
+                discardRecording = false
+                pendingResult = null
+                pendingError = null
+                mainHandler.post {
+                    _audioAmplitude.value = 0f
+                    _voiceState.value = InteractiveVoiceState.IDLE
+                }
+                return@Thread
+            }
             var flat = FloatArray(total)
             var pos = 0
             for (chunk in chunks) {
@@ -398,6 +413,7 @@ class VoiceManager(private val context: Context) {
      */
     fun stopListening() {
         if (isRecording) {
+            discardRecording = true
             isRecording = false
             return
         }

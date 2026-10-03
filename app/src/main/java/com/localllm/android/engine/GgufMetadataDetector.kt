@@ -46,6 +46,18 @@ object GgufMetadataDetector {
 
     private const val TAG = "ModelMetadataDetector"
 
+    /** Substrings matched against metadata KEYS and tensor NAMES only (never values). */
+    private val VISION_STRUCTURED_HITS = listOf(
+        "clip", "vision", "siglip", "llava", "mllama", "minicpm", "paligemma",
+        "mm.", "mm_", "projector", "multimodal", "multi_modal", "image_encoder",
+        "vision_encoder", "v.blk"
+    )
+
+    /** Substrings matched against metadata KEYS and tensor NAMES only (never values). */
+    private val DRAFTER_STRUCTURED_HITS = listOf(
+        "mtp", "draft", "drafter", "speculative", "multi_token_prediction", "target_draft"
+    )
+
     fun isLiteRtModel(fileName: String): Boolean {
         val lower = fileName.lowercase()
         return lower.endsWith(".litertlm") ||
@@ -127,47 +139,23 @@ object GgufMetadataDetector {
             val nameHasVision = isVisionModel(fileNameLower)
             val nameHasDrafter = isDrafterModel(fileNameLower)
 
-            val ascii = String(buffer, 0, readLen, Charsets.ISO_8859_1).lowercase()
-            val utf8 = String(buffer, 0, readLen, Charsets.UTF_8).lowercase()
-            val content = "$ascii $utf8"
-
-            // Vision projector / encoder indicators in metadata or subgraphs (avoid generic noisy substrings like "mm." or "clip.")
-            val metaHasVision = content.contains("qwen2vl") ||
-                    content.contains("qwen2_vl") ||
-                    content.contains("llava") ||
-                    content.contains("mllama") ||
-                    content.contains("minicpmv") ||
-                    content.contains("paligemma") ||
-                    content.contains("siglip") ||
-                    content.contains("vision_encoder") ||
-                    content.contains("image_encoder") ||
-                    content.contains("clip.has_vision_encoder") ||
-                    content.contains("mm.projector") ||
-                    content.contains("mm_projector") ||
-                    content.contains("v.blk.0")
-
-            // Drafter / MTP indicators
-            val metaHasDrafter = content.contains("mtp.") ||
-                    content.contains("draft.head") ||
-                    content.contains("speculative.draft") ||
-                    content.contains("multi_token_prediction")
-
-            val finalVision = nameHasVision || metaHasVision
-            val finalDrafter = nameHasDrafter || metaHasDrafter
-
-            // LiteRT models are inherently unified bundles
-            val isUnified = detectedRuntime == ModelRuntimeType.LITE_RT || finalVision || finalDrafter
-
             // MoE routing needs the real metadata (expert_count), not a byte scan: the
             // container type decides the runtime, the expert count decides SDengine.
+            // Vision/drafter evidence comes from the same structured source — metadata
+            // KEYS and tensor NAMES. Scanning the raw 256 KB (which includes the vocab
+            // token table) false-positives on any text model whose vocabulary happens
+            // to contain words like "siglip" or "vision".
             var expertCount = 0
             var architecture: String? = null
+            var structuredHits = ""
             if (hasGgufMagic) {
                 try {
                     val reader = GgufReader.open(file)
                     try {
                         architecture = reader.architecture()
                         expertCount = reader.archU32("expert_count")?.toInt() ?: 0
+                        structuredHits = (reader.metadata.keys + reader.tensors.map { it.name })
+                            .joinToString("\n").lowercase()
                     } finally {
                         reader.close()
                     }
@@ -175,6 +163,18 @@ object GgufMetadataDetector {
                     Log.d(TAG, "GGUF metadata peek failed for ${file.name}: ${t.message}")
                 }
             }
+
+            // Vision projector / encoder indicators in metadata keys or tensor names.
+            val metaHasVision = VISION_STRUCTURED_HITS.any { structuredHits.contains(it) }
+
+            // Drafter / MTP indicators in metadata keys or tensor names.
+            val metaHasDrafter = DRAFTER_STRUCTURED_HITS.any { structuredHits.contains(it) }
+
+            val finalVision = nameHasVision || metaHasVision
+            val finalDrafter = nameHasDrafter || metaHasDrafter
+
+            // LiteRT models are inherently unified bundles
+            val isUnified = detectedRuntime == ModelRuntimeType.LITE_RT || finalVision || finalDrafter
 
             val detailsList = mutableListOf<String>()
             if (detectedRuntime == ModelRuntimeType.LITE_RT) {

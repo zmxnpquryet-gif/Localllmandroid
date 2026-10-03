@@ -92,7 +92,11 @@ class MemoryGuardStore(
 
     private val lock = Any()
     private var loaded = false
+    // Visible across the watchdog thread and the UI without taking the lock on
+    // every read; all writes already happen under it.
+    @Volatile
     private var level = 0
+    @Volatile
     private var enabled = true
     private val incidents = mutableListOf<Incident>()
 

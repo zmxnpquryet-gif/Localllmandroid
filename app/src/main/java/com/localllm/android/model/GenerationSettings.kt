@@ -8,7 +8,6 @@ data class GenerationSettings(
     val topK: Int = 40,
     val repetitionPenalty: Float = 1.1f,
     val enableMtp: Boolean = true, // Multi-token prediction
-    val enableVision: Boolean = true, // Load mmproj vision tower
     val reasoningEffort: Float = 0.5f, // 0.2 (Low), 0.5 (Medium), 0.8 (High), 1.0 (Max)
     val showPerformanceMetrics: Boolean = true, // Display TPS and PP speed
     val enableIndexingAcceleration: Boolean = true, // KV-cache / Prompt cache
@@ -16,7 +15,7 @@ data class GenerationSettings(
     val gpuLayers: Int = 99, // Offloaded GPU layers for llama.cpp (0 = CPU only, 99 = full offload)
     val apiServerBindAddress: String = "127.0.0.1", // "127.0.0.1" (secure local) or "0.0.0.0" (LAN)
     val apiServerRequireAuth: Boolean = true, // Require Bearer API key for OllamaApiServer
-    val mcpServerUrl: String = "https://mcp.weather.dev/sse",
+    val mcpServerUrl: String = "",
     val isMcpEnabled: Boolean = false,
     val darkModePreference: String = "dark", // "system", "dark", "light"
     val themeColorName: String = "artistic", // "artistic", "liquid", "chatgpt", "cyber", "obsidian", "amber", "frost"

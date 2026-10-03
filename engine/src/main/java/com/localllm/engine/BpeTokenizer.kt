@@ -146,6 +146,17 @@ class BpeTokenizer(
 
     /** Decodes ids to text; control/special ids (bos/eos) are skipped by default. */
     fun decode(ids: IntArray, skipSpecials: Boolean = true): String {
+        val out = storedBytes(ids, skipSpecials)
+        return if (useGpt2) unmapFromGpt2(out.toString(Charsets.UTF_8)).toString(Charsets.UTF_8)
+        else out.toString(Charsets.UTF_8)
+    }
+
+    /**
+     * The raw concatenated stored spellings of [ids] (same skipping as [decode]).
+     * The streaming decoder works from these bytes so a token split mid-character
+     * never turns into U+FFFD noise.
+     */
+    fun storedBytes(ids: IntArray, skipSpecials: Boolean = true): ByteArray {
         var total = 0
         for (id in ids) {
             if (id !in tokenBytes.indices) continue
@@ -161,9 +172,16 @@ class BpeTokenizer(
             t.copyInto(out, pos)
             pos += t.size
         }
-        return if (useGpt2) unmapFromGpt2(out.toString(Charsets.UTF_8)).toString(Charsets.UTF_8)
-        else out.toString(Charsets.UTF_8)
+        return out
     }
+
+    /**
+     * Stored spellings back to original text bytes. The input must end on a stored
+     * character boundary (whole tokens always do); the output may end mid-character
+     * of the ORIGINAL text, which is exactly what [TokenStreamDecoder] holds back.
+     */
+    fun unmapStored(bytes: ByteArray): ByteArray =
+        if (useGpt2) unmapFromGpt2(bytes.toString(Charsets.UTF_8)) else bytes
 
     companion object {
         /**

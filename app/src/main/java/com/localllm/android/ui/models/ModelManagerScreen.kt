@@ -32,11 +32,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.localllm.android.R
 import com.localllm.android.engine.DownloadStatus
+import com.localllm.android.engine.IntegrityNote
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelRuntimeType
 import com.localllm.android.ui.AppScreen
@@ -194,21 +199,30 @@ fun ModelManagerScreen(
                 GFilterChip(
                     selected = selectedFilter == "LLAMA_CPP",
                     onClick = { selectedFilter = "LLAMA_CPP" },
-                    label = { GText("GGUF") }
+                    label = { GText(stringResource(R.string.tab_gguf)) }
                 )
                 GFilterChip(
                     selected = selectedFilter == "LITE_RT",
                     onClick = { selectedFilter = "LITE_RT" },
-                    label = { GText("LiteRT") }
+                    label = { GText(stringResource(R.string.tab_litert)) }
                 )
             }
 
             // Device Storage & Model Footprint Monitor Card
             val modelsDir = remember { java.io.File(context.filesDir, "models") }
-            val actualStorageUsedBytes = remember(models, activeDownloadStatus) {
-                if (modelsDir.exists()) {
-                    modelsDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-                } else 0L
+            // The disk walk runs on IO and refreshes on model-list changes and
+            // download completion — never on every 200 ms progress tick, and never
+            // on the composition thread (multi-GB trees would jank every frame).
+            var storageTick by remember { mutableStateOf(0) }
+            LaunchedEffect(activeDownloadStatus?.isCompleted) {
+                if (activeDownloadStatus?.isCompleted == true) storageTick++
+            }
+            val actualStorageUsedBytes by produceState(0L, models, storageTick) {
+                value = withContext(Dispatchers.IO) {
+                    if (modelsDir.exists()) {
+                        modelsDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+                    } else 0L
+                }
             }
             val totalDeviceStorageBytes = remember {
                 try {
@@ -514,6 +528,21 @@ private fun FdmActiveDownloadCard(
                     progress = status.templateProgress
                 )
             }
+        }
+
+        // Integrity signal: verified downloads and honest unverified ones must not
+        // look identical. Shown once the bundle reports a final state.
+        if (status.integrityNote != IntegrityNote.NONE) {
+            Spacer(modifier = Modifier.height(8.dp))
+            GText(
+                text = stringResource(
+                    if (status.integrityNote == IntegrityNote.VERIFIED) R.string.model_manager_integrity_verified
+                    else R.string.model_manager_integrity_unverified
+                ),
+                style = GlassTheme.type.labelSmall,
+                color = if (status.integrityNote == IntegrityNote.VERIFIED) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant,
+                fontSize = 11.sp
+            )
         }
     }
 }

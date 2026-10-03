@@ -1,4 +1,4 @@
-﻿package com.localllm.android.data
+package com.localllm.android.data
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -260,7 +260,7 @@ class ModelStorageManager(private val context: Context) {
         // Access tokens are never written in cleartext to this (backup-adjacent) file.
         // A Keystore failure drops only the token; it must not abort the whole save,
         // which would silently lose every model entry.
-        obj.put("hfToken", encryptTokenOrEmpty(m.hfToken))
+        obj.put("hfToken", encryptTokenOrEmpty(m.hfToken, m.id))
         return obj
     }
 
@@ -301,7 +301,7 @@ class ModelStorageManager(private val context: Context) {
             localMmprojPath = obj.optString("localMmprojPath", "").ifBlank { null },
             localMtpDrafterPath = obj.optString("localMtpDrafterPath", "").ifBlank { null },
             localTemplatePath = obj.optString("localTemplatePath", "").ifBlank { null },
-            hfToken = decryptStoredToken(obj.optString("hfToken", ""))
+            hfToken = decryptStoredToken(obj.optString("hfToken", ""), obj.optString("id", ""))
         )
     }
 
@@ -309,10 +309,10 @@ class ModelStorageManager(private val context: Context) {
      * Encrypts a token for storage. Returns "" when there is no token or when
      * encryption is unavailable, so one bad token can never fail the metadata write.
      */
-    private fun encryptTokenOrEmpty(token: String?): String {
+    private fun encryptTokenOrEmpty(token: String?, modelId: String): String {
         if (token.isNullOrBlank()) return ""
         return try {
-            ChatCrypto.encrypt(token)
+            ChatCrypto.encrypt(token, tokenAad(modelId))
         } catch (_: SecurityException) {
             ""
         }
@@ -321,17 +321,24 @@ class ModelStorageManager(private val context: Context) {
     /**
      * Reads an encrypted token. Values written by older builds were plaintext
      * (Hugging Face tokens carry the `hf_` prefix); those are accepted and
-     * re-encrypted on the next save. Any other payload that fails to decrypt is
-     * treated as absent rather than being used as if it were a token.
+     * re-encrypted on the next save. A value that looks like our own ciphertext
+     * (the `v2:` prefix) but fails to decrypt is treated as absent — it is never
+     * reinterpreted as plaintext.
      */
-    private fun decryptStoredToken(stored: String): String? {
+    private fun decryptStoredToken(stored: String, modelId: String): String? {
         if (stored.isBlank()) return null
         return try {
-            ChatCrypto.decrypt(stored).ifBlank { null }
+            ChatCrypto.decrypt(stored, tokenAad(modelId)).ifBlank { null }
         } catch (_: SecurityException) {
-            stored.takeIf { it.startsWith(LEGACY_PLAINTEXT_TOKEN_PREFIX) }
+            if (!stored.startsWith(ChatCrypto.VERSION_PREFIX)) {
+                stored.takeIf { it.startsWith(LEGACY_PLAINTEXT_TOKEN_PREFIX) }
+            } else {
+                null
+            }
         }
     }
+
+    private fun tokenAad(modelId: String) = "model-token:$modelId"
 
     companion object {
         private const val LEGACY_PLAINTEXT_TOKEN_PREFIX = "hf_"

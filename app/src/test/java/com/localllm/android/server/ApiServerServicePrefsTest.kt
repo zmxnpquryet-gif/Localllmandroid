@@ -1,9 +1,15 @@
 package com.localllm.android.server
 
 import android.content.Context
+import com.localllm.android.TestCrypto
 import com.localllm.android.model.ModelRuntimeType
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -19,6 +25,16 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class ApiServerServicePrefsTest {
 
+    @Before
+    fun setUp() {
+        TestCrypto.install()
+    }
+
+    @After
+    fun tearDown() {
+        TestCrypto.uninstall()
+    }
+
     private fun prefs() = RuntimeEnvironment.getApplication()
         .getSharedPreferences("test_server_prefs", Context.MODE_PRIVATE)
         .also { it.edit().clear().apply() }
@@ -32,11 +48,25 @@ class ApiServerServicePrefsTest {
     }
 
     @Test
-    fun `existing key is adopted, blank is replaced`() {
+    fun `api key is never stored as plaintext`() {
+        val prefs = prefs()
+        val key = ApiServerService.loadOrCreateApiKey(prefs)
+        assertNull(prefs.getString("api_server_key", null))
+        val stored = prefs.getString("api_server_key_enc", null)
+        assertNotNull(stored)
+        assertFalse(stored!!.contains(key))
+    }
+
+    @Test
+    fun `existing plaintext key is adopted then migrated away, blank is replaced`() {
         val prefs = prefs()
         prefs.edit().putString("api_server_key", "sk-local-kept").apply()
         assertEquals("sk-local-kept", ApiServerService.loadOrCreateApiKey(prefs))
-        prefs.edit().putString("api_server_key", "  ").apply()
+        // The plaintext copy is gone after migration, and the key stays stable.
+        assertNull(prefs.getString("api_server_key", null))
+        assertEquals("sk-local-kept", ApiServerService.loadOrCreateApiKey(prefs))
+
+        prefs.edit().clear().putString("api_server_key", "  ").apply()
         val fresh = ApiServerService.loadOrCreateApiKey(prefs)
         assertTrue(fresh.startsWith("sk-local-"))
     }

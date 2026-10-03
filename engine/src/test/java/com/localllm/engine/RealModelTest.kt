@@ -1,10 +1,12 @@
-// SDengine — real-file verification. Runs only when LOCALENGINE_MODEL points at a GGUF file.
+// SDengine — real-file verification. Manual/nightly only: without LOCALENGINE_MODEL
+// pointing at a GGUF file the tests abort via Assume (not a silent pass).
 // Korean sample below is codepoint-built: raw non-ASCII literals in test sources
 // have proven unreliable in this toolchain (see TokenizerSamplerTest).
 package com.localllm.engine
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 
@@ -27,10 +29,9 @@ class RealModelTest {
 
     @Test
     fun `real gguf metadata tokenizer and tensor inventory`() {
-        val f = modelFile() ?: run {
-            println("SKIP: set LOCALENGINE_MODEL to a GGUF file")
-            return
-        }
+        val f = modelFile()
+        assumeTrue("needs a real GGUF: set LOCALENGINE_MODEL to a GGUF file (manual/nightly only)", f != null)
+        requireNotNull(f)
         GgufReader.open(f).use { r ->
             println("arch=${r.architecture()} tensors=${r.tensors.size} file=${f.length()}")
             assertEquals("llama", r.architecture())
@@ -68,14 +69,10 @@ class RealModelTest {
 
     @Test
     fun `real model full open behind opt-in flag`() {
-        val f = modelFile() ?: run {
-            println("SKIP: set LOCALENGINE_MODEL to a GGUF file")
-            return
-        }
-        if (System.getenv("LOCALENGINE_FULL") != "1") {
-            println("SKIP full open (set LOCALENGINE_FULL=1 to attempt resident decode)")
-            return
-        }
+        val f = modelFile()
+        assumeTrue("needs a real GGUF: set LOCALENGINE_MODEL to a GGUF file (manual/nightly only)", f != null)
+        requireNotNull(f)
+        assumeTrue("set LOCALENGINE_FULL=1 to attempt resident decode", System.getenv("LOCALENGINE_FULL") == "1")
         SDEngine().use { e ->
             val info = e.openModel(f, residentCapBytes = 3L * 1024 * 1024 * 1024)
             println("opened=$info resident=${e.residentBytes()}")

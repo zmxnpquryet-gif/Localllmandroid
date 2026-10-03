@@ -130,10 +130,9 @@ class GgufCodecTest {
                 assertEquals(r.dataBaseOffset + 64, t1.dataOffset)
                 val out = FloatArray(32)
                 Quant.dequantizeRow(t1.dtypeId, r.tensorBytes(t1), 0, out, 0, 32)
-                for (i in 0 until 32 step 2) {
-                    assertEquals(0f, out[i], 0f)
-                    assertEquals(1f, out[i + 1], 0f)
-                }
+                // GGML layout: low nibbles (8 -> 0.0) land on 0..15, high (9 -> 1.0) on 16..31.
+                for (i in 0 until 16) assertEquals(0f, out[i], 0f)
+                for (i in 16 until 32) assertEquals(1f, out[i], 0f)
             }
         } finally {
             f.delete()

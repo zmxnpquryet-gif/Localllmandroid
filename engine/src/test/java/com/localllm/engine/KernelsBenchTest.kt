@@ -65,6 +65,22 @@ class KernelsBenchTest {
     }
 
     @Test
+    fun `rope rotates halves, not adjacent lanes`() {
+        // headDim=4, pos=1, theta=10000: angle[0]=1.0 rad pairs (x0,x2),
+        // angle[1]=0.01 rad pairs (x1,x3). Adjacent pairing would move x1 instead.
+        val x = floatArrayOf(1f, 0f, 0f, 0f)
+        k.rope(x, 1, 4, 10000f)
+        assertEquals(Math.cos(1.0).toFloat(), x[0], 1e-5f)
+        assertEquals(0f, x[1], 0f)
+        assertEquals(Math.sin(1.0).toFloat(), x[2], 1e-5f)
+        assertEquals(0f, x[3], 0f)
+        // pos=0 is the identity everywhere.
+        val y = floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f)
+        k.rope(y, 0, 8, 10000f)
+        assertArrayEquals(floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f), y, 1e-6f)
+    }
+
+    @Test
     fun `topk returns largest descending`() {
         val x = floatArrayOf(0.1f, 0.9f, 0.5f, 0.9f, 0.2f)
         assertArrayEquals(intArrayOf(1, 3, 2), k.topK(x, 3))

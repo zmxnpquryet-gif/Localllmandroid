@@ -78,7 +78,10 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
   - `GET /api/tags` - List installed on-device models
   - `POST /api/generate` - Single-turn completion (Ollama spec)
   - `POST /api/chat` - Multi-turn conversational completion (Ollama spec)
+  - `POST /api/show` - Model details for the active model
+  - `GET /api/version` - Server version (reports Ollama-compatible `0.5.1`)
   - `POST /v1/chat/completions` - OpenAI API compatible endpoint
+  - `GET /v1/models` - OpenAI model list
 - **Flexible Network & Access Controls**:
   - **Local Loopback (`127.0.0.1`) Isolation**: Secure default mode preventing unauthorized external access.
   - **External Network (LAN) Toggle**: Instantly bind to `0.0.0.0` with live socket rebinding, enabling access from any computer or device on your local Wi-Fi / LAN network.
@@ -96,10 +99,10 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
 
 ## 🔒 Security & Privacy
 
-1. **Hardware-Backed AES-256-GCM Encryption (`ChatCrypto`)**
-   - Cryptographic keys are generated and stored in the hardware **Android KeyStore** (Secure Element / TEE).
-   - Authenticated Encryption (AEAD) ensures conversational data cannot be intercepted or tampered with.
-   - Strict prevention of silent downgrades to insecure hardcoded keys.
+1. **Keystore AES-256-GCM Encryption (`ChatCrypto`)**
+   - The key is generated non-exportable inside the **Android Keystore** (no hardcoded fallback, fail closed). Whether that Keystore is backed by a TEE/StrongBox is device-dependent: it is read back via `KeyInfo` and exposed by `keyProtection()` (the instrumented test logs the level per device) instead of being claimed.
+   - Authenticated Encryption (AEAD) with per-row binding: ciphertexts carry the conversation/message id and column as associated data, so a row copied into another slot fails authentication. Current format is `v2:`; older rows are upgraded in place on launch.
+   - Credentials (Hugging Face token, API server key, MCP bearer token) are stored only as Keystore ciphertext (`SecretPrefs`); legacy plaintext copies are migrated in a single atomic commit on next access and removed (model-file tokens are re-encrypted on next save). A broken ciphertext falls back to a surviving plaintext once, then re-encrypts; otherwise undecryptable values read as absent, never as valid.
 
 2. **Offline Text Inference & Private Storage**
    - Zero telemetry, zero analytics, zero external API dependencies for text inference.
@@ -118,7 +121,8 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
 - **Streaming Reasoning State Machine (`ReasoningStreamParser`)**:
   - Elegantly parses `<think>` ... `</think>` tags across token streaming chunks for reasoning models like DeepSeek-R1.
 - **Model Context Protocol (MCP) Client (`McpClient`)**:
-  - Native MCP protocol client with per-session isolation guards, enabling tool use in on-device chats.
+  - JSON-RPC client speaking Streamable HTTP first, legacy SSE second (with the session id kept and `notifications/initialized` sent on both paths). Optional bearer token, re-checked per request: https anywhere, or plain http only to loopback/private-LAN hosts (mDNS `.local` excluded — it resolves over broadcast, so it needs https); a token saved for one server is never re-sent to a changed address without re-entry, and https is never downgraded on redirect. Legacy-SSE endpoints on another origin are rejected, and `Mcp-Session-Id` is tracked per connection.
+  - Tools are offered in the prompt and called with one `<tool_call>{"name": ..., "arguments": {...}}</tool_call>` block per reply (only names the connected server advertised; first call per turn only; fenced code examples and unclosed blocks are never calls). Every call waits for an explicit approval dialog (no always-allow, auto-declines after 60 s); a decline ends the tool use and a second straight syntax error ends it too, at most 3 tool rounds per message. Requests are async and cancellable, so Stop never leaves an orphan running on the tool server. Results come back wrapped as untrusted `<tool_result>` data (all tag spellings neutralized), shown as a tool card with the recorded call, and fed to the next turn framed as external data. Whether a small local model calls tools well depends on the model.
 - **First-Party Glass Design System (`ui/glass`)**:
   - Material3 stripped out entirely; a custom glass UI toolkit (`GlassTheme`, `GButtons`, `GControls`, `GOverlays`...) covers every screen.
 - **In-App Bilingual UI (EN / KO)**:
@@ -128,7 +132,7 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
   - Writes an in-flight marker per generation: a marker found at startup means the previous process was killed mid-inference, which is recorded and lowers the memory-heavy settings for the next run (memory guard log + incidents in Settings).
   - Polls available RAM while generating and stops the run safely when the device runs critical, before the LMK kills the app.
 - **Resilient Mobile Downloader**:
-  - Background foreground-service downloads with pause/resume support and integrity verification.
+  - Background foreground-service downloads with resume support (interrupted downloads pick up from part files; there is no manual pause button). SHA-256 is verified against the hash Hugging Face publishes (`X-Linked-ETag`, read across the redirect chain) when present — a mismatch deletes the file and fails the download, and files already on disk are re-checked (a mismatch re-downloads). Files with no published hash complete with a format check of the weight files only (tiny template sidecars are accepted as-is) and the download card says so instead of claiming verification.
 
 ---
 
@@ -136,18 +140,18 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
 
 A first-party MoE-only inference core is being built in the open as a separate Android library module.
 
-**Scope (deliberate):** gated-expert Mixture-of-Experts on Android (Kotlin/JVM core plus a C++ JNI stub; NEON/GPU kernels pending). Dense-only models and non-MoE hybrids are out of scope.
+**Scope (deliberate):** gated-expert Mixture-of-Experts on Android (Kotlin/JVM core plus a portable C++ JNI reference; NEON/GPU kernels pending). Dense-only models and non-MoE hybrids are out of scope.
 
 **What's inside today:**
 - GGUF format reader + metadata detection, BPE tokenizer, sampler, KV cache (`GgufReader`, `BpeTokenizer`, `Sampler`, `KvCache`)
 - Paged expert streaming: dense weights decode resident under a cap while expert tiles stay on storage and stream through `ExpertPager`
-- C++ JNI core via NDK 27 + CMake (`arm64-v8a`, `x86_64`)
-- Numerical validation against real MoE weights (live Qwen3-30B-A3B tested via HTTP range streaming)
+- Portable C++ JNI reference via NDK 27 + CMake (`arm64-v8a`, `x86_64`): a `dot()` parity check only, no NEON yet — the real math is JVM scalar kernels
+- Numerical validation against real MoE weights via HTTP range streaming (manual/nightly `RealMoETest` with `LOCALENGINE_MOE_URL`; never runs in normal CI)
 - End-to-end generation over a gated-expert GGUF, covered by `SDEngineEndToEndTest` (synthetic MoE model: load, stream tokens, cancel, resident-cap enforcement)
 
 **Status: TEST BUILD / EXPERIMENTAL — runs, but not for production.**
 - Reference scalar kernels prove the math; NEON/GPU kernels are next, so real MoE models decode at single-digit tokens per second on device.
-- The app routes auto-detected MoE GGUFs (imported models) to SDengine and keeps the engine advisories (`SDEngine.ADVISORIES`) visible; a failed SDengine load retries once on llama.cpp instead of leaving no model. Each model's runtime can be overridden by hand in Model Manager.
+- Imported models default to llama.cpp; SDengine is strictly opt-in per model (Model Manager runtime override). A failed SDengine load retries once on llama.cpp instead of leaving no model, and the engine advisories (`SDEngine.ADVISORIES`) stay visible.
 
 ---
 

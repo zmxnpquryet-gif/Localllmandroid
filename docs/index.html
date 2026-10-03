@@ -119,7 +119,7 @@
       </div>
     </div>
     <div class="grid" style="margin-top:18px">
-      <div class="card"><div class="icon">🔒</div><h3>Hardware-backed encryption</h3><p>Chats are AES-256-GCM encrypted with keys generated in the Android Keystore (TEE / Secure Element). No silent fallbacks.</p></div>
+      <div class="card"><div class="icon">🔒</div><h3>Hardware-backed encryption</h3><p>Chats are AES-256-GCM encrypted with non-exportable keys generated in the Android Keystore (hardware backing is device-dependent and read back via KeyInfo). No silent fallbacks.</p></div>
       <div class="card"><div class="icon">🌐</div><h3>Ollama / OpenAI-compatible server</h3><p>Port 11434 server on-device. Loopback-only by default, optional LAN binding with bearer-token auth. Drop-in for your existing tools.</p></div>
       <div class="card"><div class="icon">📊</div><h3>Real-time benchmarking</h3><p>Token-level prompt speed and generation speed (tokens/s) measured via native tokenizers, shown on every message.</p></div>
       <div class="card"><div class="icon">🎙️</div><h3>Voice mode with local Whisper STT</h3><p>Hands-free loop: on-device Whisper speech-to-text, LLM generation, text-to-speech. Animated voice orb, zero cloud round-trips.</p></div>
@@ -132,7 +132,7 @@
 
   <section id="lab">
     <h2>In the lab: SDengine</h2>
-    <p class="sub">A first-party MoE-only inference core, built in the open as the <code>:engine</code> module. GGUF reader, BPE tokenizer, paged expert streaming, C++ JNI core (NDK). Numerical validation running on real Qwen3-30B-A3B weights, plus end-to-end generation over gated-expert GGUFs. Imported MoE models are auto-routed here, advisories stay visible, and a failed load falls back to llama.cpp. <b>Experimental - runs, but not for production yet.</b> Dense engines (llama.cpp / LiteRT-LM) remain the production path.</p>
+    <p class="sub">A first-party MoE-only inference core, built in the open as the <code>:engine</code> module. GGUF reader, BPE tokenizer, paged expert streaming, portable C++ JNI reference (real math is JVM scalar kernels; NEON pending). Numerical validation against real MoE weights runs manually/nightly via range streaming, plus end-to-end generation over gated-expert GGUFs. Imported models default to llama.cpp; SDengine is strictly opt-in per model, advisories stay visible, and a failed load falls back to llama.cpp. <b>Experimental - runs, but not for production yet.</b> Dense engines (llama.cpp / LiteRT-LM) remain the production path.</p>
   </section>
 
   <section id="build">

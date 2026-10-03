@@ -39,12 +39,6 @@
 -keep class * extends androidx.room.RoomDatabase
 -dontwarn androidx.room.paging.**
 
-# Keep Moshi JSON adapters
--keepattributes *JavascriptInterface*
--keepclassmembers class * {
-    @com.squareup.moshi.Json <fields>;
-}
-
 # OkHttp rules
 -dontwarn okhttp3.**
 -dontwarn okio.**

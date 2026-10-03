@@ -95,10 +95,68 @@ class McpClientTest {
         assertEquals(listOf("get_weather", "add"), client.currentTools().map { it.name })
         assertTrue(result.latencyMs >= 0)
 
-        val context = McpClient.buildToolsContext(result.serverName, result.tools)
+        val context = McpToolProtocol.buildToolsPrompt(result.serverName, result.tools)
         assertNotNull(context)
         assertTrue(context!!.contains("get_weather"))
         assertTrue(context.contains("city"))
+    }
+
+    @Test
+    fun `legacy sse handshake keeps the session and sends initialized`() = runBlocking {
+        val rpcOrder = mutableListOf<String>()
+        val sessions = mutableMapOf<String, String?>()
+        val handler: (Request) -> Response = { request ->
+            if (request.method == "GET") {
+                // The SSE handshake: one endpoint event, then the stream could run on.
+                Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .header("Content-Type", "text/event-stream")
+                    .body("event: endpoint\ndata: /messages/7\n\n".toResponseBody("text/event-stream".toMediaType()))
+                    .build()
+            } else {
+                val body = try {
+                    request.body?.let { rb ->
+                        val buffer = okio.Buffer()
+                        rb.writeTo(buffer)
+                        buffer.readUtf8()
+                    } ?: ""
+                } catch (_: Exception) {
+                    ""
+                }
+                val method = try {
+                    JSONObject(body).optString("method")
+                } catch (_: Exception) {
+                    ""
+                }
+                rpcOrder.add(method.ifBlank { request.url.encodedPath })
+                sessions[method] = request.header("Mcp-Session-Id")
+                when (method) {
+                    "initialize" -> jsonResponse(
+                        request,
+                        """{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","serverInfo":{"name":"SseSrv","version":"1"}}}""",
+                        headers = mapOf("Mcp-Session-Id" to "sess-9")
+                    )
+                    "notifications/initialized" -> jsonResponse(request, "", 202)
+                    "tools/list" -> jsonResponse(
+                        request,
+                        """{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"add","description":"d","inputSchema":{"type":"object"}}]}}"""
+                    )
+                    else -> jsonResponse(request, """{"error":"unknown"}""", 400)
+                }
+            }
+        }
+        val client = McpClient(fakeClient(handler))
+        val result = client.connectServer("https://mcp.example.com/sse")
+
+        assertTrue(result.isSuccess)
+        assertEquals(listOf("initialize", "notifications/initialized", "tools/list"), rpcOrder)
+        assertEquals("sess-9", sessions["notifications/initialized"])
+        assertEquals("sess-9", sessions["tools/list"])
+        assertEquals(listOf("add"), result.tools.map { it.name })
+        Unit
     }
 
     @Test
@@ -147,25 +205,30 @@ class McpClientTest {
     @Test
     fun `endpoint resolution handles absolute and relative targets`() {
         val client = McpClient()
-        assertEquals(
-            "https://other.example/rpc",
+        // Cross-origin absolute endpoints are rejected: the server must not be able
+        // to redirect this client (and its bearer token) to an arbitrary host.
+        assertNull(
             client.resolveEndpoint("https://mcp.example.com/sse", "https://other.example/rpc")
         )
         assertEquals(
             "https://mcp.example.com/messages/1",
             client.resolveEndpoint("https://mcp.example.com/sse", "/messages/1")
         )
+        assertEquals(
+            "https://mcp.example.com/rpc",
+            client.resolveEndpoint("https://mcp.example.com/sse", "https://mcp.example.com/rpc")
+        )
         assertNull(client.resolveEndpoint("not a url", "/messages/1"))
     }
 
     @Test
-    fun `tools context truncates long schemas and tool lists`() {
+    fun `tools prompt truncates long schemas and tool lists`() {
         val bigSchema = "{\"type\":\"object\",\"x\":\"" + "y".repeat(5000) + "\"}"
-        val tools = listOf(McpTool("big", "큰 스키마", bigSchema)) +
+        val tools = listOf(McpTool("big", "big schema", bigSchema)) +
                 (1..50).map { McpTool("tool$it", "desc$it", "{}") }
-        val context = McpClient.buildToolsContext("S", tools)!!
+        val context = McpToolProtocol.buildToolsPrompt("S", tools)!!
         assertTrue(context.length <= McpClient.MAX_TOOLS_CONTEXT_CHARS + 100)
-        assertTrue(context.contains("…(생략)"))
-        assertNull(McpClient.buildToolsContext("S", emptyList()))
+        assertTrue(context.contains("…(truncated)"))
+        assertNull(McpToolProtocol.buildToolsPrompt("S", emptyList()))
     }
 }

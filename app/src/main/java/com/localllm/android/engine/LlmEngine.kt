@@ -618,10 +618,15 @@ class LlmEngine(private val context: Context) {
 
             var modelPfd: ParcelFileDescriptor? = null
             var mmprojPfd: ParcelFileDescriptor? = null
+            // Raw fds handed to native code. detachFd() strips the ParcelFileDescriptor
+            // of ownership, so its close() below is a no-op for them: on failure they
+            // must be closed explicitly or every failed candidate leaks an fd.
+            var modelFd = -1
+            var mmprojFd = -1
 
             try {
                 modelPfd = openPfd(modelFile)
-                val modelFd = modelPfd.detachFd()
+                modelFd = modelPfd.detachFd()
 
                 val modelUriString = Uri.fromFile(modelFile).toString()
                 val params = mutableMapOf<String, Any>(
@@ -644,7 +649,8 @@ class LlmEngine(private val context: Context) {
                 if (cand.useMmproj && mmprojPath != null) {
                     try {
                         mmprojPfd = openPfd(File(mmprojPath))
-                        params["mmproj_fd"] = mmprojPfd.detachFd()
+                        mmprojFd = mmprojPfd.detachFd()
+                        params["mmproj_fd"] = mmprojFd
                     } catch (me: Throwable) {
                         Log.w(tag, "mmproj 파일 디스크립터 생성 실패 (${me.message}), 텍스트 단독 모드로 진행")
                     }
@@ -668,12 +674,29 @@ class LlmEngine(private val context: Context) {
                 newLlamaContext = createdContext
                 loadedWithMmproj = cand.useMmproj && params.containsKey("mmproj_fd")
                 successfulDesc = cand.desc
+                // Success: the native context owns both fds from here on.
+                modelFd = -1
+                mmprojFd = -1
                 Log.i(tag, "GGUF 로드 성공: contextId=$newContextId, 옵션=${cand.desc}")
                 break
             } catch (e: Throwable) {
                 Log.w(tag, "GGUF 로드 시도 실패 (${cand.desc}): ${e.localizedMessage ?: e.message}")
                 lastError = e
             } finally {
+                if (modelFd >= 0) {
+                    try {
+                        ParcelFileDescriptor.adoptFd(modelFd).close()
+                    } catch (_: Throwable) {
+                    }
+                    modelFd = -1
+                }
+                if (mmprojFd >= 0) {
+                    try {
+                        ParcelFileDescriptor.adoptFd(mmprojFd).close()
+                    } catch (_: Throwable) {
+                    }
+                    mmprojFd = -1
+                }
                 try { modelPfd?.close() } catch (_: Throwable) {}
                 try { mmprojPfd?.close() } catch (_: Throwable) {}
             }
@@ -782,6 +805,18 @@ class LlmEngine(private val context: Context) {
             }
         } finally {
             clearActiveInferenceState()
+            // A release() that arrived mid-inference asked for the unload instead of
+            // tearing a context out from under the native loop; honor it now that the
+            // mutex is ours again, before unlocking.
+            val unload = pendingUnload
+            pendingUnload = false
+            if (unload) {
+                try {
+                    unloadCurrentModel()
+                } catch (t: Throwable) {
+                    Log.w(tag, "Deferred unload after inference failed: ${t.message}")
+                }
+            }
             inferenceMutex.unlock()
         }
     }.flowOn(Dispatchers.Default)
@@ -1209,18 +1244,24 @@ class LlmEngine(private val context: Context) {
         }
     }
 
+    @Volatile
+    private var pendingUnload = false
+
     fun release() {
         if (inferenceMutex.tryLock()) {
             try {
+                pendingUnload = false
                 unloadCurrentModel()
             } finally {
                 inferenceMutex.unlock()
             }
         } else {
-            // An inference owns the mutex: ask the native loop to stop instead of
-            // releasing a context it is actively using.
+            // An inference owns the mutex: ask the native loop to stop and mark the
+            // unload for the finally block, instead of releasing a context it is
+            // actively using — or dropping the unload on the floor.
+            pendingUnload = true
             stopGeneration()
-            Log.w(tag, "release() deferred while inference is running")
+            Log.w(tag, "release() deferred until the running inference finishes")
         }
     }
 }

@@ -284,18 +284,49 @@ class SDEngine : AutoCloseable {
         onToken: (String) -> Unit = {}
     ): GenerateStats {
         warn("generate")
+        val tok = tokenizer ?: throw IllegalStateException("openModel() first")
+        return generateFromTokenIds(
+            tok.encode(prompt, addBos), maxTokens, sample, shouldStop, onToken
+        ).stats
+    }
+
+    /** Tokenizes [prompt] with the loaded model's tokenizer. */
+    fun encodePrompt(prompt: String, addBos: Boolean = true): IntArray =
+        tokenizer?.encode(prompt, addBos) ?: throw IllegalStateException("openModel() first")
+
+    /** Result of [generateFromTokenIds]: run stats plus the generated token ids. */
+    data class TokenGeneration(val stats: GenerateStats, val tokenIds: List<Int>)
+
+    /**
+     * Token-id entry point (golden harness, programmatic callers): prefills [ids]
+     * and continues generation. `onLogits(logits, step)` observes the logits after
+     * the last prompt token (step 0) and after each generated token; the array
+     * aliases engine scratch and is only valid inside the callback.
+     */
+    fun generateFromTokenIds(
+        ids: IntArray,
+        maxTokens: Int = 128,
+        sample: SampleConfig = SampleConfig(),
+        shouldStop: () -> Boolean = { false },
+        onToken: (String) -> Unit = {},
+        onLogits: ((logits: FloatArray, step: Int) -> Unit)? = null
+    ): TokenGeneration {
+        warn("generateFromTokenIds")
         val tr = transformer ?: throw IllegalStateException("openModel() first")
         val tok = tokenizer ?: throw IllegalStateException("openModel() first")
+        require(ids.isNotEmpty()) { "empty token id list" }
         val sampler = Sampler(java.util.Random(sample.seed))
         tr.reset()
         val start = System.currentTimeMillis()
-        val ids = tok.encode(prompt, addBos).toMutableList()
-        val promptTokens = ids.size
+        val all = ids.toMutableList()
+        val promptTokens = all.size
         // Prefill (no sampling).
         var step: StepResult? = null
-        for (id in ids) step = tr.decodeStep(id)
+        for (id in all) step = tr.decodeStep(id)
         var logits = step?.logits ?: throw IllegalStateException("Empty prompt produced no logits")
-        var prevText = tok.decode(ids.toIntArray())
+        onLogits?.invoke(logits, 0)
+        val streamDecoder = TokenStreamDecoder(tok)
+        streamDecoder.pushStored(tok.storedBytes(all.toIntArray()))
         var generated = 0
         var stopped = false
         while (generated < maxTokens) {
@@ -305,20 +336,23 @@ class SDEngine : AutoCloseable {
             }
             val next = sampler.sample(logits, sample)
             if (next == tok.eosId) break
-            ids.add(next)
+            all.add(next)
             generated++
-            val full = tok.decode(ids.toIntArray())
-            val delta = if (full.startsWith(prevText)) full.substring(prevText.length) else full
-            prevText = full
+            val delta = streamDecoder.pushStored(tok.storedBytes(all.toIntArray()))
             if (delta.isNotEmpty()) onToken(delta)
             logits = tr.decodeStep(next).logits
+            onLogits?.invoke(logits, generated)
         }
+        streamDecoder.flush().takeIf { it.isNotEmpty() }?.let { onToken(it) }
         val pg = pager?.stats
-        return GenerateStats(
-            promptTokens = promptTokens, generatedTokens = generated,
-            ms = System.currentTimeMillis() - start, stopped = stopped,
-            expertHits = pg?.hits ?: 0, expertMisses = pg?.misses ?: 0,
-            expertBytesStreamed = pg?.bytesStreamed ?: 0
+        return TokenGeneration(
+            GenerateStats(
+                promptTokens = promptTokens, generatedTokens = generated,
+                ms = System.currentTimeMillis() - start, stopped = stopped,
+                expertHits = pg?.hits ?: 0, expertMisses = pg?.misses ?: 0,
+                expertBytesStreamed = pg?.bytesStreamed ?: 0
+            ),
+            all.drop(promptTokens)
         )
     }
 

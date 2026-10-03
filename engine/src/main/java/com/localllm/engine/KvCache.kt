@@ -2,9 +2,11 @@
 package com.localllm.engine
 
 /**
- * Per-layer ring KV cache. Slot `pos` holds the K/V row of sequence position `pos`;
- * decode appends, prefill bulk-fills, and [trim]/[clear] reset session state so one
- * conversation can never observe another's keys (session isolation primitive).
+ * Per-layer BOUNDED (not ring) KV cache. Slot `pos` holds the K/V row of sequence
+ * position `pos`; decode appends, prefill bulk-fills, and [trim]/[clear] reset
+ * session state so one conversation can never observe another's keys (session
+ * isolation primitive). Past [maxSeq], [append] fails closed instead of wrapping:
+ * wrap-around would silently shift absolute positions out from under RoPE.
  */
 class KvCache(
     val nLayers: Int,

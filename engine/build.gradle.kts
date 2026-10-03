@@ -34,6 +34,8 @@ android {
 
 dependencies {
   testImplementation(libs.junit)
+  // Golden-harness tests parse llama.cpp golden JSON files (test-only).
+  testImplementation(libs.json)
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.runner)
 }

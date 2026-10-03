@@ -126,12 +126,17 @@ object Quant {
     private fun u16(src: ByteArray, off: Int): Int =
         (src[off].toInt() and 0xFF) or ((src[off + 1].toInt() and 0xFF) shl 8)
 
+    // GGML nibble layout (all four types): byte i holds the LOW nibble for value i
+    // and the HIGH nibble for value i + 16 — never interleaved 2*i. An interleaved
+    // decoder stays self-consistent in roundtrip tests yet reads every real-world
+    // GGUF file wrong, so this mapping is pinned by spec-vector tests below.
+
     private fun dequantQ40(src: ByteArray, off: Int, out: FloatArray, o: Int) {
         val d = Half.toFloat(u16(src, off))
         for (i in 0 until 16) {
             val b = src[off + 2 + i].toInt() and 0xFF
-            out[o + 2 * i] = ((b and 0x0F) - 8) * d
-            out[o + 2 * i + 1] = ((b ushr 4) - 8) * d
+            out[o + i] = ((b and 0x0F) - 8) * d
+            out[o + i + 16] = ((b ushr 4) - 8) * d
         }
     }
 
@@ -140,8 +145,8 @@ object Quant {
         val m = Half.toFloat(u16(src, off + 2))
         for (i in 0 until 16) {
             val b = src[off + 4 + i].toInt() and 0xFF
-            out[o + 2 * i] = (b and 0x0F) * d + m
-            out[o + 2 * i + 1] = (b ushr 4) * d + m
+            out[o + i] = (b and 0x0F) * d + m
+            out[o + i + 16] = (b ushr 4) * d + m
         }
     }
 
@@ -152,8 +157,8 @@ object Quant {
             val b = src[off + 6 + i].toInt() and 0xFF
             val h0 = ((qh ushr i) and 1) shl 4
             val h1 = ((qh ushr (i + 16)) and 1) shl 4
-            out[o + 2 * i] = (((b and 0x0F) or h0) - 16) * d
-            out[o + 2 * i + 1] = (((b ushr 4) or h1) - 16) * d
+            out[o + i] = (((b and 0x0F) or h0) - 16) * d
+            out[o + i + 16] = (((b ushr 4) or h1) - 16) * d
         }
     }
 
@@ -165,8 +170,8 @@ object Quant {
             val b = src[off + 8 + i].toInt() and 0xFF
             val h0 = ((qh ushr i) and 1) shl 4
             val h1 = ((qh ushr (i + 16)) and 1) shl 4
-            out[o + 2 * i] = ((b and 0x0F) or h0) * d + m
-            out[o + 2 * i + 1] = ((b ushr 4) or h1) * d + m
+            out[o + i] = ((b and 0x0F) or h0) * d + m
+            out[o + i + 16] = ((b ushr 4) or h1) * d + m
         }
     }
 
@@ -277,7 +282,10 @@ object Quant {
         }
     }
 
-    /** Naive symmetric Q4_0 encoder matching the (q - 8) * d decoder semantics. */
+    /**
+     * Naive symmetric Q4_0 encoder in the GGML nibble layout (low nibble = value i,
+     * high nibble = value i + 16), matching the decoder above.
+     */
     fun quantizeQ40Row(src: FloatArray, srcOff: Int, dst: ByteArray, dstOff: Int, n: Int) {
         require(n % 32 == 0)
         var s = srcOff
@@ -290,8 +298,8 @@ object Quant {
             dst[d] = (bits and 0xFF).toByte()
             dst[d + 1] = ((bits ushr 8) and 0xFF).toByte()
             for (i in 0 until 16) {
-                val q0 = (src[s + 2 * i] / scale + 8.5f).toInt().coerceIn(0, 15)
-                val q1 = (src[s + 2 * i + 1] / scale + 8.5f).toInt().coerceIn(0, 15)
+                val q0 = (src[s + i] / scale + 8.5f).toInt().coerceIn(0, 15)
+                val q1 = (src[s + i + 16] / scale + 8.5f).toInt().coerceIn(0, 15)
                 dst[d + 2 + i] = ((q1 shl 4) or q0).toByte()
             }
             s += 32

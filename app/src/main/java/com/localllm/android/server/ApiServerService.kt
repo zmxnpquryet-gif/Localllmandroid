@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import com.localllm.android.data.crypto.SecretPrefs
 import android.os.Binder
 import android.os.IBinder
 import android.util.Log
@@ -80,10 +81,9 @@ class ApiServerService : Service() {
 
         /** Unit-testable prefs helpers: same keys the ViewModel persists. */
         internal fun loadOrCreateApiKey(prefs: SharedPreferences): String {
-            prefs.getString("api_server_key", null)?.takeIf { it.isNotBlank() }?.let { return it }
-            return OllamaApiServer.generateSecureApiKey().also {
-                prefs.edit().putString("api_server_key", it).apply()
-            }
+            val secrets = SecretPrefs(prefs)
+            secrets.get(SecretPrefs.API_SERVER_KEY)?.let { return it }
+            return OllamaApiServer.generateSecureApiKey().also { secrets.put(SecretPrefs.API_SERVER_KEY, it) }
         }
 
         internal fun readServingSettings(prefs: SharedPreferences): GenerationSettings {
@@ -107,8 +107,6 @@ class ApiServerService : Service() {
 
     private val binder = ServerBinder()
     private var server: OllamaApiServer? = null
-    private var models: List<LlmModel> = emptyList()
-    private var settings: GenerationSettings = GenerationSettings()
     private var statusMessage: String? = null
 
     @Volatile
@@ -152,30 +150,24 @@ class ApiServerService : Service() {
     }
 
     private fun startServer() {
-        // Disk-fresh state: downloads and setting edits made in the UI apply
-        // without needing the ViewModel (which may be long gone).
-        val storage = ModelStorageManager(this)
-        models = storage.loadModels()
-        val activeId = storage.getActiveModelId()
-        val activeModel = models.firstOrNull { it.id == activeId && it.isDownloaded }
-            ?: models.firstOrNull { it.isDownloaded }
-        settings = readServingSettings(prefs)
+        // Disk-fresh key without needing the ViewModel (which may be long gone).
+        // Models and settings are NOT snapshotted here: the getters below re-read
+        // them per request.
         val key = loadOrCreateApiKey(prefs)
 
         val engine = (application as LocalLlmApp).llmEngine
-        val active = activeModel
-        val current = models
-        val serving = settings
-        val host = serving.apiServerBindAddress.ifBlank { "127.0.0.1" }
-
+        // Live reads, never snapshots: the service outlives any UI state, and a model
+        // switch, download, or settings edit made while it runs must take effect on
+        // the next request instead of serving the start-time fossil forever.
         val svc = OllamaApiServer(
             context = this,
             llmEngine = engine,
-            getActiveModel = { active },
-            getAllModels = { current.filter { it.isDownloaded } },
-            getSettings = { serving },
+            getActiveModel = { readActiveModel() },
+            getAllModels = { readDownloadedModels() },
+            getSettings = { readServingSettings(prefs) },
             initialApiKey = key
         )
+        val host = readServingSettings(prefs).apiServerBindAddress.ifBlank { "127.0.0.1" }
         svc.onRequestProcessed = { pushSnapshot() }
         server = svc
         try {
@@ -221,13 +213,25 @@ class ApiServerService : Service() {
         pushSnapshot()
     }
 
+    private fun readActiveModel(): LlmModel? {
+        val storage = ModelStorageManager(this)
+        val all = storage.loadModels()
+        val activeId = storage.getActiveModelId()
+        return all.firstOrNull { it.id == activeId && it.isDownloaded }
+            ?: all.firstOrNull { it.isDownloaded }
+    }
+
+    private fun readDownloadedModels(): List<LlmModel> =
+        ModelStorageManager(this).loadModels().filter { it.isDownloaded }
+
     private fun currentSnapshot(): Snapshot = Snapshot(
         running = isRunning,
         message = statusMessage,
         requestCount = server?.requestCount ?: 0,
         apiKey = server?.currentApiKey
-            ?: prefs.getString("api_server_key", null).orEmpty(),
-        boundHost = server?.boundHost ?: settings.apiServerBindAddress.ifBlank { "127.0.0.1" }
+            ?: SecretPrefs(prefs).get(SecretPrefs.API_SERVER_KEY).orEmpty(),
+        boundHost = server?.boundHost
+            ?: readServingSettings(prefs).apiServerBindAddress.ifBlank { "127.0.0.1" }
     )
 
     private fun pushSnapshot() {

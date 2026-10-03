@@ -76,6 +76,56 @@ class TokenizerSamplerTest {
     }
 
     @Test
+    fun `streaming decode never emits replacement chars or repeats`() {
+        // Literal table: raw single-byte tokens.
+        val byteTokens = (0 until 256).map { byteArrayOf(it.toByte()) }
+        val tok = BpeTokenizer(byteTokens, emptyList())
+        val text = koreanSample() + " hi 123"
+        val ids = tok.encode(text)
+        val stored = tok.storedBytes(ids)
+        val dec = TokenStreamDecoder(tok)
+        val sb = StringBuilder()
+        // Feed one byte at a time: every multibyte char is split mid-sequence.
+        for (i in stored.indices) {
+            val delta = dec.pushStored(stored.copyOfRange(0, i + 1))
+            assertTrue("U+FFFD leaked mid-stream at byte $i", !delta.contains("�"))
+            sb.append(delta)
+        }
+        sb.append(dec.flush())
+        assertEquals(text, sb.toString())
+    }
+
+    @Test
+    fun `streaming decode works for gpt2 mapped tables`() {
+        val tokens = (0 until 256).map { BpeTokenizer.mapToGpt2(byteArrayOf(it.toByte())) }
+        val gtok = BpeTokenizer(tokens, emptyList(), bosId = -1, eosId = -1)
+        val text = koreanSample() + gDot() + "world"
+        val ids = gtok.encode(text)
+        assertEquals(text, gtok.decode(ids))
+        val stored = gtok.storedBytes(ids)
+        val dec = TokenStreamDecoder(gtok)
+        val sb = StringBuilder()
+        for (i in stored.indices) {
+            val delta = dec.pushStored(stored.copyOfRange(0, i + 1))
+            assertTrue("U+FFFD leaked mid-stream at byte $i", !delta.contains("�"))
+            sb.append(delta)
+        }
+        sb.append(dec.flush())
+        assertEquals(text, sb.toString())
+    }
+
+    @Test
+    fun `complete utf8 prefix splitter holds back partial sequences`() {
+        // "한" = ED 95 9C.
+        val full = koreanSample().toByteArray(Charsets.UTF_8)
+        assertEquals(0, TokenStreamDecoder.completeUtf8PrefixLength(full.copyOfRange(0, 1)))
+        assertEquals(0, TokenStreamDecoder.completeUtf8PrefixLength(full.copyOfRange(0, 2)))
+        assertEquals(3, TokenStreamDecoder.completeUtf8PrefixLength(full.copyOfRange(0, 3)))
+        // 'a' (1 byte) + 2 bytes of "한": only the 'a' is complete.
+        assertEquals(1, TokenStreamDecoder.completeUtf8PrefixLength("a".toByteArray() + full.copyOfRange(0, 2)))
+    }
+
+    @Test
     fun `sampler greedy and topk`() {
         val logits = floatArrayOf(1f, 5f, 3f, 5f) // tie between 1 and 3 -> first wins
         val s = Sampler(Random(0))

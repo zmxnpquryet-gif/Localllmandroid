@@ -58,22 +58,27 @@ class QuantTest {
 
     @Test
     fun `small quants decode exact hand vectors`() {
-        // Q4_1: d=2, m=1, nibble 0xB -> 11*2+1=23 ; 0xA -> 21
+        // GGML nibble layout: byte i holds value i (low nibble) and value i+16 (high).
+        // Q4_1: d=2, m=1, nibble 0xB -> 11*2+1=23 ; 0xA -> 10*2+1=21
         val q41 = byteArrayOf(0x00, 0x40, 0x00, 0x3C) + ByteArray(16) { 0xAB.toByte() }
         val o41 = FloatArray(32)
         Quant.dequantizeRow(GgufFormat.Q4_1, q41, 0, o41, 0, 32)
         assertEquals(23f, o41[0], 0f)
-        assertEquals(21f, o41[1], 0f)
+        assertEquals(23f, o41[1], 0f)
+        assertEquals(21f, o41[16], 0f)
+        assertEquals(21f, o41[17], 0f)
 
-        // Q5_0: d=1, qh=0 -> (nibble)-16 ; qh bit0 set -> +16 on value 0
+        // Q5_0: d=1, qh=0 -> (nibble)-16 ; qh bit0 set -> +16 on value 0 only
         val q50 = byteArrayOf(0x00, 0x3C, 0, 0, 0, 0) + ByteArray(16) { 0x12.toByte() }
         val o50 = FloatArray(32)
         Quant.dequantizeRow(GgufFormat.Q5_0, q50, 0, o50, 0, 32)
         assertEquals(-14f, o50[0], 0f)
-        assertEquals(-15f, o50[1], 0f)
+        assertEquals(-14f, o50[1], 0f)
+        assertEquals(-15f, o50[16], 0f)
         q50[2] = 1 // qh bit0
         Quant.dequantizeRow(GgufFormat.Q5_0, q50, 0, o50, 0, 32)
         assertEquals(2f, o50[0], 0f)
+        assertEquals(-14f, o50[1], 0f)
 
         // Q8_1: d=2, s=1, q=3 -> 7
         val q81 = byteArrayOf(0x00, 0x40, 0x00, 0x3C) + ByteArray(32) { 3 }
@@ -81,6 +86,19 @@ class QuantTest {
         Quant.dequantizeRow(GgufFormat.Q8_1, q81, 0, o81, 0, 32)
         assertEquals(7f, o81[0], 0f)
         assertEquals(7f, o81[31], 0f)
+    }
+
+    @Test
+    fun `q40 follows the ggml nibble layout, not interleaved`() {
+        // d=1.0, every byte 0x98: low nibble 8 -> 0.0 on values 0..15,
+        // high nibble 9 -> 1.0 on values 16..31.
+        val q = ByteArray(18)
+        q[0] = 0x00; q[1] = 0x3C // fp16 1.0
+        for (i in 0 until 16) q[2 + i] = 0x98.toByte()
+        val out = FloatArray(32)
+        Quant.dequantizeRow(GgufFormat.Q4_0, q, 0, out, 0, 32)
+        for (i in 0 until 16) assertEquals(0f, out[i], 0f)
+        for (i in 16 until 32) assertEquals(1f, out[i], 0f)
     }
 
     @OptIn(ExperimentalQuant::class)

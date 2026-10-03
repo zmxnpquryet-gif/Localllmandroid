@@ -1,7 +1,10 @@
 ﻿package com.localllm.android
 
+import com.localllm.android.engine.JinjaTemplateEvaluator
 import com.localllm.android.engine.PromptFormatter
 import com.localllm.android.model.PromptTemplateType
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -61,5 +64,78 @@ class PromptFormatterTest {
         assertTrue(prompt.contains("<|start_header_id|>system<|end_header_id|>"))
         assertTrue(prompt.contains("<|start_header_id|>user<|end_header_id|>"))
         assertTrue(prompt.endsWith("<|start_header_id|>assistant<|end_header_id|>\n\n"))
+    }
+
+    @Test
+    fun `history cut mid-turn still opens with a user turn`() {
+        // 7 turns: takeLast(6) would start on an assistant turn without normalization.
+        val history = (0 until 7).map { i ->
+            (if (i % 2 == 0) "user" else "assistant") to "turn$i"
+        }
+        val prompt = PromptFormatter.formatPrompt(
+            templateType = PromptTemplateType.CHATML,
+            templateJsonPath = null,
+            systemPrompt = "",
+            history = history,
+            userPrompt = "next?",
+            toolsContext = null,
+            supportsReasoning = false
+        )
+        val firstUser = prompt.indexOf("<|im_start|>user")
+        val firstAssistant = prompt.indexOf("<|im_start|>assistant")
+        assertTrue("first user turn must precede any assistant turn", firstUser in 0 until firstAssistant)
+        assertFalse("the cut-off assistant turn must be gone", prompt.contains("turn1<|im_end|>"))
+    }
+
+    @Test
+    fun `jinja role conditionals dispatch instead of merging branches`() {
+        val template = "{% for message in messages %}" +
+            "{% if message['role'] == 'user' %}U:{{ message['content'] }};" +
+            "{% elif message['role'] == 'system' %}S:{{ message['content'] }};" +
+            "{% else %}A:{{ message['content'] }};{% endif %}" +
+            "{% endfor %}"
+        val out = JinjaTemplateEvaluator.evaluate(
+            templateText = template,
+            systemPrompt = "",
+            history = listOf("user" to "hi", "assistant" to "yo"),
+            userPrompt = "?",
+            toolsContext = null,
+            supportsReasoning = false
+        )!!
+        assertTrue(out.contains("U:hi;"))
+        assertTrue(out.contains("A:yo;"))
+        assertFalse("assistant branch must not leak into the user turn", out.contains("A:hi;"))
+        assertFalse("user branch must not leak into the assistant turn", out.contains("U:yo;"))
+    }
+
+    @Test
+    fun `jinja unknown conditions fail closed`() {
+        val template = "{% for message in messages %}" +
+            "{% if frobnicate(message) %}X{% endif %}Y:{{ message['content'] }};" +
+            "{% endfor %}"
+        val out = JinjaTemplateEvaluator.evaluate(
+            templateText = template,
+            systemPrompt = "",
+            history = listOf("user" to "hi"),
+            userPrompt = "?",
+            toolsContext = null,
+            supportsReasoning = false
+        )!!
+        assertFalse(out.contains("X"))
+        assertTrue(out.contains("Y:hi;"))
+    }
+
+    @Test
+    fun `jinja plus inside string literals is preserved`() {
+        val template = "{% for message in messages %}{{ 'a+b' }}{% endfor %}"
+        val out = JinjaTemplateEvaluator.evaluate(
+            templateText = template,
+            systemPrompt = "",
+            history = listOf("user" to "hi"),
+            userPrompt = "?",
+            toolsContext = null,
+            supportsReasoning = false
+        )!!
+        assertTrue(out.contains("a+b"))
     }
 }

@@ -52,6 +52,11 @@ jobs:
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
 
+      # Nothing executes the androidTest sources today (no emulator in CI), so at
+      # least compile them: edited instrumented tests must not rot silently.
+      - name: Compile instrumented tests
+        run: ./gradlew assembleDebugAndroidTest --stacktrace
+
       # Release is never built in CI with the real upload key, but the R8
       # minify + hand-written keep rules + release signing path must still be
       # exercised: sign with a throwaway keystore so assembleRelease (and its

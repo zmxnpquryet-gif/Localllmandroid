@@ -1,0 +1,76 @@
+name: Nightly real-model verification
+
+# Real weights never run in normal CI (no multi-GB downloads on every push).
+# This workflow is manual + nightly. A missing URL/file skips via Assume, but a
+# CONFIGURED-yet-dead URL fails fast below, so "green" always means something ran.
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      moe_url:
+        description: "Gated-expert GGUF URL (overrides LOCALENGINE_MOE_URL secret)"
+        required: false
+        default: ""
+
+jobs:
+  real-model:
+    name: Real MoE / GGUF checks
+    runs-on: ubuntu-latest
+    env:
+      LOCALENGINE_MOE_URL: ${{ inputs.moe_url || secrets.LOCALENGINE_MOE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate debug keystore
+        run: |
+          keytool -genkeypair -v -keystore debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # Configured-but-unreachable must be red, not a quiet Assume-skip.
+      - name: Probe MoE URL reachability
+        if: env.LOCALENGINE_MOE_URL != ''
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=0-0' --max-time 60 "$LOCALENGINE_MOE_URL")
+          echo "MoE URL probe: HTTP $code"
+          if [ "$code" != "206" ] && [ "$code" != "200" ]; then
+            echo "::error::LOCALENGINE_MOE_URL is configured but unreachable (HTTP $code)"
+            exit 1
+          fi
+
+      - name: Run live MoE range-streaming test
+        run: ./gradlew :engine:testDebugUnitTest --tests "com.localllm.engine.RealMoETest" --stacktrace
+
+      # RealModelTest needs a real llama-arch GGUF file on the runner. Maintainers
+      # point LOCALENGINE_MODEL_URL at a SMALL one (it asserts llama tensors and a
+      # 1000+ tokenizer vocab; a 19 GB flagship has no place here).
+      - name: Provision small GGUF for RealModelTest
+        id: provision
+        if: secrets.LOCALENGINE_MODEL_URL != ''
+        run: |
+          mkdir -p /tmp/realmodel
+          curl -fL --retry 2 --max-time 1800 -o /tmp/realmodel/model.gguf "${{ secrets.LOCALENGINE_MODEL_URL }}"
+          ls -la /tmp/realmodel
+          echo "model=/tmp/realmodel/model.gguf" >> "$GITHUB_OUTPUT"
+
+      - name: Run real-file GGUF test
+        if: steps.provision.outputs.model != ''
+        env:
+          LOCALENGINE_MODEL: ${{ steps.provision.outputs.model }}
+          LOCALENGINE_FULL: '1'
+        run: ./gradlew :engine:testDebugUnitTest --tests "com.localllm.engine.RealModelTest" --stacktrace

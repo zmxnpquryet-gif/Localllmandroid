@@ -504,6 +504,44 @@ fun ChatScreen(
                         }
                     }
 
+                    // MCP tool approval: every tool call waits for an explicit decision.
+                    val pendingTool by viewModel.pendingToolApproval.collectAsState()
+                    pendingTool?.let { call ->
+                        GDialog(
+                            onDismissRequest = { viewModel.resolveToolApproval(false) },
+                            title = {
+                                GText(
+                                    text = stringResource(R.string.mcp_approval_title),
+                                    style = GlassTheme.type.titleMedium
+                                )
+                            },
+                            text = {
+                                Column {
+                                    GText(
+                                        text = stringResource(R.string.mcp_approval_body, call.name),
+                                        style = GlassTheme.type.bodyMedium
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    GText(
+                                        text = call.argumentsJson.take(1500),
+                                        style = GlassTheme.type.bodySmall,
+                                        color = GlassTheme.colors.onSurfaceVariant
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                GTextButton(onClick = { viewModel.resolveToolApproval(true) }) {
+                                    GText(stringResource(R.string.mcp_approval_run))
+                                }
+                            },
+                            dismissButton = {
+                                GTextButton(onClick = { viewModel.resolveToolApproval(false) }) {
+                                    GText(stringResource(R.string.mcp_approval_decline))
+                                }
+                            }
+                        )
+                    }
+
                     // Full Engine Status & Diagnostics Dialog
                     if (showStatusDetailDialog && !engineStatus.isNullOrBlank()) {
                         GDialog(

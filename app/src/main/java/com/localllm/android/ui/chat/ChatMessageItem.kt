@@ -51,6 +51,39 @@ fun ChatMessageItem(
     val isUser = message.role == MessageRole.USER
     val copiedText = stringResource(R.string.copied)
 
+    if (message.role == MessageRole.TOOL) {
+        // Tool output is remote data the user approved: show it as such, never as the
+        // assistant's own words, and never speak it or offer copy-as-answer actions.
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 360.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(GlassTheme.colors.surface.copy(alpha = 0.6f))
+                    .border(1.dp, GlassTheme.colors.outline.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                    .padding(12.dp)
+            ) {
+                GText(
+                    text = stringResource(R.string.chat_tool_result_title),
+                    style = GlassTheme.type.labelSmall,
+                    color = GlassTheme.colors.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                GText(
+                    text = message.content,
+                    style = GlassTheme.type.bodySmall,
+                    color = GlassTheme.colors.onSurfaceVariant,
+                    maxLines = 12
+                )
+            }
+        }
+        return
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()

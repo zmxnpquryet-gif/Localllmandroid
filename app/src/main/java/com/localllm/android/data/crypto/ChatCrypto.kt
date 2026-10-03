@@ -1,6 +1,9 @@
 ﻿package com.localllm.android.data.crypto
 
+import android.os.Build
+import com.localllm.android.BuildConfig
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
@@ -9,15 +12,43 @@ import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
+import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Enterprise-grade AES-256-GCM cipher utility backed by Android Keystore.
- * Generates and securely stores unique cryptographic keys in hardware-backed/secure OS Keystore.
+ * Where the AES key actually lives, as reported by the platform (not as hoped).
+ */
+enum class KeyProtection {
+    /** Dedicated secure element (StrongBox). */
+    STRONGBOX,
+
+    /** Trusted execution environment: key material never enters the app process. */
+    TRUSTED_ENVIRONMENT,
+
+    /** Keystore-managed but software-only (typical on emulators and some old devices). */
+    SOFTWARE,
+
+    /** The platform could not tell us. Treated as unverified, never as hardware. */
+    UNKNOWN
+}
+
+/**
+ * AES-256-GCM cipher utility backed by the Android Keystore.
+ *
+ * Format `v2:<base64(IV(12) + ciphertext + tag(16))>`. The caller supplies associated
+ * data (AAD) that is authenticated but not stored, so a ciphertext copied into another
+ * row or column fails authentication instead of decrypting as if it belonged there.
+ * Payloads without the `v2:` prefix are the pre-AAD format; they are still readable so
+ * existing data survives, and [isLegacyFormat] lets callers upgrade them.
+ *
+ * Hardware claim, precisely: the key is generated inside the Keystore and non-exportable.
+ * Whether that Keystore is backed by a TEE/StrongBox is a property of the device, so
+ * [keyProtection] reads it back through `KeyInfo` and callers can show it. StrongBox is
+ * deliberately not requested: every AES operation is a round trip to the secure element
+ * and rows are decrypted in bulk when the conversation list renders.
  *
  * Failure policy: there is intentionally NO fallback to a hardcoded key. A missing or
- * unusable Keystore fails closed with a SecurityException instead of silently degrading
- * to a key that ships in the APK.
+ * unusable Keystore fails closed with a SecurityException.
  */
 object ChatCrypto {
     private const val TAG = "ChatCrypto"
@@ -27,37 +58,22 @@ object ChatCrypto {
     private const val TAG_LENGTH_BIT = 128
     private const val IV_LENGTH_BYTE = 12
 
+    /** Marks the AAD-bound format. Cannot collide with Base64 output, which has no ':'. */
+    const val VERSION_PREFIX = "v2:"
+
     @Volatile
     private var cachedKey: SecretKey? = null
 
-    /**
-     * True only under Robolectric unit tests. A missing Keystore provider on a real
-     * device must NOT be mistaken for "running a test" — that confusion silently
-     * downgraded release builds to a hard-coded key. Fail closed instead.
-     */
-    private fun isRunningInUnitTest(): Boolean {
-        return try {
-            android.os.Build.FINGERPRINT.contains("robolectric", ignoreCase = true)
-        } catch (_: Throwable) {
-            false
-        }
-    }
+    @Volatile
+    private var cachedProtection: KeyProtection? = null
 
     @Synchronized
     private fun getSecretKey(): SecretKey {
         cachedKey?.let { return it }
 
-        if (isRunningInUnitTest()) {
-            // Random, per-process key. Never derived from a constant, so a unit-test
-            // build can never produce ciphertext readable by a shipped app.
-            val testKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
-            cachedKey = testKey
-            return testKey
-        }
-
         return try {
             val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-            if (!keyStore.containsAlias(KEY_ALIAS)) {
+            val key = if (!keyStore.containsAlias(KEY_ALIAS)) {
                 val keyGenerator = KeyGenerator.getInstance(
                     KeyProperties.KEY_ALGORITHM_AES,
                     ANDROID_KEYSTORE
@@ -72,34 +88,81 @@ object ChatCrypto {
                     .setRandomizedEncryptionRequired(true)
                     .build()
                 keyGenerator.init(spec)
-                val newKey = keyGenerator.generateKey()
-                cachedKey = newKey
-                newKey
+                keyGenerator.generateKey()
             } else {
                 val keyEntry = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry
                     ?: throw IllegalStateException("KeyStore entry is not a SecretKeyEntry")
-                cachedKey = keyEntry.secretKey
                 keyEntry.secretKey
             }
+            cachedKey = key
+            cachedProtection = readProtection(key)
+            Log.i(TAG, "Master key protection: $cachedProtection")
+            key
         } catch (e: Throwable) {
-            Log.e(TAG, "AndroidKeyStore 키 생성/접근 실패: ${e.message}", e)
-            throw SecurityException("Android Keystore 하드웨어 보안 키 접근에 실패했습니다: ${e.localizedMessage}", e)
+            Log.e(TAG, "KEYSTORE_KEY_UNAVAILABLE")
+            throw SecurityException("Android Keystore key access failed.", e)
+        }
+    }
+
+    /** Reads the protection level back from the platform instead of assuming it. */
+    private fun readProtection(key: SecretKey): KeyProtection {
+        return try {
+            val factory = SecretKeyFactory.getInstance(key.algorithm, ANDROID_KEYSTORE)
+            val info = factory.getKeySpec(key, KeyInfo::class.java) as KeyInfo
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                when (info.securityLevel) {
+                    KeyProperties.SECURITY_LEVEL_STRONGBOX -> KeyProtection.STRONGBOX
+                    KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT -> KeyProtection.TRUSTED_ENVIRONMENT
+                    KeyProperties.SECURITY_LEVEL_SOFTWARE -> KeyProtection.SOFTWARE
+                    else -> KeyProtection.UNKNOWN
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                if (info.isInsideSecureHardware) KeyProtection.TRUSTED_ENVIRONMENT else KeyProtection.SOFTWARE
+            }
+        } catch (_: Throwable) {
+            Log.w(TAG, "KEY_PROTECTION_UNKNOWN")
+            KeyProtection.UNKNOWN
         }
     }
 
     /**
-     * Encrypts plaintext using AES-256-GCM authenticated encryption.
-     * Returns Base64-encoded [IV (12 bytes) + Ciphertext + GCM Tag (16 bytes)].
+     * Protection level of the master key. Creates the key on first use. Returns
+     * [KeyProtection.UNKNOWN] rather than throwing when the Keystore is unusable.
+     */
+    fun keyProtection(): KeyProtection {
+        cachedProtection?.let { return it }
+        return try {
+            getSecretKey()
+            cachedProtection ?: KeyProtection.UNKNOWN
+        } catch (_: SecurityException) {
+            KeyProtection.UNKNOWN
+        }
+    }
+
+    /** True for payloads written before AAD binding existed (no `v2:` prefix). */
+    fun isLegacyFormat(ciphertext: String?): Boolean =
+        !ciphertext.isNullOrEmpty() && !ciphertext.startsWith(VERSION_PREFIX)
+
+    /**
+     * Encrypts [plaintext]. [aad] is REQUIRED and authenticated but not stored; the
+     * identical value must be passed to [decrypt]. Use something that identifies the
+     * slot the data lives in (e.g. table, row id and column). The requirement is
+     * enforced (not just documented): an unbound ciphertext could otherwise be copied
+     * into another slot protected by the same key.
      *
+     * @throws IllegalArgumentException When [aad] is blank.
      * @throws SecurityException If encryption fails for any reason; never leaks plaintext.
      */
-    fun encrypt(plaintext: String?): String {
+    fun encrypt(plaintext: String?, aad: String = ""): String {
         if (plaintext.isNullOrEmpty()) return ""
+        require(aad.isNotBlank()) { "ChatCrypto.encrypt requires non-blank AAD" }
 
         try {
             val key = getSecretKey()
             val cipher = Cipher.getInstance(ALGORITHM)
             cipher.init(Cipher.ENCRYPT_MODE, key)
+            cipher.updateAAD(aad.toByteArray(StandardCharsets.UTF_8))
             val iv = cipher.iv
             require(iv != null && iv.size == IV_LENGTH_BYTE) { "Invalid cipher-generated IV length" }
 
@@ -108,31 +171,36 @@ object ChatCrypto {
             System.arraycopy(iv, 0, combined, 0, iv.size)
             System.arraycopy(encrypted, 0, combined, iv.size, encrypted.size)
 
-            return Base64.encodeToString(combined, Base64.NO_WRAP)
+            return VERSION_PREFIX + Base64.encodeToString(combined, Base64.NO_WRAP)
         } catch (e: Exception) {
-            Log.e(TAG, "Encryption failed securely: ${e.message}", e)
-            throw SecurityException("암호화 처리 중 보안 오류가 발생했습니다: ${e.localizedMessage}", e)
+            Log.e(TAG, "ENCRYPT_FAILED")
+            throw SecurityException("암호화 처리 중 보안 오류가 발생했습니다.", e)
         }
     }
 
     /**
-     * Decrypts Base64-encoded [IV + Ciphertext + GCM Tag] using the Keystore key.
-     * There is no legacy-key retry: a payload that cannot be authenticated with the
-     * device Keystore key is rejected rather than decrypted with a shipped constant.
+     * Decrypts a payload produced by [encrypt]. For `v2:` payloads [aad] must match the
+     * value used at encryption time. Pre-`v2:` payloads carry no AAD and ignore [aad];
+     * upgrade them with [isLegacyFormat] + re-encrypt. There is no legacy-key retry: a
+     * payload that cannot be authenticated with the device Keystore key is rejected.
      *
      * @throws SecurityException If decryption fails or data has been tampered with.
      */
-    fun decrypt(ciphertext: String?): String {
+    fun decrypt(ciphertext: String?, aad: String = ""): String {
         if (ciphertext.isNullOrEmpty()) return ""
 
+        val bound = ciphertext.startsWith(VERSION_PREFIX)
+        val body = if (bound) ciphertext.substring(VERSION_PREFIX.length) else ciphertext
+
         val combined = try {
-            Base64.decode(ciphertext, Base64.NO_WRAP)
+            Base64.decode(body, Base64.NO_WRAP)
         } catch (e: Exception) {
             throw SecurityException("손상된 Base64 암호문 데이터입니다.", e)
         }
 
-        if (combined.size <= IV_LENGTH_BYTE) {
-            throw SecurityException("암호문 데이터 길이가 유효하지 않습니다 (최소 ${IV_LENGTH_BYTE + 1}바이트 필요).")
+        val minLength = IV_LENGTH_BYTE + TAG_LENGTH_BIT / 8 + 1 // IV + tag + >=1 ciphertext byte
+        if (combined.size < minLength) {
+            throw SecurityException("암호문 데이터 길이가 유효하지 않습니다 (최소 ${minLength}바이트 필요).")
         }
 
         val iv = ByteArray(IV_LENGTH_BYTE)
@@ -145,18 +213,33 @@ object ChatCrypto {
             val cipher = Cipher.getInstance(ALGORITHM)
             val spec = GCMParameterSpec(TAG_LENGTH_BIT, iv)
             cipher.init(Cipher.DECRYPT_MODE, key, spec)
+            if (bound && aad.isNotEmpty()) cipher.updateAAD(aad.toByteArray(StandardCharsets.UTF_8))
             val decrypted = cipher.doFinal(encrypted)
             return String(decrypted, StandardCharsets.UTF_8)
         } catch (e: Exception) {
-            Log.e(TAG, "Decryption failed: ${e.message}", e)
+            Log.e(TAG, "DECRYPT_FAILED")
             throw SecurityException("암호문 복호화 실패: 무결성 검증에 실패했거나 키가 일치하지 않습니다.", e)
         }
     }
 
     /**
-     * Resets cached key instance (useful for test environments).
+     * Test seam. Unit tests run on a JVM with no Keystore, so they install a throwaway
+     * in-memory key here. Passing null restores the Keystore path. The key is reported
+     * as [KeyProtection.SOFTWARE] because that is what it is.
+     *
+     * Hard-disabled in release builds: `internal` is not a runtime security boundary,
+     * so the seam refuses to run where tests never run.
      */
+    @Synchronized
+    internal fun installKeyForTesting(key: SecretKey?) {
+        if (!BuildConfig.DEBUG) throw SecurityException("Test key seam is disabled in release builds")
+        cachedKey = key
+        cachedProtection = if (key != null) KeyProtection.SOFTWARE else null
+    }
+
+    /** Resets cached key instance (useful for test environments). */
     internal fun resetCachedKeyForTesting() {
         cachedKey = null
+        cachedProtection = null
     }
 }

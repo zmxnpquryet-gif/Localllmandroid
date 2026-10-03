@@ -1,10 +1,13 @@
 // SDengine — live MoE verification against a real gated-expert GGUF.
 // Reads ONLY byte ranges over HTTP (header + a sample of expert tiles):
-// the full 19GB file is never downloaded. Skips cleanly offline.
+// the full 19GB file is never downloaded. Manual/nightly only: without
+// LOCALENGINE_MOE_URL (or offline) the test aborts via Assume, which the
+// nightly workflow runs and normal CI skips by not setting the variable.
 package com.localllm.engine
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.net.HttpURLConnection
 import java.net.URL
@@ -98,20 +101,16 @@ class RealMoETest {
         // No hardcoded model: the target comes from the environment so the
         // harness stays valid as releases move on (e.g. qwen4_exp later).
         val url = System.getenv("LOCALENGINE_MOE_URL")?.ifBlank { null }
-        if (url.isNullOrBlank()) {
-            println("SKIP: set LOCALENGINE_MOE_URL to a gated-expert GGUF URL")
-            return
-        }
+        assumeTrue("needs a gated-expert GGUF URL: set LOCALENGINE_MOE_URL (manual/nightly only)", !url.isNullOrBlank())
+        requireNotNull(url)
         val http = HttpRange(url)
         val header = try {
             http.getRange(0, HEADER_BYTES - 1)
         } catch (e: Exception) {
             null
         }
-        if (header == null || header.size < HEADER_BYTES) {
-            println("SKIP: cannot fetch GGUF header ranges (offline?)")
-            return
-        }
+        assumeTrue("cannot fetch GGUF header ranges (offline?)", header != null && header.size >= HEADER_BYTES)
+        requireNotNull(header)
         val total = http.totalBytes ?: header.size.toLong()
         println("remote file bytes=$total")
         GgufReader.open(MemorySeekableSource(header, total)).use { r ->

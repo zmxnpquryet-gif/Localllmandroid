@@ -27,6 +27,7 @@ class ChatPruneTest {
 
     @Before
     fun setUp() {
+        TestCrypto.install()
         val context = RuntimeEnvironment.getApplication()
         db = Room.inMemoryDatabaseBuilder(context, ChatDatabase::class.java)
             .allowMainThreadQueries()
@@ -37,6 +38,7 @@ class ChatPruneTest {
     @After
     fun tearDown() {
         db.close()
+        TestCrypto.uninstall()
     }
 
     @Test

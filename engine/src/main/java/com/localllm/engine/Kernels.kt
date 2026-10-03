@@ -240,19 +240,22 @@ object ReferenceKernels : Kernels {
     }
 
     override fun rope(x: FloatArray, pos: Int, headDim: Int, theta: Float) {
+        // GPT-NeoX half-split: angle p rotates (x[p], x[p + headDim/2]). Pairing
+        // adjacent lanes instead would silently scramble attention on every
+        // LLaMA/Qwen-family model (norm tests cannot tell the two apart).
         require(headDim % 2 == 0)
         val table = RopeCache.table(headDim, theta, pos)
         val n = x.size / headDim
-        val pairs = headDim / 2
+        val half = headDim / 2
         for (h in 0 until n) {
             val base = h * headDim
-            for (p in 0 until pairs) {
+            for (p in 0 until half) {
                 val cos = table[p * 2]
                 val sin = table[p * 2 + 1]
-                val x0 = x[base + p * 2]
-                val x1 = x[base + p * 2 + 1]
-                x[base + p * 2] = x0 * cos - x1 * sin
-                x[base + p * 2 + 1] = x0 * sin + x1 * cos
+                val x0 = x[base + p]
+                val x1 = x[base + p + half]
+                x[base + p] = x0 * cos - x1 * sin
+                x[base + p + half] = x0 * sin + x1 * cos
             }
         }
     }

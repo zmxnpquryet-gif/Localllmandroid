@@ -5,7 +5,10 @@ import java.util.UUID
 enum class MessageRole {
     USER,
     ASSISTANT,
-    SYSTEM
+    SYSTEM,
+
+    /** Output of an MCP tool the user approved. Shown in the chat, fed back to the model. */
+    TOOL
 }
 
 data class ChatAttachment(

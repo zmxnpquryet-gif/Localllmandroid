@@ -45,6 +45,20 @@ object PromptFormatter {
         }
     }
 
+    /**
+     * History as the model must see it: at most 6 turns, roles folded to
+     * user/assistant, and opening with a user turn. A raw takeLast(6) cut can start
+     * on an assistant turn (or a stray system/tool row), which makes some models
+     * refuse the prompt or misattribute the first turn. At least one turn is kept.
+     */
+    fun normalizedHistory(history: List<Pair<String, String>>): List<Pair<String, String>> {
+        val tail = history.takeLast(6).map { (role, text) ->
+            (if (role.equals("user", ignoreCase = true)) "user" else "assistant") to text
+        }.toMutableList()
+        while (tail.size > 1 && tail.first().first != "user") tail.removeAt(0)
+        return tail
+    }
+
     fun buildSystemInstruction(
         systemPrompt: String,
         toolsContext: String?,
@@ -83,7 +97,7 @@ object PromptFormatter {
 
         // For Gemma, system prompt is typically placed inside the first user turn or before it
         var isFirstUserTurn = true
-        for ((role, text) in history.takeLast(6)) {
+        for ((role, text) in normalizedHistory(history)) {
             val turnRole = if (role.equals("user", ignoreCase = true)) "user" else "model"
             sb.append("<start_of_turn>").append(turnRole).append("\n")
             if (turnRole == "user" && isFirstUserTurn && systemText.isNotBlank()) {
@@ -117,7 +131,7 @@ object PromptFormatter {
 
         sb.append("<|im_start|>system\n").append(systemText).append("<|im_end|>\n")
 
-        for ((role, text) in history.takeLast(6)) {
+        for ((role, text) in normalizedHistory(history)) {
             val normalizedRole = if (role.equals("user", ignoreCase = true)) "user" else "assistant"
             sb.append("<|im_start|>").append(normalizedRole).append("\n").append(text.trim()).append("<|im_end|>\n")
         }
@@ -142,7 +156,7 @@ object PromptFormatter {
 
         sb.append("<|system|>\n").append(systemText).append("<|end|>\n")
 
-        for ((role, text) in history.takeLast(6)) {
+        for ((role, text) in normalizedHistory(history)) {
             val normalizedRole = if (role.equals("user", ignoreCase = true)) "user" else "assistant"
             sb.append("<|").append(normalizedRole).append("|>\n").append(text.trim()).append("<|end|>\n")
         }
@@ -168,7 +182,7 @@ object PromptFormatter {
 
         sb.append("<|start_header_id|>system<|end_header_id|>\n\n").append(systemText).append("<|eot_id|>")
 
-        for ((role, text) in history.takeLast(6)) {
+        for ((role, text) in normalizedHistory(history)) {
             val normalizedRole = if (role.equals("user", ignoreCase = true)) "user" else "assistant"
             sb.append("<|start_header_id|>").append(normalizedRole).append("<|end_header_id|>\n\n")
                 .append(text.trim()).append("<|eot_id|>")
@@ -244,7 +258,7 @@ object PromptFormatter {
                     if (systemText.isNotBlank() && systemPrefix.isNotBlank()) {
                         sb.append(systemPrefix).append(systemText).append(systemSuffix).append("\n")
                     }
-                    for ((role, text) in history.takeLast(6)) {
+                    for ((role, text) in normalizedHistory(history)) {
                         if (role.equals("user", ignoreCase = true)) {
                             sb.append(userPrefix).append(text.trim()).append(userSuffix).append("\n")
                         } else {
@@ -305,7 +319,7 @@ object JinjaTemplateEvaluator {
                 val fullSystem = PromptFormatter.buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning)
                 messages.add(mapOf("role" to "system", "content" to fullSystem))
             }
-            for ((role, text) in history.takeLast(6)) {
+            for ((role, text) in PromptFormatter.normalizedHistory(history)) {
                 val r = when (role.lowercase()) {
                     "user" -> "user"
                     "assistant", "model" -> "assistant"
@@ -334,8 +348,11 @@ object JinjaTemplateEvaluator {
 
                 val loopBody = forMatch.groupValues[1]
 
-                for (msg in messages) {
-                    val renderedTurn = renderMessageTurn(loopBody, msg)
+                for ((index, msg) in messages.withIndex()) {
+                    val renderedTurn = renderMessageTurn(
+                        loopBody, msg,
+                        loopIndex = index, loopTotal = messages.size
+                    )
                     if (renderedTurn.isNotBlank()) {
                         output.append(renderedTurn)
                     }
@@ -360,8 +377,17 @@ object JinjaTemplateEvaluator {
         }
     }
 
-    private fun renderMessageTurn(loopBody: String, message: Map<String, String>): String {
+    private fun renderMessageTurn(
+        loopBody: String,
+        message: Map<String, String>,
+        loopIndex: Int = 0,
+        loopTotal: Int = 1
+    ): String {
         var body = loopBody.replace("{%-", "{%").replace("-%}", "%}").replace("{{-", "{{").replace("-}}", "}}")
+
+        // Evaluate {% if %} / {% elif %} / {% else %} / {% endif %} first: stripping
+        // the tags (the old behavior) pasted every branch into every message.
+        body = evaluateConditionals(body, message, loopIndex, loopTotal)
 
         // Replace {{ ... }} expressions
         val exprRegex = Regex("""\{\{(.*?)\}\}""")
@@ -376,12 +402,179 @@ object JinjaTemplateEvaluator {
             .replace(Regex("""\r\n|\r"""), "\n")
     }
 
+    private val ifBlockRegex = Regex(
+        """\{%\s*if\s+(.*?)\s*%\}((?:(?!\{%\s*if\b).)*?)\{%\s*endif\s*%\}""",
+        RegexOption.DOT_MATCHES_ALL
+    )
+    private val elifSplitRegex = Regex("""\{%\s*elif\s+(.*?)\s*%\}""")
+    private val elseSplitRegex = Regex("""\{%\s*else\s*%\}""")
+
+    /**
+     * Minimal conditional: innermost {% if %} blocks with elif/else chains, where
+     * conditions are role comparisons (`message['role'] == 'user'`), loop position
+     * (`loop.first`, `loop.last`), `add_generation_prompt` (true here), booleans,
+     * and not/and/or over those. Anything unrecognized evaluates to false rather
+     * than pasting all branches. No nested {% if %} support (inner blocks are left
+     * for a later pass to strip, as before).
+     */
+    internal fun evaluateConditionals(
+        body: String,
+        message: Map<String, String>,
+        loopIndex: Int,
+        loopTotal: Int
+    ): String {
+        var out = body
+        var guard = 0
+        while (true) {
+            val match = ifBlockRegex.find(out) ?: break
+            if (++guard > 50) break
+            val inner = match.groupValues[2]
+            // Split the branches: [if-cond] text (elif-cond text)* (else text)?.
+            val branches = mutableListOf<Pair<String?, String>>()
+            var rest = inner
+            var firstCond = match.groupValues[1]
+            while (true) {
+                val elif = elifSplitRegex.find(rest)
+                val els = elseSplitRegex.find(rest)
+                val cut = listOfNotNull(
+                    elif?.range?.first?.let { it to true },
+                    els?.range?.first?.let { it to false }
+                ).minByOrNull { it.first }
+                if (cut == null) {
+                    branches.add(firstCond to rest)
+                    break
+                }
+                val isElif = cut.second
+                val at = cut.first
+                branches.add(firstCond to rest.substring(0, at))
+                if (isElif) {
+                    val m = elifSplitRegex.find(rest.substring(at))!!
+                    firstCond = m.groupValues[1]
+                    rest = rest.substring(at + m.range.last + 1)
+                } else {
+                    val m = elseSplitRegex.find(rest.substring(at))!!
+                    branches.add(null to rest.substring(at + m.range.last + 1))
+                    break
+                }
+            }
+            var picked = ""
+            for ((cond, text) in branches) {
+                if (cond == null || evalCondition(cond, message, loopIndex, loopTotal)) {
+                    picked = text
+                    break
+                }
+            }
+            // One level per pass: a picked branch may itself contain an {% if %},
+            // which the next loop iteration handles.
+            out = out.substring(0, match.range.first) + picked +
+                out.substring(match.range.last + 1)
+        }
+        return out
+    }
+
+    private fun evalCondition(
+        expr: String,
+        message: Map<String, String>,
+        loopIndex: Int,
+        loopTotal: Int
+    ): Boolean {
+        // or
+        splitTopLevel(expr, "or").takeIf { it.size > 1 }?.let { parts ->
+            return parts.any { evalCondition(it, message, loopIndex, loopTotal) }
+        }
+        // and
+        splitTopLevel(expr, "and").takeIf { it.size > 1 }?.let { parts ->
+            return parts.all { evalCondition(it, message, loopIndex, loopTotal) }
+        }
+        var e = expr.trim()
+        if (e.startsWith("not ") || e.startsWith("not(")) {
+            return !evalCondition(e.removePrefix("not").trim().removeSurrounding("(", ")"), message, loopIndex, loopTotal)
+        }
+        if (e.startsWith("(") && e.endsWith(")")) {
+            return evalCondition(e.substring(1, e.length - 1), message, loopIndex, loopTotal)
+        }
+        val role = message["role"] ?: ""
+        // message['role'] == 'user' / message.role != "system"
+        val eq = Regex("""^(message\[.role.\]|message\.role|role)\s*(==|!=)\s*['"](.*?)['"]$""").matchEntire(e)
+        if (eq != null) {
+            val left = when (eq.groupValues[1]) {
+                "role" -> role
+                else -> role
+            }
+            val same = left.equals(eq.groupValues[3], ignoreCase = true)
+            return if (eq.groupValues[2] == "==") same else !same
+        }
+        if (e == "loop.first") return loopIndex == 0
+        if (e == "loop.last") return loopIndex == loopTotal - 1
+        if (e == "add_generation_prompt") return true
+        if (e == "true" || e == "True") return true
+        if (e == "false" || e == "False" || e.isEmpty()) return false
+        // Unknown predicate: fail closed (drop the branch) rather than pasting it.
+        return false
+    }
+
+    /** Splits a {{ a + 'b+c' }} concatenation, ignoring '+' inside quotes. */
+    private fun splitConcatParts(expr: String): List<String> {
+        val out = mutableListOf<String>()
+        var quote: Char? = null
+        var start = 0
+        for (i in expr.indices) {
+            val c = expr[i]
+            if (quote != null) {
+                if (c == quote) quote = null
+            } else if (c == '\'' || c == '"') {
+                quote = c
+            } else if (c == '+') {
+                out.add(expr.substring(start, i))
+                start = i + 1
+            }
+        }
+        out.add(expr.substring(start))
+        return out
+    }
+
+    /** Splits on a bare keyword operator, ignoring occurrences inside quotes. */
+    private fun splitTopLevel(expr: String, keyword: String): List<String> {
+        val out = mutableListOf<String>()
+        var quote: Char? = null
+        var depth = 0
+        var start = 0
+        var i = 0
+        while (i < expr.length) {
+            val c = expr[i]
+            if (quote != null) {
+                if (c == quote) quote = null
+            } else when (c) {
+                '\'', '"' -> quote = c
+                '(' -> depth++
+                ')' -> if (depth > 0) depth--
+            }
+            if (quote == null && depth == 0 &&
+                expr.regionMatches(i, keyword, 0, keyword.length, ignoreCase = true)
+            ) {
+                val before = if (i == 0) ' ' else expr[i - 1]
+                val afterIdx = i + keyword.length
+                val after = if (afterIdx >= expr.length) ' ' else expr[afterIdx]
+                if (!before.isLetterOrDigit() && before != '_' && !after.isLetterOrDigit() && after != '_') {
+                    out.add(expr.substring(start, i))
+                    i = afterIdx
+                    start = i
+                    continue
+                }
+            }
+            i++
+        }
+        out.add(expr.substring(start))
+        return out
+    }
+
     private fun renderExpression(expr: String, message: Map<String, String>): String {
         val role = message["role"] ?: ""
         val content = message["content"] ?: ""
 
         val sb = StringBuilder()
-        val tokens = expr.split("+")
+        // A '+' inside a quoted literal ('a+b') is text, not concatenation.
+        val tokens = splitConcatParts(expr)
         for (rawPart in tokens) {
             var part = rawPart.trim()
             var trimContent = false

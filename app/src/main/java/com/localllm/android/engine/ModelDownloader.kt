@@ -1,8 +1,11 @@
-﻿package com.localllm.android.engine
+package com.localllm.android.engine
 
 import android.util.Log
 import com.localllm.android.model.LlmModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -44,7 +47,9 @@ data class FdmComponentStatus(
     val downloadedBytes: Long = 0L,
     val totalBytes: Long = 0L,
     val speedText: String = "",
-    val isCompleted: Boolean = false
+    val isCompleted: Boolean = false,
+    /** True only when the finished file's SHA-256 matched a hash published by the host. */
+    val isSha256Verified: Boolean = false
 )
 
 data class DownloadStatus(
@@ -66,8 +71,18 @@ data class DownloadStatus(
     val localMainPath: String? = null,
     val localVisionPath: String? = null,
     val localMtpPath: String? = null,
-    val localTemplatePath: String? = null
+    val localTemplatePath: String? = null,
+    /** Overall integrity signal for the finished bundle. NONE while downloading. */
+    val integrityNote: IntegrityNote = IntegrityNote.NONE
 )
+
+enum class IntegrityNote {
+    NONE,
+    /** The main weights' SHA-256 matched the hash the host published. */
+    VERIFIED,
+    /** The host published no hash: finished with a format check only. */
+    NO_HASH_PUBLISHED
+}
 
 /**
  * High-performance Multi-thread Segmented Range Downloader (FDM engine).
@@ -79,10 +94,35 @@ class ModelDownloader(client: OkHttpClient? = null) {
     private val tag = "ModelDownloader"
 
     companion object {
-        private const val USER_AGENT = "Mozilla/5.0 (Android; Mobile) LocalLLM/1.1.0 FDM"
+        private val USER_AGENT = "Mozilla/5.0 (Android; Mobile) LocalLLM/${com.localllm.android.BuildConfig.VERSION_NAME} FDM"
         private const val DEFAULT_SEGMENTS = 4
         private const val MIN_SEGMENT_SIZE = 5 * 1024 * 1024L // 5MB minimum for segmented
         private const val BUFFER_SIZE = 256 * 1024 // 256KB buffer for max I/O throughput
+        private val SHA256_HEX = Regex("^[0-9a-f]{64}$")
+
+        /**
+         * Extracts a SHA-256 from Hugging Face's `X-Linked-ETag` header. For LFS files
+         * (every GGUF / LiteRT weight) that header is the file's SHA-256; for small
+         * git-stored files the ETag is a 40-char git SHA-1 and is deliberately ignored.
+         */
+        internal fun parseLinkedSha256(etag: String?): String? {
+            val cleaned = etag?.trim()?.removePrefix("W/")?.trim()?.trim('"')?.lowercase() ?: return null
+            return cleaned.takeIf { SHA256_HEX.matches(it) }
+        }
+
+        internal fun sha256Hex(file: File, onChunk: () -> Unit = {}): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            FileInputStream(file).use { input ->
+                val buf = ByteArray(BUFFER_SIZE)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n == -1) break
+                    digest.update(buf, 0, n)
+                    onChunk()
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+        }
 
         fun safeFraction(downloaded: Long, total: Long): Float {
             if (total <= 0L || downloaded <= 0L) return 0f
@@ -240,7 +280,9 @@ class ModelDownloader(client: OkHttpClient? = null) {
 
             if (url.isBlank()) continue
 
-            // If already fully downloaded and valid
+            // If already fully downloaded and valid, still check the published hash:
+            // files from older builds (or an interrupted verification) were never
+            // hash-checked, and accepting them blindly would grandfather tampering in.
             if (targetFile.exists() && targetFile.length() > 0 && targetFile.length() >= task.fallbackEstimatedSize * 0.95) {
                 val isGguf = targetFile.name.endsWith(".gguf", ignoreCase = true)
                 val isLiteRt = GgufMetadataDetector.isLiteRtModel(targetFile.name)
@@ -249,23 +291,48 @@ class ModelDownloader(client: OkHttpClient? = null) {
                 else true
 
                 if (isValid) {
-                    val existingSize = targetFile.length()
-                    bundleDownloadedBytes += existingSize
-                    componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
-                        progress = 1.0f,
-                        downloadedBytes = existingSize,
-                        totalBytes = existingSize,
-                        speedText = "완료",
-                        isCompleted = true
-                    )
-                    continue
+                    when (verifyExistingFile(task.title, url, targetFile, task.fallbackEstimatedSize, effectiveToken)) {
+                        ExistingVerdict.VERIFIED -> {
+                            val existingSize = targetFile.length()
+                            bundleDownloadedBytes += existingSize
+                            componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
+                                progress = 1.0f,
+                                downloadedBytes = existingSize,
+                                totalBytes = existingSize,
+                                speedText = "완료",
+                                isCompleted = true,
+                                isSha256Verified = true
+                            )
+                            continue
+                        }
+                        ExistingVerdict.UNVERIFIABLE -> {
+                            // The host published no hash (or we are offline): keep the
+                            // file on the format check alone, but never claim verification.
+                            val existingSize = targetFile.length()
+                            bundleDownloadedBytes += existingSize
+                            componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
+                                progress = 1.0f,
+                                downloadedBytes = existingSize,
+                                totalBytes = existingSize,
+                                speedText = "완료",
+                                isCompleted = true,
+                                isSha256Verified = false
+                            )
+                            continue
+                        }
+                        ExistingVerdict.MISMATCH -> {
+                            Log.w(tag, "[$componentType] Existing file failed SHA-256, re-downloading: ${targetFile.name}")
+                            // Fall through to a fresh download below.
+                        }
+                    }
                 } else {
                     Log.w(tag, "[$componentType] Existing file is invalid, deleting and re-downloading: ${targetFile.name}")
-                    targetFile.delete()
+                    deleteOrQuarantine(targetFile)
                 }
             }
 
             // Download component
+            var sha256Verified = false
             val success = downloadComponent(
                 taskTitle = task.title,
                 url = url,
@@ -273,6 +340,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
                 modelsDir = modelsDir,
                 fallbackSize = task.fallbackEstimatedSize,
                 token = effectiveToken,
+                onVerified = { sha256Verified = it },
                 onProgress = { taskDownloaded, taskTotal, speedText, etaSec, segmentBars ->
                     val overallDownloaded = bundleDownloadedBytes + taskDownloaded
                     val overallTotal = max(totalBundleBytes, overallDownloaded)
@@ -315,6 +383,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
                             totalBytes = totalBundleBytes,
                             speedText = "오류",
                             errorMessage = err,
+                            components = componentStatusMap.values.toList(),
                             isCompleted = false
                         )
                     )
@@ -369,7 +438,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
                             "다운로드 완료 후 파일 검증 실패: 유효한 LiteRT 모델 바이너리가 아닙니다."
                     }
                     Log.e(tag, "[$componentType] LiteRT validation failed for ${targetFile.name}: $errorReason")
-                    targetFile.delete()
+                    deleteOrQuarantine(targetFile)
                     send(
                         DownloadStatus(
                             modelId = model.id,
@@ -378,6 +447,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
                             totalBytes = totalBundleBytes,
                             speedText = "오류",
                             errorMessage = errorReason,
+                            components = componentStatusMap.values.toList(),
                             isCompleted = false
                         )
                     )
@@ -392,11 +462,15 @@ class ModelDownloader(client: OkHttpClient? = null) {
                 downloadedBytes = finalTaskSize,
                 totalBytes = finalTaskSize,
                 speedText = "완료",
-                isCompleted = true
+                isCompleted = true,
+                isSha256Verified = sha256Verified
             )
         }
 
-        // All components completed
+        // All components completed. The headline signal covers the main weights:
+        // a bundle whose weights verified is VERIFIED even if a tiny sidecar file
+        // (template) had no published hash; anything else is reported honestly.
+        val mainVerified = componentStatusMap[FdmComponentType.MAIN_MODEL]?.isSha256Verified == true
         send(
             DownloadStatus(
                 modelId = model.id,
@@ -416,7 +490,8 @@ class ModelDownloader(client: OkHttpClient? = null) {
                 localMainPath = mainFile.absolutePath,
                 localVisionPath = visionFile?.absolutePath,
                 localMtpPath = mtpFile?.absolutePath,
-                localTemplatePath = templateFile?.absolutePath
+                localTemplatePath = templateFile?.absolutePath,
+                integrityNote = if (mainVerified) IntegrityNote.VERIFIED else IntegrityNote.NO_HASH_PUBLISHED
             )
         )
     }.flowOn(Dispatchers.IO)
@@ -426,7 +501,8 @@ class ModelDownloader(client: OkHttpClient? = null) {
         val totalBytes: Long,
         val supportsRange: Boolean,
         val authError: Boolean = false,
-        val errorMsg: String? = null
+        val errorMsg: String? = null,
+        val expectedSha256: String? = null
     )
 
     private data class ContentRange(val start: Long, val end: Long, val total: Long)
@@ -440,8 +516,24 @@ class ModelDownloader(client: OkHttpClient? = null) {
         return if (start <= end && end < total) ContentRange(start, end, total) else null
     }
 
+    /**
+     * The hash header sits on the first (huggingface.co) hop, not on the CDN response
+     * OkHttp ends with — hence the walk over the redirect chain. Internal for tests:
+     * the fakes cannot reproduce OkHttp's redirect chaining, so the chain walk is
+     * pinned by a dedicated unit test instead.
+     */
+    internal fun linkedSha256(resp: okhttp3.Response): String? {
+        var current: okhttp3.Response? = resp
+        while (current != null) {
+            parseLinkedSha256(current.header("X-Linked-ETag"))?.let { return it }
+            current = current.priorResponse
+        }
+        return null
+    }
+
     private fun probeUrl(initialUrl: String, fallbackSize: Long, token: String? = null): ProbeResult {
         var resolvedUrl = initialUrl
+        var expectedSha256: String? = null
         var totalBytes = fallbackSize
         var supportsRange = false
         var isAuthError = false
@@ -460,6 +552,9 @@ class ModelDownloader(client: OkHttpClient? = null) {
 
             httpClient.newCall(rangeReq).execute().use { resp ->
                 resolvedUrl = resp.request.url.toString()
+                // Only successful responses speak for the file: an error page's
+                // headers must never become the expected hash.
+                if (resp.code == 206 || resp.isSuccessful) expectedSha256 = linkedSha256(resp)
                 if (resp.code == 401 || resp.code == 403) {
                     isAuthError = true
                     errorReason = "Hugging Face 인증 필요 (${resp.code}). 설정에서 유효한 HF 토큰을 입력해 주세요."
@@ -498,6 +593,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
 
                 httpClient.newCall(headReq).execute().use { resp ->
                     resolvedUrl = resp.request.url.toString()
+                    if (expectedSha256 == null && resp.isSuccessful) expectedSha256 = linkedSha256(resp)
                     if (resp.code == 401 || resp.code == 403) {
                         isAuthError = true
                         errorReason = "Hugging Face 인증 필요 (${resp.code}). 설정에서 유효한 HF 토큰을 입력해 주세요."
@@ -513,7 +609,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
             }
         }
 
-        return ProbeResult(resolvedUrl, totalBytes, supportsRange, isAuthError, errorReason)
+        return ProbeResult(resolvedUrl, totalBytes, supportsRange, isAuthError, errorReason, expectedSha256)
     }
 
     private suspend fun downloadComponent(
@@ -524,7 +620,8 @@ class ModelDownloader(client: OkHttpClient? = null) {
         fallbackSize: Long,
         token: String? = null,
         onProgress: suspend (Long, Long, String, Int, List<Float>) -> Unit,
-        onError: suspend (String) -> Unit
+        onError: suspend (String) -> Unit,
+        onVerified: (Boolean) -> Unit = {}
     ): Boolean {
         val probe = probeUrl(url, fallbackSize, token)
         if (probe.authError || probe.errorMsg != null) {
@@ -534,6 +631,100 @@ class ModelDownloader(client: OkHttpClient? = null) {
             return false
         }
 
+        val downloaded = fetchComponent(taskTitle, probe, targetFile, modelsDir, token, onProgress, onError)
+        if (!downloaded) return false
+
+        val expected = probe.expectedSha256
+        if (expected == null) {
+            // The host published no hash (non-LFS file or a non-HF mirror): say so
+            // instead of implying a verification happened.
+            Log.w(tag, "[$taskTitle] No SHA-256 published by host; integrity not verified (format check only)")
+            onVerified(false)
+            return true
+        }
+
+        onProgress(targetFile.length(), targetFile.length(), "SHA-256 검증 중", 0, List(8) { 1f })
+        // A cancelled or failed verification leaves the file alone on purpose: the
+        // existing-file path re-verifies it on the next run instead of trusting it.
+        val actual = try {
+            val job = currentCoroutineContext()[Job]
+            withContext(Dispatchers.IO) { sha256Hex(targetFile) { job?.ensureActive() } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(tag, "[$taskTitle] SHA-256 computation failed: ${e.message}")
+            onError("다운로드 파일 무결성 검증 중 오류가 발생했습니다. 다시 시도해 주세요.")
+            return false
+        }
+        if (!actual.equals(expected, ignoreCase = true)) {
+            Log.e(tag, "[$taskTitle] SHA-256 mismatch: expected=$expected actual=$actual")
+            deleteOrQuarantine(targetFile)
+            onError("다운로드 파일 무결성 검증 실패: SHA-256이 서버가 게시한 값과 다릅니다. 파일을 삭제했으니 다시 받아 주세요.")
+            return false
+        }
+        Log.i(tag, "[$taskTitle] SHA-256 verified: $actual")
+        onVerified(true)
+        return true
+    }
+
+    private enum class ExistingVerdict { VERIFIED, UNVERIFIABLE, MISMATCH }
+
+    /**
+     * Re-checks a file that is already on disk against the hash the host publishes
+     * today. MISMATCH deletes nothing here — the caller falls through to a fresh
+     * download, which replaces the file.
+     */
+    private suspend fun verifyExistingFile(
+        taskTitle: String,
+        url: String,
+        targetFile: File,
+        fallbackSize: Long,
+        token: String?
+    ): ExistingVerdict {
+        val probe = probeUrl(url, fallbackSize, token)
+        val expected = probe.expectedSha256 ?: return ExistingVerdict.UNVERIFIABLE
+        val actual = try {
+            val job = currentCoroutineContext()[Job]
+            withContext(Dispatchers.IO) { sha256Hex(targetFile) { job?.ensureActive() } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(tag, "[$taskTitle] Existing file hash check failed: ${e.message}")
+            return ExistingVerdict.UNVERIFIABLE
+        }
+        return if (actual.equals(expected, ignoreCase = true)) {
+            Log.i(tag, "[$taskTitle] Existing file SHA-256 verified: $actual")
+            ExistingVerdict.VERIFIED
+        } else {
+            Log.e(tag, "[$taskTitle] Existing file SHA-256 mismatch: expected=$expected actual=$actual")
+            ExistingVerdict.MISMATCH
+        }
+    }
+
+    /**
+     * Deletes a rejected file. When deletion itself fails (locks, storage errors),
+     * the file is quarantined out of the way so the existing-file path can never
+     * accept it on the next run.
+     */
+    private fun deleteOrQuarantine(file: File) {
+        if (file.delete()) return
+        val quarantine = File(file.parentFile, "${file.name}.corrupt-${System.currentTimeMillis()}")
+        if (!file.renameTo(quarantine)) {
+            Log.e(tag, "Could not remove rejected file: ${file.absolutePath}")
+        } else {
+            Log.w(tag, "Quarantined undeletable file as ${quarantine.name}")
+        }
+    }
+
+    private suspend fun fetchComponent(
+        taskTitle: String,
+        probe: ProbeResult,
+        targetFile: File,
+        modelsDir: File,
+        token: String?,
+        onProgress: suspend (Long, Long, String, Int, List<Float>) -> Unit,
+        onError: suspend (String) -> Unit
+    ): Boolean {
         val finalUrl = probe.finalUrl
         val totalSize = probe.totalBytes
         val supportsRange = probe.supportsRange
@@ -575,6 +766,24 @@ class ModelDownloader(client: OkHttpClient? = null) {
         onError: suspend (String) -> Boolean
     ): Boolean {
         val partFiles = (0 until segmentCount).map { i -> File(modelsDir, "${targetFile.name}.part_$i") }
+        // Resume sidecar: part files are only valid for the exact total they were
+        // started with. Without it, a changed remote revision on a hash-less host
+        // would silently merge stale parts with fresh bytes.
+        val metaFile = File(modelsDir, "${targetFile.name}.partsmeta")
+        val metaTotal = try {
+            if (metaFile.isFile) metaFile.readText().trim().toLongOrNull() else null
+        } catch (_: Exception) {
+            null
+        }
+        if (metaTotal != null && metaTotal != totalSize) {
+            Log.w(tag, "[$taskTitle] Remote size changed ($metaTotal -> $totalSize); discarding stale parts")
+            partFiles.forEach { it.delete() }
+        }
+        try {
+            metaFile.writeText(totalSize.toString())
+        } catch (e: Exception) {
+            Log.w(tag, "[$taskTitle] Could not write parts sidecar: ${e.message}")
+        }
         val segmentStarts = LongArray(segmentCount)
         val segmentEnds = LongArray(segmentCount)
         val segmentTotals = LongArray(segmentCount)
@@ -722,6 +931,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
 
             if (allComplete) {
                 mergeParts(partFiles, targetFile, modelsDir)
+                File(modelsDir, "${targetFile.name}.partsmeta").delete()
                 Log.i(tag, "[$taskTitle] Segmented download & zero-copy merge completed: ${targetFile.name} (${targetFile.length()} bytes)")
                 return true
             } else {
@@ -764,7 +974,9 @@ class ModelDownloader(client: OkHttpClient? = null) {
             outChannel.force(true)
         }
 
-        if (targetFile.exists()) targetFile.delete()
+        if (targetFile.exists() && !targetFile.delete()) {
+            throw IOException("Could not replace previous file ${targetFile.name}")
+        }
         if (!tempMerged.renameTo(targetFile)) throw IOException("Failed to publish merged download")
         partFiles.forEach { it.delete() }
     }

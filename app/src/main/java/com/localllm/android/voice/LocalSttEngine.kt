@@ -120,6 +120,8 @@ class LocalSttEngine(private val context: Context) {
             releaseRecognizer()
             _modelState.value = ModelState.Ready
             true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "STT model download failed", e)
             _modelState.value = ModelState.Failed(e.localizedMessage ?: "다운로드 실패")

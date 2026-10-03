@@ -90,6 +90,8 @@ fun SettingsScreen(
     var showMemoryLog by remember { mutableStateOf(false) }
     var memoryLogText by remember { mutableStateOf("") }
     var mcpUrlInput by remember { mutableStateOf(settings.mcpServerUrl) }
+    var mcpTokenInput by remember { mutableStateOf("") }
+    var mcpTokenTouched by remember { mutableStateOf(false) }
     var hfTokenInput by remember { mutableStateOf(settings.hfToken) }
     var isTokenVisible by remember { mutableStateOf(false) }
 
@@ -424,10 +426,54 @@ fun SettingsScreen(
                     value = mcpUrlInput,
                     onValueChange = { mcpUrlInput = it },
                     label = { GText("MCP Server URL") },
-                    placeholder = { GText("https://mcp.weather.dev/sse") },
+                    placeholder = { GText("https://mcp.example.com/mcp") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                GTextField(
+                    value = mcpTokenInput,
+                    onValueChange = {
+                        mcpTokenInput = it
+                        mcpTokenTouched = true
+                    },
+                    label = { GText(stringResource(R.string.settings_mcp_token_label)) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                GText(
+                    text = stringResource(R.string.settings_mcp_token_hint),
+                    fontSize = 11.sp,
+                    color = GlassTheme.colors.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val tokenSaved by viewModel.mcpTokenSaved.collectAsState()
+                    GText(
+                        text = stringResource(
+                            if (tokenSaved) R.string.settings_mcp_token_saved
+                            else R.string.settings_mcp_token_none
+                        ),
+                        fontSize = 11.sp,
+                        color = GlassTheme.colors.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (tokenSaved) {
+                        GTextButton(onClick = {
+                            viewModel.clearMcpToken()
+                            mcpTokenInput = ""
+                            mcpTokenTouched = false
+                        }) {
+                            GText(stringResource(R.string.settings_mcp_token_clear))
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -440,7 +486,10 @@ fun SettingsScreen(
                         color = GlassTheme.colors.primary,
                         modifier = Modifier.weight(1f)
                     )
-                    GButton(onClick = { viewModel.connectMcp(mcpUrlInput) }) {
+                    GButton(onClick = {
+                        // Untouched field keeps the stored token; typing (even blank) replaces it.
+                        viewModel.connectMcp(mcpUrlInput, if (mcpTokenTouched) mcpTokenInput else null)
+                    }) {
                         GText(stringResource(R.string.settings_mcp_connect))
                     }
                 }

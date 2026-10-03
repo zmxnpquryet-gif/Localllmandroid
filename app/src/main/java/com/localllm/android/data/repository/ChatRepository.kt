@@ -1,7 +1,9 @@
-﻿package com.localllm.android.data.repository
+package com.localllm.android.data.repository
 
 import com.localllm.android.data.crypto.ChatCrypto
 import com.localllm.android.data.local.ChatDao
+import com.localllm.android.data.local.ConversationCiphertext
+import com.localllm.android.data.local.MessageCiphertext
 import com.localllm.android.data.local.ConversationEntity
 import com.localllm.android.data.local.MessageEntity
 import com.localllm.android.model.ChatAttachment
@@ -31,11 +33,11 @@ class ChatRepository(private val chatDao: ChatDao) {
                 decodeRow {
                     Conversation(
                         id = entity.id,
-                        title = ChatCrypto.decrypt(entity.titleEncrypted),
+                        title = ChatCrypto.decrypt(entity.titleEncrypted, convAad(entity.id, "title")),
                         createdAt = entity.createdAt,
                         updatedAt = entity.updatedAt,
                         modelId = entity.modelId,
-                        systemPrompt = ChatCrypto.decrypt(entity.systemPromptEncrypted)
+                        systemPrompt = ChatCrypto.decrypt(entity.systemPromptEncrypted, convAad(entity.id, "systemPrompt"))
                     )
                 }
             }
@@ -64,8 +66,8 @@ class ChatRepository(private val chatDao: ChatDao) {
                             id = entity.id,
                             conversationId = entity.conversationId,
                             role = role,
-                            content = ChatCrypto.decrypt(entity.contentEncrypted),
-                            reasoning = entity.reasoningEncrypted?.let { ChatCrypto.decrypt(it) },
+                            content = ChatCrypto.decrypt(entity.contentEncrypted, msgAad(entity.id, entity.conversationId, "content")),
+                            reasoning = entity.reasoningEncrypted?.let { ChatCrypto.decrypt(it, msgAad(entity.id, entity.conversationId, "reasoning")) },
                             timestamp = entity.timestamp,
                             tps = entity.tps,
                             promptSpeed = entity.promptSpeed,
@@ -80,15 +82,7 @@ class ChatRepository(private val chatDao: ChatDao) {
     suspend fun saveConversation(conversation: Conversation) {
         writeMutex.withLock {
             withContext(Dispatchers.IO) {
-                val entity = ConversationEntity(
-                    id = conversation.id,
-                    titleEncrypted = ChatCrypto.encrypt(conversation.title),
-                    createdAt = conversation.createdAt,
-                    updatedAt = conversation.updatedAt,
-                    modelId = conversation.modelId,
-                    systemPromptEncrypted = ChatCrypto.encrypt(conversation.systemPrompt)
-                )
-                chatDao.insertConversation(entity)
+                chatDao.insertConversation(conversationEntity(conversation))
             }
         }
     }
@@ -96,23 +90,57 @@ class ChatRepository(private val chatDao: ChatDao) {
     suspend fun saveMessage(message: ChatMessage) {
         writeMutex.withLock {
             withContext(Dispatchers.IO) {
-                val entity = MessageEntity(
-                    id = message.id,
-                    conversationId = message.conversationId,
-                    role = message.role.name,
-                    contentEncrypted = ChatCrypto.encrypt(message.content),
-                    reasoningEncrypted = message.reasoning?.let { ChatCrypto.encrypt(it) },
-                    timestamp = message.timestamp,
-                    tps = message.tps,
-                    promptSpeed = message.promptSpeed,
-                    contextTokens = message.contextTokens,
-                    attachedFilePath = message.attachment?.uriString,
-                    attachedFileType = message.attachment?.mimeType
-                )
+                val entity = messageEntity(message)
                 chatDao.insertMessageAndUpdateConversationTimestamp(entity, System.currentTimeMillis())
             }
         }
     }
+
+    /**
+     * Saves [message] and, when [draft] is non-null, its still-in-memory parent
+     * conversation in one transaction. Callers capture the draft synchronously at
+     * send time: whatever the user taps next (another conversation, delete), the
+     * message always lands with its parent row present.
+     */
+    suspend fun saveConversationAndMessage(draft: Conversation?, message: ChatMessage) {
+        writeMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val entity = messageEntity(message)
+                if (draft != null) {
+                    chatDao.insertConversationAndMessage(
+                        conversationEntity(draft),
+                        entity,
+                        System.currentTimeMillis()
+                    )
+                } else {
+                    chatDao.insertMessageAndUpdateConversationTimestamp(entity, System.currentTimeMillis())
+                }
+            }
+        }
+    }
+
+    private fun conversationEntity(conversation: Conversation) = ConversationEntity(
+        id = conversation.id,
+        titleEncrypted = ChatCrypto.encrypt(conversation.title, convAad(conversation.id, "title")),
+        createdAt = conversation.createdAt,
+        updatedAt = conversation.updatedAt,
+        modelId = conversation.modelId,
+        systemPromptEncrypted = ChatCrypto.encrypt(conversation.systemPrompt, convAad(conversation.id, "systemPrompt"))
+    )
+
+    private fun messageEntity(message: ChatMessage) = MessageEntity(
+        id = message.id,
+        conversationId = message.conversationId,
+        role = message.role.name,
+        contentEncrypted = ChatCrypto.encrypt(message.content, msgAad(message.id, message.conversationId, "content")),
+        reasoningEncrypted = message.reasoning?.let { ChatCrypto.encrypt(it, msgAad(message.id, message.conversationId, "reasoning")) },
+        timestamp = message.timestamp,
+        tps = message.tps,
+        promptSpeed = message.promptSpeed,
+        contextTokens = message.contextTokens,
+        attachedFilePath = message.attachment?.uriString,
+        attachedFileType = message.attachment?.mimeType
+    )
 
     suspend fun deleteConversation(id: String) {
         writeMutex.withLock {
@@ -126,7 +154,7 @@ class ChatRepository(private val chatDao: ChatDao) {
     suspend fun renameConversation(id: String, newTitle: String) {
         writeMutex.withLock {
             withContext(Dispatchers.IO) {
-                chatDao.updateConversationTitle(id, ChatCrypto.encrypt(newTitle), System.currentTimeMillis())
+                chatDao.updateConversationTitle(id, ChatCrypto.encrypt(newTitle, convAad(id, "title")), System.currentTimeMillis())
             }
         }
     }
@@ -136,6 +164,77 @@ class ChatRepository(private val chatDao: ChatDao) {
             withContext(Dispatchers.IO) { chatDao.clearAllConversations() }
         }
     }
+
+    /**
+     * Re-encrypts rows written before AAD binding (no `v2:` prefix) so they are bound to
+     * their own row/column. Idempotent: rows already in the v2 format are skipped, and a
+     * row that cannot be decrypted is left untouched rather than destroyed. Updates in
+     * place, so message rows are never cascade-deleted. Returns the number of rows upgraded.
+     *
+     * Two-phase: every new ciphertext is computed first, and only then are they all
+     * written through a single DAO transaction. A failure during computation writes
+     * nothing; a failure during the write rolls everything back. Either way the next
+     * launch retries the whole migration instead of continuing from a half state.
+     */
+    suspend fun upgradeLegacyEncryption(): Int = writeMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val newConversations = mutableListOf<ConversationCiphertext>()
+            val newMessages = mutableListOf<MessageCiphertext>()
+            var skipped = 0
+            for (c in chatDao.getAllConversationsOnce()) {
+                if (!ChatCrypto.isLegacyFormat(c.titleEncrypted) && !ChatCrypto.isLegacyFormat(c.systemPromptEncrypted)) continue
+                try {
+                    val title = ChatCrypto.decrypt(c.titleEncrypted, convAad(c.id, "title"))
+                    val prompt = ChatCrypto.decrypt(c.systemPromptEncrypted, convAad(c.id, "systemPrompt"))
+                    newConversations.add(
+                        ConversationCiphertext(
+                            c.id,
+                            ChatCrypto.encrypt(title, convAad(c.id, "title")),
+                            ChatCrypto.encrypt(prompt, convAad(c.id, "systemPrompt"))
+                        )
+                    )
+                } catch (_: SecurityException) {
+                    // Unreadable row (key lost or tampered): keep it as is.
+                    skipped++
+                }
+            }
+            for (m in chatDao.getAllMessagesOnce()) {
+                val reasoningLegacy = ChatCrypto.isLegacyFormat(m.reasoningEncrypted)
+                if (!ChatCrypto.isLegacyFormat(m.contentEncrypted) && !reasoningLegacy) continue
+                try {
+                    val content = ChatCrypto.decrypt(m.contentEncrypted, msgAad(m.id, m.conversationId, "content"))
+                    val reasoning = m.reasoningEncrypted?.let {
+                        ChatCrypto.decrypt(it, msgAad(m.id, m.conversationId, "reasoning"))
+                    }
+                    newMessages.add(
+                        MessageCiphertext(
+                            m.id,
+                            ChatCrypto.encrypt(content, msgAad(m.id, m.conversationId, "content")),
+                            reasoning?.let { ChatCrypto.encrypt(it, msgAad(m.id, m.conversationId, "reasoning")) }
+                        )
+                    )
+                } catch (_: SecurityException) {
+                    // Unreadable row (key lost or tampered): keep it as is.
+                    skipped++
+                }
+            }
+            if (skipped > 0) {
+                android.util.Log.w(
+                    "ChatRepository",
+                    "LEGACY_UPGRADE_SKIPPED: $skipped unreadable rows left untouched " +
+                        "(Keystore key lost after a restore, or tampering). " +
+                        "They stay invisible until the data is reset."
+                )
+            }
+            chatDao.applyCiphertextUpgrade(newConversations, newMessages)
+            newConversations.size + newMessages.size
+        }
+    }
+
+    private fun convAad(conversationId: String, column: String) = "conversation:$conversationId:$column"
+
+    private fun msgAad(messageId: String, conversationId: String, column: String) =
+        "message:$messageId:$conversationId:$column"
 
     /** Deletes conversations that never received a message. Returns removed count. */
     suspend fun pruneEmptyConversations(): Int = writeMutex.withLock {
