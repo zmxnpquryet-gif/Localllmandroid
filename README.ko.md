@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/actions/workflows/android.yml"><img src="https://github.com/zmxnpquryet-gif/Localllmandroid/actions/workflows/android.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License" />
   <img src="https://img.shields.io/badge/Kotlin-2.2-purple.svg" alt="Kotlin" />
   <img src="https://img.shields.io/badge/Platform-Android%2024%2B-green.svg" alt="Platform" />
@@ -19,7 +20,7 @@
   <img src="https://img.shields.io/badge/UI-EN%20%2F%20KO%20Switcher-ff69b4.svg" alt="Multilingual" />
 </p>
 
-완전 오프라인 환경에서 동작하는 고성능 안드로이드 온디바이스 LLM(대형 언어 모델) 애플리케이션입니다. 외부 클라우드나 API 통신 없이, 기기의 CPU, GPU, NPU 하드웨어를 직접 활용하여 안전하게 인공지능 모델을 구동합니다. UI는 자체 개발 **글래스 디자인 시스템** 위에서 동작하며 설정에서 **영어/한국어 실시간 전환**이 가능하고, 채팅에서 도구 호출을 위해 네이티브 **MCP 클라이언트**를 지원합니다. 또한 자체 MoE 연구 엔진(**SDengine**)이 `:engine` 모듈로 오픈소스로 개발 중입니다.
+완전 오프라인 환경에서 동작하는 고성능 안드로이드 온디바이스 LLM(대형 언어 모델) 애플리케이션입니다. 외부 클라우드나 API 통신 없이 모델을 기기 안에서만 구동합니다 — 기본은 CPU 연산이며, 기기와 런타임이 지원하는 경우 GPU/NPU 가속을 사용하고 자동으로 CPU로 폴백합니다. UI는 자체 개발 **글래스 디자인 시스템** 위에서 동작하며 설정에서 **영어/한국어 실시간 전환**이 가능하고, 채팅에서 도구 호출을 위해 네이티브 **MCP 클라이언트**를 지원합니다. 또한 자체 MoE 연구 엔진(**SDengine**)이 `:engine` 모듈로 오픈소스로 개발 중입니다.
 
 ---
 
@@ -49,19 +50,20 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
                 ┌───────────────┘            └───────────────┐
                 ▼                                            ▼
       [ llama.cpp 런타임 ]                          [ Google LiteRT-LM 런타임 ]
-   • GGUF 범용 모델 포맷 지원                     • 구글 모바일 최적화 바이너리
-   • Qwen, DeepSeek-R1, Llama 3 등               • Gemma-2, 모바일 NPU 가속 타깃
-   • CPU 멀티스레딩 & GPU 레이어 오프로딩          • GPU(OpenCL/Vulkan) & NPU 가속
-   • mmproj 비전타워 연동 (멀티모달)              • 저전력 / 고효율 모바일 추론
+   • GGUF 양자화 포맷 폭넓게 지원                  • 구글 모바일 최적화 바이너리
+     (Q4_K_M, Q8_0, K-quants 등)                    • Gemma-2, 모바일 NPU 가속 타깃
+   • Qwen, DeepSeek-R1, Llama 3 등                 • 지원 기기에서 GPU/NPU 가속
+   • CPU 멀티스레딩 & GPU 레이어 오프로딩             (자동 CPU 폴백)
+   • mmproj 비전타워 연동 (멀티모달)               • 저전력 / 고효율 모바일 추론
 
         (+ SDengine — :engine 모듈의 실험적 자체 MoE 엔진, 아래 참조)
 ```
 
 ### 왜 두 엔진을 함께 사용하는가? (Dual-Runtime Rationale)
 
-1. **최대 모델 생태계 호환성 (llama.cpp GGUF)**
+1. **폭넓은 모델 생태계 호환성 (llama.cpp GGUF)**
    - 허깅페이스(Hugging Face)에 존재하는 수만 개의 오픈소스 커뮤니티 GGUF 양자화 모델(Q4_K_M, Q8_0 등)을 즉시 다운로드하여 실행할 수 있습니다.
-   - DeepSeek-R1 등의 최신 추론(Reasoning) 모델, Jinja 템플릿, 멀티모달 mmproj 비전 타워를 폭넓게 지원합니다.
+   - DeepSeek-R1 등의 추론(Reasoning) 모델, GGUF 채팅 템플릿, 멀티모달 mmproj 비전 타워가 같은 런타임에서 동작합니다.
 
 2. **안드로이드 네이티브 하드웨어 가속 (Google LiteRT-LM)**
    - Google의 온디바이스 AI 런타임으로 모바일 SoC(Snapdragon, MediaTek, Tensor, Exynos)의 GPU 및 NPU 델리게이트와 가장 긴밀하게 최적화되어 있습니다.
@@ -77,7 +79,11 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
   - `GET /api/tags` - 다운로드된 온디바이스 모델 카탈로그 조회
   - `POST /api/generate` - 단일 텍스트 생성 (Ollama 규격)
   - `POST /api/chat` - 대화형 메시지 생성 (Ollama 규격)
+  - `POST /api/show` - 활성 모델 상세 정보
+  - `GET /api/version` - 서버 버전 (Ollama 호환 `0.5.1` 보고)
   - `POST /v1/chat/completions` - OpenAI SDK 및 클라이언트 호환 엔드포인트
+  - `GET /v1/models` - OpenAI 모델 목록
+  - 프로토콜 참고: 연결당 요청 1개(`Connection: close`), 요청 본문은 `Content-Length` 필수(chunked 요청 본문은 `411`로 응답).
 - **네트워크 보안 및 외부 LAN 접근 제어**:
   - **로컬 루프백(`127.0.0.1`) 격리**: 기기 내부 앱 간 통신을 위한 기본 보안 모드.
   - **외부 네트워크(LAN) 접근 토글**: 토글 활성화 시 `0.0.0.0`으로 바인딩되어 동일 Wi-Fi의 PC, Mac, 개발 환경에서 안드로이드 기기로 직접 API 호출 가능.
@@ -118,7 +124,7 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 - **스트리밍 추론 상태머신 (`ReasoningStreamParser`)**:
   - DeepSeek-R1 등 추론 모델의 `<think>`, `</think>` 태그가 토큰 스트리밍 단위로 쪼개져 수신되는 경우에도 버퍼 상태머신을 통해 생각 과정과 최종 답변을 안정적으로 분리 표기.
 - **MCP 프로토콜 클라이언트 (`McpClient`)**:
-  - Streamable HTTP 우선, 레거시 SSE 차선의 JSON-RPC 클라이언트입니다(양쪽 경로 모두 세션 ID 유지 + `notifications/initialized` 전송). Bearer 토큰은 선택 사항이며 요청마다 재확인합니다. https 어디에나, 평문 http는 loopback/사설 LAN에만 전송하고(mDNS `.local` 제외 — 브로드캐스트로 풀리므로 https 필요), 한 서버용으로 저장된 토큰은 주소가 바뀌면 재입력 없이 재전송하지 않으며, 리다이렉트로 https가 http로 떨어지지 않습니다. 레거시 SSE의 타 오리진 endpoint는 거부하며 `Mcp-Session-Id`를 연결별로 추적합니다.
+  - Streamable HTTP 우선, 레거시 SSE 차선의 JSON-RPC 클라이언트입니다(양쪽 경로 모두 세션 ID 유지 + `notifications/initialized` 전송; 레거시 경로는 POST 응답으로 돌아오는 응답을 소비하며, 응답을 SSE 채널로만 스트리밍하는 서버는 지원하지 않습니다). 응답은 요청 ID로 매칭됩니다(오래되었거나 요청되지 않은 프레임은 무시). 응답 본문과 스트림 라인에 크기 상한이 있고, 도구 이름은 프롬프트에 들어가기 전에 정화(sanitize)됩니다. Bearer 토큰은 선택 사항이며 요청마다 재확인합니다. https 어디에나, 평문 http는 loopback/사설 LAN에만 전송하고(mDNS `.local` 제외 — 브로드캐스트로 풀리므로 https 필요), 한 서버용으로 저장된 토큰은 주소가 바뀌면 재입력 없이 재전송하지 않으며, 리다이렉트로 https가 http로 떨어지지 않습니다. 레거시 SSE의 타 오리진 endpoint는 거부하며 `Mcp-Session-Id`를 연결별로 추적합니다.
   - 도구는 프롬프트에 제시되고, 턴마다 하나의 `<tool_call>{"name": ..., "arguments": {...}}</tool_call>` 블록으로 호출합니다(연결된 서버가 광고한 이름만, 턴당 첫 호출만, 코드펜스 안 예시·닫히지 않은 블록은 호출 아님). 모든 호출은 승인 대화상자를 거치며(항상 허용 없음, 60초 무응답 자동 거부), 거절하면 도구 사용을 끝내고 연속 2회 문법 오류에도 끝냅니다. 메시지당 최대 3라운드, 요청은 비동기·취소 가능이라 중지 버튼이 서버에 고아 요청을 남기지 않습니다. 결과는 신뢰할 수 없는 `<tool_result>` 데이터로 감싸(모든 태그 변형 무력화) 호출 기록과 함께 도구 카드로 표시되고, 외부 데이터로 명시되어 다음 턴에 전달됩니다. 작은 로컬 모델이 도구를 잘 쓰는지는 모델에 따라 다릅니다.
 - **자체 글래스 디자인 시스템 (`ui/glass`)**:
   - Material3를 완전히 제거하고 자체 글래스 UI 툴킷(`GlassTheme`, `GButtons`, `GControls`, `GOverlays` 등)으로 모든 화면을 커버합니다.
@@ -131,7 +137,7 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 - **타입 안전한 전역 네비게이션 (`AppScreen`) & 시스템 제스처 핸들링**:
   - 모든 UI 화면 컴포넌트의 화면 전환을 `AppScreen` enum으로 관리하며, 서브 화면에서 시스템 뒤로가기 제스처 시 메인 채팅으로 자연스럽게 복귀.
 - **탄력적 모바일 다운로더**:
-  - 포그라운드 서비스 백그라운드 다운로드 + 중단된 다운로드는 파트 파일에서 이어받기(수동 일시정지 버튼은 없음). 허깅페이스가 게시한 해시(`X-Linked-ETag`, 리다이렉트 체인 추적)가 있으면 SHA-256 검증 — 불일치 시 파일 삭제 후 실패, 이미 받은 파일도 재검사(불일치면 재다운로드). 해시 미게시 파일은 가중치 포맷 검사만으로 완료하고 다운로드 카드에 미검증으로 표시합니다(작은 템플릿 파일은 그대로 수용).
+  - 포그라운드 서비스 백그라운드 다운로드 + 중단된 다운로드는 파트 파일에서 이어받기(수동 일시정지 버튼은 없음). 허깅페이스가 게시한 해시(`X-Linked-ETag`, 리다이렉트 체인 추적)가 있으면 SHA-256 검증 — 불일치 시 파일 삭제 후 실패, 이미 받은 파일도 재검사(불일치면 재다운로드). 잘려서 끝난 전송은 완료로 등록되지 않습니다(파일 이동 전 바이트 수를 검증하고, 이어받기 파트는 사이드카가 원격 리비전과 일치함을 증명하지 못하면 폐기). 해시 미게시 파일은 가중치 포맷 검사만으로 완료하고 다운로드 카드에 미검증으로 표시합니다(작은 템플릿 파일은 그대로 수용).
 
 ---
 
@@ -143,9 +149,12 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 
 **현재 포함된 것:**
 - GGUF 리더 + 메타데이터 감지, BPE 토크나이저, 샘플러, KV 캐시 (`GgufReader`, `BpeTokenizer`, `Sampler`, `KvCache`)
-- 페이징 전문가 스트리밍: dense 가중치는 상한 내 상주 디코딩, expert 타일은 스토리지에 두고 `ExpertPager`로 스트리밍
+- 양자화 가중치 디퀀터: Q4_0/Q4_1/Q5_0/Q5_1/Q8_0/Q8_1과 K-quants Q4_K/Q5_K/Q6_K — ggml 레퍼런스 레이아웃에 스펙 벡터로 고정 (`Quant`, `QuantTest`)
+- 페이징 전문가 스트리밍: dense 가중치는 상한 내 상주 디코딩, expert 타일은 스토리지에 두고 `ExpertPager`로 스트리밍 — RAM보다 큰 MoE 모델도 디코딩 가능
+- 아키텍처 매칭 RoPE (llama.cpp의 아키텍처별 표에 따라 NeoX half-split / NORM interleaved 선택, GGUF 아키텍처에서 결정)
 - NDK 27 + CMake 기반 포터블 C++ JNI 레퍼런스 (`arm64-v8a`, `x86_64`): `dot()` 동등성 확인용이며 NEON은 아직 없음 — 실제 연산은 JVM 스칼라 커널
 - 실제 MoE 가중치 기반 수치 검증 (HTTP range 스트리밍, 수동/야간 `RealMoETest` + `LOCALENGINE_MOE_URL`; 일반 CI에서는 실행 안 함)
+- 야간 골든 하네스: 실제 MoE GGUF에서 그리디 생성이 llama.cpp와 토큰 단위로 일치해야 함 (`GoldenLogitTest` + `nightly-real-model.yml`; 야간/예약 전용, 일반 CI 아님)
 - gated-expert GGUF 엔드투엔드 생성 — `SDEngineEndToEndTest`가 합성 MoE 모델로 로드·토큰 스트리밍·중단·상주 상한 거부까지 검증
 
 **상태: TEST BUILD / 실험체 — 실행은 되지만 프로덕션 사용 금지.**

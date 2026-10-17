@@ -20,7 +20,7 @@
   <img src="https://img.shields.io/badge/UI-EN%20%2F%20KO%20Switcher-ff69b4.svg" alt="Multilingual" />
 </p>
 
-**Local LLM Android** is a privacy-first, fully offline on-device Large Language Model (LLM) application and server for Android. Powered by a **hybrid dual-runtime architecture** combining **llama.cpp** and **Google LiteRT-LM**, it executes state-of-the-art AI models directly on your device's CPU, GPU, and NPU—without requiring internet connectivity or cloud servers. The UI runs on a first-party **glass design system** with instant **English/Korean switching**, chats can call tools through a native **MCP client**, and a first-party MoE research engine (**SDengine**) is being built in the open under the `:engine` module.
+**Local LLM Android** is a privacy-first, fully offline on-device Large Language Model (LLM) application and server for Android. Powered by a **hybrid dual-runtime architecture** combining **llama.cpp** and **Google LiteRT-LM**, it runs state-of-the-art AI models entirely on-device—CPU by default, with GPU/NPU acceleration where the device and runtime support it (automatic CPU fallback), and no internet or cloud dependency. The UI runs on a first-party **glass design system** with instant **English/Korean switching**, chats can call tools through a native **MCP client**, and a first-party MoE research engine (**SDengine**) is being built in the open under the `:engine` module.
 
 ---
 
@@ -50,19 +50,20 @@ Rather than being tied to a single engine, Local LLM Android integrates both **l
                 ┌───────────────┘            └───────────────┐
                 ▼                                            ▼
       [ llama.cpp Runtime ]                        [ Google LiteRT-LM Runtime ]
-   • Universal GGUF format support               • Google mobile-optimized binaries
-   • Qwen, DeepSeek-R1, Llama 3, etc.            • Gemma-2, FunctionGemma mobile models
-   • CPU multi-threading & GPU layer offload     • Hardware GPU (OpenCL/Vulkan) & NPU delegates
-   • mmproj vision tower support (Multimodal)    • Ultra-low power mobile inference
+   • Broad GGUF quant support                     • Google mobile-optimized binaries
+     (Q4_K_M, Q8_0, K-quants, ...)                  • Gemma-2, FunctionGemma mobile models
+   • Qwen, DeepSeek-R1, Llama 3, etc.             • GPU/NPU delegates where supported
+   • CPU multi-threading & GPU layer offload        (automatic CPU fallback)
+   • mmproj vision tower support (Multimodal)     • Low-power mobile inference
 
         (+ SDengine — experimental first-party MoE engine under :engine, see below)
 ```
 
 ### Why Dual Runtimes?
 
-1. **Universal Model Compatibility (`llama.cpp` / GGUF)**
+1. **Broad Model Compatibility (`llama.cpp` / GGUF)**
    - Download and run tens of thousands of community quantized models (Q4_K_M, Q8_0, etc.) directly from Hugging Face.
-   - Comprehensive support for reasoning models (DeepSeek-R1), custom Jinja chat templates, and vision towers (`mmproj`).
+   - Reasoning models (DeepSeek-R1), GGUF chat templates, and vision towers (`mmproj`) all work through the same runtime.
 
 2. **Native Mobile Hardware Acceleration (`Google LiteRT-LM`)**
    - Direct integration with Google's on-device AI runtime, deeply optimized for mobile SoCs (Snapdragon, MediaTek, Tensor, Exynos).
@@ -74,7 +75,7 @@ Rather than being tied to a single engine, Local LLM Android integrates both **l
 
 Turn your Android phone or tablet into an autonomous, on-device AI server accessible from desktop applications, IDEs (VS Code, Cursor, Continue), and other local network devices.
 
-- **Full Protocol Compatibility**:
+- **Ollama- & OpenAI-Compatible Endpoints**:
   - `GET /api/tags` - List installed on-device models
   - `POST /api/generate` - Single-turn completion (Ollama spec)
   - `POST /api/chat` - Multi-turn conversational completion (Ollama spec)
@@ -82,6 +83,7 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
   - `GET /api/version` - Server version (reports Ollama-compatible `0.5.1`)
   - `POST /v1/chat/completions` - OpenAI API compatible endpoint
   - `GET /v1/models` - OpenAI model list
+  - Protocol notes: one request per connection (`Connection: close`); request bodies must carry `Content-Length` (chunked request bodies are answered with `411`).
 - **Flexible Network & Access Controls**:
   - **Local Loopback (`127.0.0.1`) Isolation**: Secure default mode preventing unauthorized external access.
   - **External Network (LAN) Toggle**: Instantly bind to `0.0.0.0` with live socket rebinding, enabling access from any computer or device on your local Wi-Fi / LAN network.
@@ -121,7 +123,7 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
 - **Streaming Reasoning State Machine (`ReasoningStreamParser`)**:
   - Elegantly parses `<think>` ... `</think>` tags across token streaming chunks for reasoning models like DeepSeek-R1.
 - **Model Context Protocol (MCP) Client (`McpClient`)**:
-  - JSON-RPC client speaking Streamable HTTP first, legacy SSE second (with the session id kept and `notifications/initialized` sent on both paths). Optional bearer token, re-checked per request: https anywhere, or plain http only to loopback/private-LAN hosts (mDNS `.local` excluded — it resolves over broadcast, so it needs https); a token saved for one server is never re-sent to a changed address without re-entry, and https is never downgraded on redirect. Legacy-SSE endpoints on another origin are rejected, and `Mcp-Session-Id` is tracked per connection.
+  - JSON-RPC client speaking Streamable HTTP first, legacy SSE second (with the session id kept and `notifications/initialized` sent on both paths; the legacy path consumes responses answered on the POST endpoint — servers that stream every response on the SSE channel only are not supported). Responses are matched to their request id (stale or unsolicited frames are ignored), bodies and stream lines are size-capped, and tool names are sanitized before they reach the prompt. Optional bearer token, re-checked per request: https anywhere, or plain http only to loopback/private-LAN hosts (mDNS `.local` excluded — it resolves over broadcast, so it needs https); a token saved for one server is never re-sent to a changed address without re-entry, and https is never downgraded on redirect. Legacy-SSE endpoints on another origin are rejected, and `Mcp-Session-Id` is tracked per connection.
   - Tools are offered in the prompt and called with one `<tool_call>{"name": ..., "arguments": {...}}</tool_call>` block per reply (only names the connected server advertised; first call per turn only; fenced code examples and unclosed blocks are never calls). Every call waits for an explicit approval dialog (no always-allow, auto-declines after 60 s); a decline ends the tool use and a second straight syntax error ends it too, at most 3 tool rounds per message. Requests are async and cancellable, so Stop never leaves an orphan running on the tool server. Results come back wrapped as untrusted `<tool_result>` data (all tag spellings neutralized), shown as a tool card with the recorded call, and fed to the next turn framed as external data. Whether a small local model calls tools well depends on the model.
 - **First-Party Glass Design System (`ui/glass`)**:
   - Material3 stripped out entirely; a custom glass UI toolkit (`GlassTheme`, `GButtons`, `GControls`, `GOverlays`...) covers every screen.
@@ -132,7 +134,7 @@ Turn your Android phone or tablet into an autonomous, on-device AI server access
   - Writes an in-flight marker per generation: a marker found at startup means the previous process was killed mid-inference, which is recorded and lowers the memory-heavy settings for the next run (memory guard log + incidents in Settings).
   - Polls available RAM while generating and stops the run safely when the device runs critical, before the LMK kills the app.
 - **Resilient Mobile Downloader**:
-  - Background foreground-service downloads with resume support (interrupted downloads pick up from part files; there is no manual pause button). SHA-256 is verified against the hash Hugging Face publishes (`X-Linked-ETag`, read across the redirect chain) when present — a mismatch deletes the file and fails the download, and files already on disk are re-checked (a mismatch re-downloads). Files with no published hash complete with a format check of the weight files only (tiny template sidecars are accepted as-is) and the download card says so instead of claiming verification.
+  - Background foreground-service downloads with resume support (interrupted downloads pick up from part files; there is no manual pause button). SHA-256 is verified against the hash Hugging Face publishes (`X-Linked-ETag`, read across the redirect chain) when present — a mismatch deletes the file and fails the download, and files already on disk are re-checked (a mismatch re-downloads). Truncated transfers are never published as completed (byte counts are checked before the file is moved into place, and resume parts are discarded unless their sidecar proves they match the remote revision). Files with no published hash complete with a format check of the weight files only (tiny template sidecars are accepted as-is) and the download card says so instead of claiming verification.
 
 ---
 
@@ -144,9 +146,12 @@ A first-party MoE-only inference core is being built in the open as a separate A
 
 **What's inside today:**
 - GGUF format reader + metadata detection, BPE tokenizer, sampler, KV cache (`GgufReader`, `BpeTokenizer`, `Sampler`, `KvCache`)
-- Paged expert streaming: dense weights decode resident under a cap while expert tiles stay on storage and stream through `ExpertPager`
+- Quantized weight dequantizers: Q4_0/Q4_1/Q5_0/Q5_1/Q8_0/Q8_1 plus the K-quants Q4_K/Q5_K/Q6_K, pinned by spec vectors against the ggml reference layout (`Quant`, `QuantTest`)
+- Paged expert streaming: dense weights decode resident under a cap while expert tiles stay on storage and stream through `ExpertPager`, so MoE models larger than RAM can decode
+- Architecture-matched RoPE (NeoX half-split vs NORM interleaved, per llama.cpp's per-architecture table), selected from the GGUF architecture at load
 - Portable C++ JNI reference via NDK 27 + CMake (`arm64-v8a`, `x86_64`): a `dot()` parity check only, no NEON yet — the real math is JVM scalar kernels
 - Numerical validation against real MoE weights via HTTP range streaming (manual/nightly `RealMoETest` with `LOCALENGINE_MOE_URL`; never runs in normal CI)
+- Nightly golden harness: greedy continuation must match llama.cpp token-for-token on a real MoE GGUF (`GoldenLogitTest` + `nightly-real-model.yml`; scheduled/nightly only, not in normal CI)
 - End-to-end generation over a gated-expert GGUF, covered by `SDEngineEndToEndTest` (synthetic MoE model: load, stream tokens, cancel, resident-cap enforcement)
 
 **Status: TEST BUILD / EXPERIMENTAL — runs, but not for production.**
