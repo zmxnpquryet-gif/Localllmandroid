@@ -91,9 +91,43 @@ class ChatRepository(private val chatDao: ChatDao) {
         writeMutex.withLock {
             withContext(Dispatchers.IO) {
                 val entity = messageEntity(message)
-                chatDao.insertMessageAndUpdateConversationTimestamp(entity, System.currentTimeMillis())
+                insertMessageDroppingOrphans(entity)
             }
         }
+    }
+
+    /**
+     * A racing conversation delete can leave the message without its parent row
+     * (FOREIGN KEY failure). The user deleted that conversation anyway: drop the
+     * write instead of letting a fire-and-forget save crash the app. Only that
+     * constraint case is swallowed — any other persistence failure propagates.
+     */
+    private suspend fun insertMessageDroppingOrphans(entity: MessageEntity) {
+        try {
+            chatDao.insertMessageAndUpdateConversationTimestamp(entity, System.currentTimeMillis())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (!isForeignKeyViolation(e)) throw e
+            android.util.Log.w("ChatRepository", "saveMessage dropped (parent conversation gone): ${e.message}")
+        }
+    }
+
+    /**
+     * Only FOREIGN KEY failures (the benign parent-row-delete race) are dropped;
+     * other constraint kinds (NOT NULL, UNIQUE) are bugs and propagate. Walks the
+     * cause chain: Room/coroutine boundaries may wrap the SQLite exception.
+     */
+    private fun isForeignKeyViolation(e: Throwable): Boolean {
+        var t: Throwable? = e
+        while (t != null) {
+            val name = t.javaClass.name
+            if (t is android.database.sqlite.SQLiteConstraintException || name.endsWith("SQLiteConstraintException")) {
+                return t.message?.contains("FOREIGN KEY", ignoreCase = true) == true
+            }
+            t = t.cause
+        }
+        return false
     }
 
     /**
@@ -107,13 +141,20 @@ class ChatRepository(private val chatDao: ChatDao) {
             withContext(Dispatchers.IO) {
                 val entity = messageEntity(message)
                 if (draft != null) {
-                    chatDao.insertConversationAndMessage(
-                        conversationEntity(draft),
-                        entity,
-                        System.currentTimeMillis()
-                    )
+                    try {
+                        chatDao.insertConversationAndMessage(
+                            conversationEntity(draft),
+                            entity,
+                            System.currentTimeMillis()
+                        )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        if (!isForeignKeyViolation(e)) throw e
+                        android.util.Log.w("ChatRepository", "saveConversationAndMessage dropped (parent gone): ${e.message}")
+                    }
                 } else {
-                    chatDao.insertMessageAndUpdateConversationTimestamp(entity, System.currentTimeMillis())
+                    insertMessageDroppingOrphans(entity)
                 }
             }
         }

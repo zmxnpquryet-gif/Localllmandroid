@@ -93,13 +93,15 @@ class SecretPrefsTest {
     }
 
     @Test
-    fun `undecryptable secret reads as absent and the broken entry is dropped`() {
+    fun `undecryptable secret reads as absent but the ciphertext is kept`() {
         val prefs = prefs()
         prefs.edit().putString("hf_token_enc", "v2:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").apply()
         val secrets = SecretPrefs(prefs)
 
         assertNull(secrets.get(SecretPrefs.HF_TOKEN))
-        assertNull(prefs.getString("hf_token_enc", null))
+        // Kept on purpose: SecurityException is also raised by transient Keystore
+        // failures, and dropping the ciphertext would lose the only copy.
+        assertEquals("v2:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", prefs.getString("hf_token_enc", null))
     }
 
     @Test

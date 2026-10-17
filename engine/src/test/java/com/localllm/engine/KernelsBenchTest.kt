@@ -65,19 +65,40 @@ class KernelsBenchTest {
     }
 
     @Test
-    fun `rope rotates halves, not adjacent lanes`() {
-        // headDim=4, pos=1, theta=10000: angle[0]=1.0 rad pairs (x0,x2),
-        // angle[1]=0.01 rad pairs (x1,x3). Adjacent pairing would move x1 instead.
+    fun `rope pairing follows the arch convention`() {
+        // headDim=4, pos=1, theta=10000: pair 0 rotates by 1.0 rad, pair 1 by 0.01.
+        // NeoX half-split (qwen/gemma family, unpermuted GGUF weights): pair 0 = (x0,x2).
         val x = floatArrayOf(1f, 0f, 0f, 0f)
-        k.rope(x, 1, 4, 10000f)
+        k.rope(x, 1, 4, 10000f, interleavedPairs = false)
         assertEquals(Math.cos(1.0).toFloat(), x[0], 1e-5f)
         assertEquals(0f, x[1], 0f)
         assertEquals(Math.sin(1.0).toFloat(), x[2], 1e-5f)
         assertEquals(0f, x[3], 0f)
-        // pos=0 is the identity everywhere.
-        val y = floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f)
-        k.rope(y, 0, 8, 10000f)
-        assertArrayEquals(floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f), y, 1e-6f)
+        // NORM interleaved (llama/deepseek2 family, Q/K permuted at conversion): pair 0 = (x0,x1).
+        val y = floatArrayOf(1f, 0f, 0f, 0f)
+        k.rope(y, 1, 4, 10000f, interleavedPairs = true)
+        assertEquals(Math.cos(1.0).toFloat(), y[0], 1e-5f)
+        assertEquals(Math.sin(1.0).toFloat(), y[1], 1e-5f)
+        assertEquals(0f, y[2], 0f)
+        assertEquals(0f, y[3], 0f)
+        // pos=0 is the identity everywhere, in both styles.
+        for (interleaved in booleanArrayOf(false, true)) {
+            val z = floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f)
+            k.rope(z, 0, 8, 10000f, interleavedPairs = interleaved)
+            assertArrayEquals(floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f), z, 1e-6f)
+        }
+    }
+
+    @Test
+    fun `rope style follows the llama cpp arch table`() {
+        // Mirrors llama_model_rope_type(): qwen/gemma/phi = NeoX half-split,
+        // llama/deepseek2/granite = NORM interleaved.
+        assertTrue(!SDEngine.ropeInterleaved("qwen3moe"))
+        assertTrue(!SDEngine.ropeInterleaved("qwen2"))
+        assertTrue(!SDEngine.ropeInterleaved("gemma3"))
+        assertTrue(SDEngine.ropeInterleaved("deepseek2"))
+        assertTrue(SDEngine.ropeInterleaved("llama"))
+        assertTrue(SDEngine.ropeInterleaved("granitemoe"))
     }
 
     @Test

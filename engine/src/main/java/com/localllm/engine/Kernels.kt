@@ -47,8 +47,16 @@ interface Kernels {
         for (i in 0 until n) x[i] *= inv
     }
 
-    /** GPT-NeoX-style RoPE over headDim pairs, in place. */
-    fun rope(x: FloatArray, pos: Int, headDim: Int, theta: Float)
+    /**
+     * RoPE in place. [interleavedPairs]=false: GPT-NeoX half-split pairs
+     * (x[p], x[p + headDim/2]) — arches whose GGUF Q/K is stored UNPERMUTED
+     * (qwen2/qwen3/gemma/phi families). true: GGML ROPE_TYPE_NORM adjacent
+     * pairs (x[2p], x[2p+1]) — arches whose Q/K convert_hf_to_gguf.py permutes
+     * (llama/deepseek2/granite families). Must match llama.cpp's
+     * llama_model_rope_type(); picking the wrong one silently scrambles
+     * attention.
+     */
+    fun rope(x: FloatArray, pos: Int, headDim: Int, theta: Float, interleavedPairs: Boolean = false)
 
     /** Indices of the k largest values, descending. */
     fun topK(x: FloatArray, k: Int): IntArray
@@ -239,10 +247,10 @@ object ReferenceKernels : Kernels {
         for (i in x.indices) x[i] *= inv
     }
 
-    override fun rope(x: FloatArray, pos: Int, headDim: Int, theta: Float) {
-        // GPT-NeoX half-split: angle p rotates (x[p], x[p + headDim/2]). Pairing
-        // adjacent lanes instead would silently scramble attention on every
-        // LLaMA/Qwen-family model (norm tests cannot tell the two apart).
+    override fun rope(x: FloatArray, pos: Int, headDim: Int, theta: Float, interleavedPairs: Boolean) {
+        // Pairing convention is architecture-dependent — see the interface doc
+        // and SDEngine.ropeInterleaved(). Frequencies are per pair index p in
+        // both styles (theta^(-2p/headDim)).
         require(headDim % 2 == 0)
         val table = RopeCache.table(headDim, theta, pos)
         val n = x.size / headDim
@@ -252,10 +260,17 @@ object ReferenceKernels : Kernels {
             for (p in 0 until half) {
                 val cos = table[p * 2]
                 val sin = table[p * 2 + 1]
-                val x0 = x[base + p]
-                val x1 = x[base + p + half]
-                x[base + p] = x0 * cos - x1 * sin
-                x[base + p + half] = x0 * sin + x1 * cos
+                if (interleavedPairs) {
+                    val x0 = x[base + 2 * p]
+                    val x1 = x[base + 2 * p + 1]
+                    x[base + 2 * p] = x0 * cos - x1 * sin
+                    x[base + 2 * p + 1] = x0 * sin + x1 * cos
+                } else {
+                    val x0 = x[base + p]
+                    val x1 = x[base + p + half]
+                    x[base + p] = x0 * cos - x1 * sin
+                    x[base + p + half] = x0 * sin + x1 * cos
+                }
             }
         }
     }

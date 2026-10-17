@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 /** New ciphertext for one conversation row (computed before any write happens). */
@@ -29,7 +30,9 @@ abstract class ChatDao {
     @Query("SELECT * FROM conversations WHERE id = :id LIMIT 1")
     abstract suspend fun getConversationById(id: String): ConversationEntity?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Upsert, never REPLACE: a REPLACE deletes the conflicting row first, which
+    // cascades to every messages row of the conversation (silent history loss).
+    @Upsert
     abstract suspend fun insertConversation(conversation: ConversationEntity)
 
     @Query("DELETE FROM conversations WHERE id = :id")

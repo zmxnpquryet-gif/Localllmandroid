@@ -13,6 +13,7 @@ data class ModelHyperParams(
     val vocab: Int,
     val rmsNormEps: Float = 1e-5f,
     val ropeTheta: Float = 10000f,
+    val ropeInterleavedPairs: Boolean = false,
     val nExperts: Int = 0,
     val moeTopK: Int = 0,
     val maxSeq: Int = 512
@@ -177,8 +178,8 @@ class Transformer(
             w.matVecAttnQ(layer, h, q, kernels)
             w.matVecAttnK(layer, h, k, kernels)
             w.matVecAttnV(layer, h, v, kernels)
-            kernels.rope(q, pos, hp.headDim, hp.ropeTheta)
-            kernels.rope(k, pos, hp.headDim, hp.ropeTheta)
+            kernels.rope(q, pos, hp.headDim, hp.ropeTheta, hp.ropeInterleavedPairs)
+            kernels.rope(k, pos, hp.headDim, hp.ropeTheta, hp.ropeInterleavedPairs)
             kv.append(layer, k, v)
 
             val scale = (1.0 / sqrt(hp.headDim.toDouble())).toFloat()

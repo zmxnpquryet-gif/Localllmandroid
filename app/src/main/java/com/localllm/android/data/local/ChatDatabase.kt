@@ -19,17 +19,13 @@ abstract class ChatDatabase : RoomDatabase() {
 
         fun getInstance(context: Context): ChatDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
+                // Re-check inside the lock: without it two racing callers each
+                // build their own Room instance over the same file.
+                INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     ChatDatabase::class.java,
                     "local_llm_encrypted_chat.db"
-                ).fallbackToDestructiveMigration(dropAllTables = true).build()
-                // Explicit: schema is version 1 with no migrations yet. If the schema
-                // ever bumps, old encrypted rows (unreadable under a new schema) are
-                // dropped rather than crashing launch. Revisit with a real Migration
-                // once exportSchema/versioning is introduced.
-                INSTANCE = instance
-                instance
+                ).fallbackToDestructiveMigration(dropAllTables = true).build().also { INSTANCE = it }
             }
         }
     }

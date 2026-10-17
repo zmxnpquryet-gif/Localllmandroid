@@ -71,6 +71,11 @@ class ModelDownloadService : Service() {
                 }
             } catch (e: Throwable) {
                 Log.e(TAG, "Failed to start ModelDownloadService: ${e.message}", e)
+                // Rethrow: the caller's in-process download fallback depends on
+                // seeing this failure. Swallowing it strands the model in
+                // "downloading" with no service and no fallback.
+                activeDownloadingModel = null
+                throw e
             }
         }
 

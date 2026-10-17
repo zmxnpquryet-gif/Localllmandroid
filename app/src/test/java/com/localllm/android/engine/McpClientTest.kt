@@ -203,6 +203,20 @@ class McpClientTest {
     }
 
     @Test
+    fun `stale or mismatched responses are rejected by id`() {
+        val client = McpClient()
+        val stale = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"tools\":[]}}\n"
+        assertNull(client.extractJsonMessage(stale, 1))
+        val match = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"tools\":[]}}\n"
+        assertNotNull(client.extractJsonMessage(match, 1))
+        val notification = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/message\",\"params\":{}}\n"
+        assertNull(client.extractJsonMessage(notification, 1))
+        val plainMatch = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"tools\":[]}}"
+        assertNotNull(client.extractJsonMessage(plainMatch, 1))
+        assertNull(client.extractJsonMessage(plainMatch, 2))
+    }
+
+    @Test
     fun `endpoint resolution handles absolute and relative targets`() {
         val client = McpClient()
         // Cross-origin absolute endpoints are rejected: the server must not be able

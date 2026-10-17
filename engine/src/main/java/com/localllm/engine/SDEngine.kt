@@ -50,9 +50,29 @@ class SDEngine : AutoCloseable {
          * so scope changes stay explicit.
          */
         val SUPPORTED_PATTERNS: List<String> = listOf(
-            "llama-family gated-expert MoE: GQA attention + SwiGLU experts + NeoX RoPE + RMSNorm",
-            "dense-prefix layers inside MoE models (first_k_dense_replace style)"
+            "llama-family gated-expert MoE: GQA attention + SwiGLU experts + arch-matched RoPE (NeoX half-split for qwen/gemma, NORM interleaved for llama/deepseek2) + RMSNorm"
         )
+
+        /**
+         * RoPE pairing convention per GGUF architecture, mirroring llama.cpp's
+         * `llama_model_rope_type()`. NORM arches have Q/K stored PERMUTED by
+         * convert_hf_to_gguf.py (stored[2j]=q[j], stored[2j+1]=q[j+d/2]) and
+         * rotate adjacent lane pairs; NEOX arches (qwen2/qwen2moe/qwen3/
+         * qwen3moe/gemma/phi/...) are stored unpermuted and rotate half-split
+         * pairs. Mismatching this silently scrambles attention, so this list
+         * must track the llama.cpp table — never guess per model name.
+         */
+        private val INTERLEAVED_ROPE_ARCHES = setOf(
+            "llama", "baichuan", "starcoder", "internlm2", "minicpm", "xverse",
+            "command-r", "command-r7b", "cohere2", "olmo", "arctic", "chatglm",
+            "granite", "granitemoe", "granitehybrid", "chameleon", "deepseek",
+            "deepseek2", "deepseek2ocr", "deepseek32", "smollm3", "ernie4_5",
+            "ernie4_5moe", "mistral3", "mistral4", "plamo", "orion"
+        )
+
+        /** True for GGML ROPE_TYPE_NORM arches (interleaved pairs); false for NeoX half-split. */
+        fun ropeInterleaved(arch: String): Boolean =
+            arch.trim().lowercase() in INTERLEAVED_ROPE_ARCHES
 
         val DEFERRED: Map<String, String> = mapOf(
             "qwen4_exp (Qwen4 preview: GDN linear attention + QSA sparse attention + host-offloaded N-gram)" to
@@ -224,6 +244,7 @@ class SDEngine : AutoCloseable {
             nLayers = nLayers, dim = dim, nHeads = nHeads, nKvHeads = nKvHeads,
             headDim = headDim, ffnDim = ffnDim, vocab = tok.vocabSize,
             rmsNormEps = eps, ropeTheta = theta,
+            ropeInterleavedPairs = ropeInterleaved(arch),
             nExperts = nExperts, moeTopK = moeTopK,
             maxSeq = ctxLen.coerceIn(256, 8192)
         )

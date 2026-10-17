@@ -12,11 +12,11 @@ import android.util.Log
  * The bare `name` key is the pre-encryption plaintext location; it is migrated on
  * first read and then removed, so an upgraded install does not keep a plaintext copy.
  *
- * Failure policy: a value that cannot be decrypted (Keystore key lost after a restore,
- * tampering) reads as absent. It is never returned as if it were valid. When a stale
- * plaintext copy is still around (crashed migration), it is re-encrypted atomically
- * and returned; otherwise the broken entry is removed so the caller regenerates or
- * re-prompts instead of looping.
+ * Failure policy: a value that cannot be decrypted reads as absent. It is never
+ * returned as if it were valid. The ciphertext is kept (a SecurityException can
+ * also be a transient Keystore failure, and deleting would lose the only copy);
+ * a re-prompted value overwrites it via [put]. When a stale plaintext copy is
+ * still around (crashed migration), it is re-encrypted atomically and returned.
  */
 class SecretPrefs(private val prefs: SharedPreferences) {
 
@@ -38,9 +38,10 @@ class SecretPrefs(private val prefs: SharedPreferences) {
                 }
             } catch (_: SecurityException) {
                 Log.w(TAG, "SECRET_UNREADABLE")
-                prefs.edit().remove(encKey(name)).apply()
-                // Fall through to the legacy plaintext below: it may still hold the
-                // secret from before the broken ciphertext was written.
+                // Keep the ciphertext: ChatCrypto wraps transient Keystore
+                // failures (locked device, daemon hiccup) in SecurityException
+                // too, and deleting here would destroy the only copy on a
+                // temporary error. Fall through to the legacy plaintext below.
             }
         }
 

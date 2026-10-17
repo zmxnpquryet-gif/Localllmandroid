@@ -122,6 +122,10 @@ class LocalTtsEngine(private val context: Context) {
                             }
                         }
                     }
+                    if (total > 0 && done != total) {
+                        tmp.delete()
+                        throw IllegalStateException("Truncated download: $done/$total bytes")
+                    }
                 }
                 if (!tmp.renameTo(target)) throw IllegalStateException("Rename failed: ${entry.key}")
             }

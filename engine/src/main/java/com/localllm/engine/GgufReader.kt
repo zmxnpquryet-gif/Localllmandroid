@@ -104,6 +104,10 @@ class GgufReader private constructor(
     fun stringArray(key: String): List<String> =
         (metadata[key] as? GgufValue.Arr)?.items?.mapNotNull { (it as? GgufValue.Str)?.v } ?: emptyList()
 
+    /** Raw bytes of a string array; token tables need these (see [GgufValue.Str]). */
+    fun stringArrayBytes(key: String): List<ByteArray> =
+        (metadata[key] as? GgufValue.Arr)?.items?.mapNotNull { (it as? GgufValue.Str)?.bytes } ?: emptyList()
+
     // ---- tensor payload ----
 
     /** Reads the full payload of one tensor. Callers needing streaming should slice ranges instead. */
@@ -181,11 +185,13 @@ class GgufReader private constructor(
 
         fun bool(): Boolean = u8() != 0
 
-        fun str(): String {
+        fun strBytes(): ByteArray {
             val len = u64()
             if (len > 16 * 1024 * 1024) throw GgufException("Absurd string length $len")
-            return String(bytes(len.toInt()), Charsets.UTF_8)
+            return bytes(len.toInt())
         }
+
+        fun str(): String = String(strBytes(), Charsets.UTF_8)
 
         fun value(type: Int): GgufValue = when (type) {
             GgufFormat.V_UINT8 -> GgufValue.U8(u8())
@@ -196,7 +202,7 @@ class GgufReader private constructor(
             GgufFormat.V_INT32 -> GgufValue.I32(i32())
             GgufFormat.V_FLOAT32 -> GgufValue.F32(f32())
             GgufFormat.V_BOOL -> GgufValue.Bool(bool())
-            GgufFormat.V_STRING -> GgufValue.Str(str())
+            GgufFormat.V_STRING -> GgufValue.Str(strBytes())
             GgufFormat.V_ARRAY -> {
                 val elemType = u32().toInt()
                 val n = u64()

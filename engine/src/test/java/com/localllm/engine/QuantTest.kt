@@ -113,6 +113,78 @@ class QuantTest {
         }
     }
 
+    // Spec vectors for the K-quant layouts, hand-computed from the ggml reference
+    // (gguf-py quants.py dequantize_blocks): per 64-value chunk the first 32 values
+    // are low nibbles of 32 qs bytes, the next 32 the high nibbles of the same
+    // bytes; y = d*sc*q - dmin_stored*mn; Q5_K qh bit g of byte l = value 32*g+l.
+
+    @OptIn(ExperimentalQuant::class)
+    @Test
+    fun `q4k decodes ggml layout hand vectors`() {
+        val q = ByteArray(144)
+        q[0] = 0x00; q[1] = 0x3C // d = 1.0
+        q[2] = 0x00; q[3] = 0x40 // dmin = 2.0
+        q[4] = 1   // sc[0] = 1
+        q[5] = 2   // sc[1] = 2
+        q[8] = 1   // mn[0] = 1
+        q[9] = 1   // mn[1] = 1
+        q[12] = 3  // sc[4] = 3 (packed high-half scales)
+        q[16] = 0x53 // value 0 = low nibble 3, value 32 = high nibble 5
+        q[80] = 0x07 // value 128 = low nibble 7 (qs byte 64, sub-block 4, sc=3)
+        val out = FloatArray(256)
+        Quant.dequantizeRow(GgufFormat.Q4_K, q, 0, out, 0, 256)
+        assertEquals(1f, out[0], 0f)    // 1*1*3 - 2*1
+        assertEquals(-2f, out[1], 0f)   // 1*1*0 - 2*1
+        assertEquals(8f, out[32], 0f)   // 1*2*5 - 2*1
+        assertEquals(21f, out[128], 0f) // 1*3*7 - 2*0
+    }
+
+    @OptIn(ExperimentalQuant::class)
+    @Test
+    fun `q5k decodes ggml layout hand vectors`() {
+        val q = ByteArray(176)
+        q[0] = 0x00; q[1] = 0x3C // d = 1.0
+        q[2] = 0x00; q[3] = 0x40 // dmin = 2.0
+        q[4] = 1   // sc[0] = 1
+        q[5] = 2   // sc[1] = 2
+        q[8] = 1   // mn[0] = 1
+        q[12] = 1  // sc[4] = 1
+        q[16] = 0x03 // qh[0]: bits 0 and 1 set
+        q[23] = 0x10 // qh[7]: bit 4 set -> value 135
+        q[48] = 0x53 // value 0 = low 3, value 32 = high 5
+        q[119] = 0x02 // value 135 = low nibble 2 (qs byte 71 = 64+7)
+        val out = FloatArray(256)
+        Quant.dequantizeRow(GgufFormat.Q5_K, q, 0, out, 0, 256)
+        assertEquals(17f, out[0], 0f)   // 1*1*(3+16) - 2*1
+        assertEquals(42f, out[32], 0f)  // 1*2*(5+16) - 2*0
+        assertEquals(18f, out[135], 0f) // 1*1*(2+16) - 2*0
+    }
+
+    @OptIn(ExperimentalQuant::class)
+    @Test
+    fun `q6k decodes ggml layout hand vectors`() {
+        val q = ByteArray(210)
+        q[208] = 0x00; q[209] = 0x3C // d = 1.0
+        q[192] = 1  // sc[0] = 1
+        q[193] = 1  // sc[1] = 1
+        q[194] = 3  // sc[2] = 3
+        q[196] = 1  // sc[4] = 1
+        q[198] = 1  // sc[6] = 1
+        q[200] = 2  // sc[8] = 2
+        q[0] = 0x53   // values 0/64 nibbles 3/5
+        q[32] = 0x07  // values 32/96 nibbles 7/0
+        q[64] = 0x04  // value 128 low nibble 4
+        q[128] = 0x05 // qh[0]: lanes 0 and 1 = 1
+        q[160] = 0x02 // qh[32]: lane 0 = 2
+        val out = FloatArray(256)
+        Quant.dequantizeRow(GgufFormat.Q6_K, q, 0, out, 0, 256)
+        assertEquals(-13f, out[0], 0f)   // (3 | 1<<4) - 32
+        assertEquals(-27f, out[32], 0f)  // 3*((7 | 1<<4) - 32)
+        assertEquals(-27f, out[64], 0f)  // (5 | 0<<4) - 32
+        assertEquals(-32f, out[96], 0f)  // (0 | 0<<4) - 32
+        assertEquals(8f, out[128], 0f)   // 2*((4 | 2<<4) - 32)
+    }
+
     @Test
     fun `unsupported dtypes throw`() {
         try {

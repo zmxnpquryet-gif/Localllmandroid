@@ -775,14 +775,25 @@ class ModelDownloader(client: OkHttpClient? = null) {
         } catch (_: Exception) {
             null
         }
-        if (metaTotal != null && metaTotal != totalSize) {
-            Log.w(tag, "[$taskTitle] Remote size changed ($metaTotal -> $totalSize); discarding stale parts")
-            partFiles.forEach { it.delete() }
+        when {
+            metaTotal == null -> {
+                // No sidecar means no proof the parts belong to this remote
+                // revision: fail closed instead of merging stale bytes.
+                if (partFiles.any { it.exists() }) {
+                    Log.w(tag, "[$taskTitle] Parts sidecar missing/unreadable; discarding stale parts")
+                    partFiles.forEach { it.delete() }
+                }
+            }
+            metaTotal != totalSize -> {
+                Log.w(tag, "[$taskTitle] Remote size changed ($metaTotal -> $totalSize); discarding stale parts")
+                partFiles.forEach { it.delete() }
+            }
         }
         try {
             metaFile.writeText(totalSize.toString())
         } catch (e: Exception) {
             Log.w(tag, "[$taskTitle] Could not write parts sidecar: ${e.message}")
+            partFiles.forEach { it.delete() }
         }
         val segmentStarts = LongArray(segmentCount)
         val segmentEnds = LongArray(segmentCount)
@@ -1046,8 +1057,20 @@ class ModelDownloader(client: OkHttpClient? = null) {
                     }
                 }
 
+                // A cleanly-ended chunked body can truncate silently; never
+                // publish a short file as a completed download.
+                if (actualLength > 0 && downloaded != actualLength) {
+                    tempFile.delete()
+                    onError("다운로드가 중단되었습니다: ${downloaded}/${actualLength} bytes")
+                    return false
+                }
+
                 if (targetFile.exists()) targetFile.delete()
-                tempFile.renameTo(targetFile)
+                if (!tempFile.renameTo(targetFile)) {
+                    tempFile.delete()
+                    onError("다운로드 파일 이동에 실패했습니다.")
+                    return false
+                }
                 Log.i(tag, "[$taskTitle] Single stream download completed: ${targetFile.name} (${targetFile.length()} bytes)")
                 true
             }

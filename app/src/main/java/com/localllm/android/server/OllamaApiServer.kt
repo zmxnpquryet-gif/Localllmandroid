@@ -5,6 +5,7 @@ import android.util.Log
 import com.localllm.android.engine.LlmEngine
 import com.localllm.android.model.GenerationSettings
 import com.localllm.android.model.LlmModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -126,7 +127,8 @@ class OllamaApiServer(
         internal fun checkAuthorization(headers: Map<String, String>, expectedKey: String): Boolean {
             val authHeader = headers["authorization"]
             if (!authHeader.isNullOrBlank()) {
-                val token = authHeader.removePrefix("Bearer ").removePrefix("bearer ").trim()
+                // RFC 7235: the auth scheme is case-insensitive ("Bearer", "bearer", ...).
+                val token = authHeader.replaceFirst(Regex("^bearer\\s+", RegexOption.IGNORE_CASE), "").trim()
                 if (constantTimeEquals(token, expectedKey)) return true
             }
             val xApiKey = headers["x-api-key"]
@@ -226,12 +228,14 @@ class OllamaApiServer(
                             }
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         if (!isRunning) break
                         Log.e(TAG, "Socket accept error", e)
                     }
                 }
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             isRunning = false
             Log.e(TAG, "Failed to start API server on $boundHost:$DEFAULT_PORT", e)
             onStatusChange(false, "서버 시작 실패 ($boundHost:$DEFAULT_PORT): ${e.localizedMessage}")
@@ -247,6 +251,7 @@ class OllamaApiServer(
             serverJob = null
             onStatusChange(false, "API 서버가 중지되었습니다.")
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "Failed to stop server", e)
             onStatusChange(false, "서버 중지 중 오류: ${e.localizedMessage}")
         }
@@ -279,6 +284,8 @@ class OllamaApiServer(
 
             // Read HTTP headers (unavoidable before auth: the key arrives in a header).
             var contentLength = 0
+            var contentLengthSeen = false
+            var badContentLength = false
             val headers = mutableMapOf<String, String>()
             var line: String?
             var headerCount = 0
@@ -295,12 +302,37 @@ class OllamaApiServer(
                     val value = line!!.substring(colonIdx + 1).trim()
                     headers[key] = value
                     if (key == "content-length") {
-                        contentLength = value.toIntOrNull() ?: 0
+                        val parsed = value.toLongOrNull()
+                        when {
+                            parsed == null || parsed < 0 -> badContentLength = true
+                            contentLengthSeen && parsed != contentLength.toLong() -> badContentLength = true
+                            parsed > Int.MAX_VALUE -> {
+                                // Clamped so the size check below answers 413 instead
+                                // of silently treating the body as empty.
+                                contentLength = MAX_REQUEST_BODY_BYTES + 1
+                                contentLengthSeen = true
+                            }
+                            else -> {
+                                contentLength = parsed.toInt()
+                                contentLengthSeen = true
+                            }
+                        }
                     }
                 }
             }
 
             val clientOrigin = headers["origin"]
+
+            if (badContentLength) {
+                sendResponse(output, 400, "Bad Request", "application/json", "{\"error\":\"Invalid Content-Length\"}", clientOrigin)
+                return
+            }
+            if (headers["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true) {
+                // Chunked request bodies are not decoded; answer explicitly instead
+                // of running the request against an empty body.
+                sendResponse(output, 411, "Length Required", "application/json", "{\"error\":\"Chunked request bodies are not supported\"}", clientOrigin)
+                return
+            }
 
             // Handle CORS Preflight
             if (method == "OPTIONS") {
@@ -391,6 +423,7 @@ class OllamaApiServer(
                 }
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "Error handling client request", e)
         } finally {
             if (!authed) preAuthSlots.release()
@@ -595,6 +628,7 @@ class OllamaApiServer(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     failed = true
                     if (isBusyError(e)) {
                         val busyObj = JSONObject().apply {
@@ -643,6 +677,7 @@ class OllamaApiServer(
                         totalTokens = chunk.totalTokens
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     if (isBusyError(e)) {
                         val err = JSONObject().put("error", "Server is busy: another generation is already running.").toString()
                         sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
@@ -722,6 +757,7 @@ class OllamaApiServer(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     failed = true
                     val errObj = JSONObject().apply {
                         put("model", modelName)
@@ -766,6 +802,7 @@ class OllamaApiServer(
                         totalTokens = chunk.totalTokens
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     if (isBusyError(e)) {
                         val err = JSONObject().put("error", "Server is busy: another generation is already running.").toString()
                         sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
@@ -850,6 +887,7 @@ class OllamaApiServer(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     val errData = JSONObject().apply {
                         put("id", chatId)
                         put("object", "chat.completion.chunk")
@@ -901,6 +939,7 @@ class OllamaApiServer(
                         totalTokens = chunk.totalTokens
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     if (isBusyError(e)) {
                         val err = JSONObject().put("error", JSONObject().put("message", "Server is busy: another generation is already running.")).toString()
                         sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
@@ -944,7 +983,7 @@ class OllamaApiServer(
         for (i in 0 until messagesArray.length()) {
             val msgObj = messagesArray.optJSONObject(i) ?: continue
             val role = msgObj.optString("role", "user")
-            val content = msgObj.optString("content", "")
+            val content = extractTextContent(msgObj.opt("content"))
             if (i == messagesArray.length() - 1 && role == "user") {
                 lastUserPrompt = content
             } else {
@@ -953,11 +992,28 @@ class OllamaApiServer(
         }
 
         if (lastUserPrompt.isBlank() && historyList.isNotEmpty()) {
-            val last = historyList.removeAt(historyList.size - 1)
-            lastUserPrompt = last.second
+            // Only a user message may become the prompt: with a trailing
+            // assistant/system/tool message (prefill, tool round) the engine must
+            // not be fed its own previous reply as the question. The message stays
+            // in place so the chronology is preserved; its content is reused as
+            // the turn to answer.
+            val idx = historyList.indexOfLast { it.first == "user" && it.second.isNotBlank() }
+            if (idx >= 0) {
+                lastUserPrompt = historyList[idx].second
+            }
         }
 
         return Pair(historyList, lastUserPrompt)
+    }
+
+    /** OpenAI `content` may be a string or an array of typed parts. */
+    private fun extractTextContent(raw: Any?): String = when (raw) {
+        null, JSONObject.NULL -> ""
+        is JSONArray -> (0 until raw.length()).joinToString("") { i ->
+            val part = raw.optJSONObject(i)
+            if (part != null && part.optString("type", "text") == "text") part.optString("text", "") else ""
+        }
+        else -> raw.toString()
     }
 
     private fun getValidatedCorsOrigin(origin: String?): String? {
@@ -988,7 +1044,9 @@ class OllamaApiServer(
             append("HTTP/1.1 200 OK\r\n")
             append("Content-Type: $contentType; charset=utf-8\r\n")
             append("Transfer-Encoding: chunked\r\n")
-            append("Connection: keep-alive\r\n")
+            // The socket is closed after one response (Connection: close model);
+            // advertising keep-alive makes well-behaved clients retry on a dead socket.
+            append("Connection: close\r\n")
             if (allowedOrigin != null) {
                 append("Access-Control-Allow-Origin: $allowedOrigin\r\n")
                 append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")

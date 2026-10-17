@@ -14,6 +14,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okio.BufferedSource
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -121,7 +122,7 @@ class McpClient(client: OkHttpClient? = null) {
 
         val start = System.currentTimeMillis()
         val elapsed = { System.currentTimeMillis() - start }
-        val initPayload = rpcRequest(
+        val initReq = rpcRequest(
             "initialize",
             JSONObject()
                 .put("protocolVersion", "2024-11-05")
@@ -130,7 +131,7 @@ class McpClient(client: OkHttpClient? = null) {
         )
 
         // 1) Streamable HTTP: initialize directly on the URL.
-        val direct = postJson(clean, initPayload, null)
+        val direct = postJson(clean, initReq.json, null, initReq.id)
         if (direct != null && direct.code in 200..299) {
             val name = parseServerName(direct.bodyJson) ?: parsed.host
             sessionId = direct.sessionId ?: sessionId
@@ -155,7 +156,7 @@ class McpClient(client: OkHttpClient? = null) {
         // returns. Skipping either step breaks spec-strict MCP servers.
         val sseEndpoint = openSseEndpoint(clean)
         if (sseEndpoint != null) {
-            val init = postJson(sseEndpoint, initPayload, null)
+            val init = postJson(sseEndpoint, initReq.json, null, initReq.id)
             if (init != null && init.code in 200..299) {
                 val name = parseServerName(init.bodyJson) ?: parsed.host
                 sessionId = init.sessionId ?: sessionId
@@ -193,8 +194,8 @@ class McpClient(client: OkHttpClient? = null) {
         } catch (_: Exception) {
             return@withContext McpToolCallResult(false, "", "Tool arguments are not a valid JSON object.")
         }
-        val payload = rpcRequest("tools/call", JSONObject().put("name", name).put("arguments", args))
-        val resp = postJson(endpoint, payload, sessionId)
+        val call = rpcRequest("tools/call", JSONObject().put("name", name).put("arguments", args))
+        val resp = postJson(endpoint, call.json, sessionId, call.id)
             ?: return@withContext McpToolCallResult(false, "", "Tool call request failed (network error).")
         if (resp.code !in 200..299) {
             return@withContext McpToolCallResult(false, "", "Tool call failed (HTTP ${resp.code}).")
@@ -231,19 +232,26 @@ class McpClient(client: OkHttpClient? = null) {
     companion object {
         internal const val MAX_TOOL_SCHEMA_CHARS = 2000
         internal const val MAX_TOOLS_CONTEXT_CHARS = 4000
+        internal const val MAX_RESPONSE_BYTES = 8L * 1024 * 1024
+        internal const val MAX_SSE_LINE_BYTES = 256L * 1024
     }
 
     // ---- JSON-RPC plumbing ----
 
     private data class JsonResponse(val code: Int, val sessionId: String?, val bodyJson: JSONObject?)
 
-    private fun rpcRequest(method: String, params: JSONObject): String =
-        JSONObject()
+    private data class RpcPayload(val json: String, val id: Long)
+
+    private fun rpcRequest(method: String, params: JSONObject): RpcPayload {
+        val id = idSeq.incrementAndGet()
+        val json = JSONObject()
             .put("jsonrpc", "2.0")
-            .put("id", idSeq.incrementAndGet())
+            .put("id", id)
             .put("method", method)
             .put("params", params)
             .toString()
+        return RpcPayload(json, id)
+    }
 
     private fun rpcNotification(method: String, params: JSONObject): String =
         JSONObject()
@@ -257,7 +265,7 @@ class McpClient(client: OkHttpClient? = null) {
      * Stop mid tool call) aborts the in-flight HTTP call instead of leaving an orphan
      * request running against the tool server for up to 30 seconds.
      */
-    private suspend fun postJson(url: String, payload: String, session: String?): JsonResponse? {
+    private suspend fun postJson(url: String, payload: String, session: String?, expectedId: Long? = null): JsonResponse? {
         val builder = Request.Builder()
             .url(url)
             .header("Accept", "application/json, text/event-stream")
@@ -270,11 +278,17 @@ class McpClient(client: OkHttpClient? = null) {
             call.await().use { resp ->
                 val sid = resp.header("Mcp-Session-Id")
                 val raw = try {
-                    resp.body?.string()
+                    resp.body?.source()?.use { src ->
+                        // Bound the buffer: a hostile server must not OOM the app.
+                        if (src.request(MAX_RESPONSE_BYTES + 1)) {
+                            throw IOException("MCP response exceeds $MAX_RESPONSE_BYTES bytes")
+                        }
+                        src.readUtf8()
+                    }
                 } catch (_: Exception) {
                     null
                 }
-                JsonResponse(resp.code, sid, extractJsonMessage(raw))
+                JsonResponse(resp.code, sid, extractJsonMessage(raw, expectedId))
             }
         } catch (e: CancellationException) {
             throw e
@@ -314,12 +328,12 @@ class McpClient(client: OkHttpClient? = null) {
     }
 
     /** Handles both plain-JSON and SSE (`data: {...}`) response bodies. */
-    internal fun extractJsonMessage(raw: String?): JSONObject? {
+    internal fun extractJsonMessage(raw: String?, expectedId: Long? = null): JSONObject? {
         if (raw.isNullOrBlank()) return null
         val trimmed = raw.trim()
         if (trimmed.startsWith("{")) {
             return try {
-                JSONObject(trimmed)
+                JSONObject(trimmed).takeIf { matchesId(it, expectedId) }
             } catch (_: Exception) {
                 null
             }
@@ -332,13 +346,47 @@ class McpClient(client: OkHttpClient? = null) {
             if (payload == "[DONE]") continue
             try {
                 val obj = JSONObject(payload)
-                last = obj
+                if (!matchesId(obj, expectedId)) continue
                 if (obj.has("result") || obj.has("error")) return obj
+                last = obj
             } catch (_: Exception) {
                 // Heartbeat / comment lines carry no JSON.
             }
         }
-        return last
+        // A response to THIS request always carries result/error and its id;
+        // notifications, server requests and stale replies must never be
+        // mistaken for one.
+        return if (expectedId != null) null else last
+    }
+
+    private fun matchesId(obj: JSONObject, expectedId: Long?): Boolean {
+        if (expectedId == null) return true
+        val id = obj.opt("id") ?: return false
+        return id.toString() == expectedId.toString()
+    }
+
+    /** readUtf8Line() with a hard bound: a newline-free stream must not OOM us. */
+    private fun readBoundedLine(source: BufferedSource): String? {
+        var want = 64L
+        while (true) {
+            if (!source.request(want)) {
+                if (source.buffer.size == 0L) return null
+                return source.readUtf8().trimEnd('\n', '\r')
+            }
+            val nl = source.buffer.indexOf('\n'.code.toByte())
+            if (nl >= 0) {
+                // The whole line may already be buffered in one socket read:
+                // enforce the cap on the line length, not just on `want`.
+                if (nl > MAX_SSE_LINE_BYTES) {
+                    throw IOException("SSE line exceeds $MAX_SSE_LINE_BYTES bytes")
+                }
+                return source.readUtf8(nl + 1).trimEnd('\n', '\r')
+            }
+            if (source.buffer.size > MAX_SSE_LINE_BYTES) {
+                throw IOException("SSE line exceeds $MAX_SSE_LINE_BYTES bytes")
+            }
+            want = minOf(want * 2, MAX_SSE_LINE_BYTES + 1)
+        }
     }
 
     private fun parseServerName(envelope: JSONObject?): String? {
@@ -349,7 +397,8 @@ class McpClient(client: OkHttpClient? = null) {
     }
 
     private suspend fun fetchTools(endpoint: String): List<McpTool> {
-        val first = postJson(endpoint, rpcRequest("tools/list", JSONObject()), sessionId)
+        val req = rpcRequest("tools/list", JSONObject())
+        val first = postJson(endpoint, req.json, sessionId, req.id)
             ?: throw IllegalStateException("Tool list request failed (network error).")
         if (first.code !in 200..299) throw IllegalStateException("Tool list failed (HTTP ${first.code}).")
         val body = first.bodyJson ?: throw IllegalStateException("Could not parse the tool list response.")
@@ -382,7 +431,7 @@ class McpClient(client: OkHttpClient? = null) {
                 var eventName: String? = null
                 repeat(200) {
                     val line = try {
-                        source.readUtf8Line()
+                        readBoundedLine(source)
                     } catch (_: Exception) {
                         return null
                     } ?: return null

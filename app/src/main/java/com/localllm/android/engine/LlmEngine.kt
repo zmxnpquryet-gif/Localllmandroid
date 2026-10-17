@@ -28,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -67,6 +68,9 @@ class LlmEngine(private val context: Context) {
          * init; the user re-enabling GPU acceleration in settings clears it.
          */
         const val KEY_LITERT_GPU_UNAVAILABLE = "litert_gpu_unavailable"
+
+        /** Grace window for a cancelled generation to release the inference lock. */
+        private const val INFERENCE_UNWIND_GRACE_MS = 5_000L
     }
 
     private val tag = "LlmEngine"
@@ -762,6 +766,24 @@ class LlmEngine(private val context: Context) {
     fun isVisionLoaded(): Boolean = isVisionTowerLoaded
 
     /**
+     * A cancelled predecessor can still be unwinding (its `finally` has not yet
+     * released the lock) when the caller starts the next generation. Give that
+     * window a short grace period; a genuinely busy engine still fails with
+     * BUSY_INFERENCE afterwards. Polls `tryLock` instead of `withTimeoutOrNull
+     * { lock() }`: a timeout firing right after a lock grant could leak the
+     * mutex and wedge every later request on BUSY_INFERENCE.
+     */
+    private suspend fun acquireInferenceLock(): Boolean {
+        if (inferenceMutex.tryLock()) return true
+        val deadline = System.currentTimeMillis() + INFERENCE_UNWIND_GRACE_MS
+        while (System.currentTimeMillis() < deadline) {
+            if (inferenceMutex.tryLock()) return true
+            delay(25)
+        }
+        return false
+    }
+
+    /**
      * Executes real on-device token generation and streams tokens.
      *
      * Only one generation may run at a time (the native runtimes share a single
@@ -778,7 +800,7 @@ class LlmEngine(private val context: Context) {
         mcpToolsContext: String? = null,
         numPredictOverride: Int? = null
     ): Flow<GenerationChunk> = flow {
-        if (!inferenceMutex.tryLock()) {
+        if (!acquireInferenceLock()) {
             throw IllegalStateException("BUSY_INFERENCE: 다른 추론 요청이 진행 중입니다. 잠시 후 다시 시도하세요.")
         }
         try {

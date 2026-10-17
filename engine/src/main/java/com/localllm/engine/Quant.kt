@@ -52,9 +52,10 @@ object Quant {
 
     /**
      * Dequantizes [n] values. Scalar types accept any [n]; block types require
-     * multiples of the block length. NOTE: K-quant (Q4_K/Q5_K/Q6_K) layouts are
-     * implemented best-effort — bit-exactness against ggml golden vectors is still
-     * pending (see [ExperimentalQuant]); verify before real-model runs.
+     * multiples of the block length. K-quant (Q4_K/Q5_K/Q6_K) layouts follow the
+     * ggml reference (gguf-py quants.py) and are pinned by spec-vector tests in
+     * QuantTest; bit-exactness on real models is checked by the nightly golden
+     * harness (see [ExperimentalQuant]).
      */
     @OptIn(ExperimentalQuant::class)
     fun dequantizeRow(typeId: Int, src: ByteArray, srcOff: Int, out: FloatArray, outOff: Int, n: Int) {
@@ -191,6 +192,11 @@ object Quant {
                 ((src[off + 2].toInt() and 0xFF) shl 16) or ((src[off + 3].toInt() and 0xFF) shl 24)
 
     // ---- K-quants (super-block = 256 values, 8 sub-blocks of 32) ----
+    // Layout follows ggml (ggml-quants.c / gguf-py quants.py): within each
+    // 64-value chunk, values 0..31 are the LOW nibbles of 32 qs bytes and values
+    // 32..63 the HIGH nibbles of the same bytes, scaled by sub-blocks 2j / 2j+1.
+    // Q5_K: bit g of qh[l] is the high bit of value 32*g + l. Reconstruction is
+    // d*sc*q - dmin_stored*mn (the stored dmin is used as-is, never negated).
 
     private fun scaleMinK4(sub: Int, scales: ByteArray, off: Int): Pair<Int, Int> {
         return if (sub < 4) {
@@ -207,15 +213,18 @@ object Quant {
     @ExperimentalQuant
     private fun dequantQ4K(src: ByteArray, off: Int, out: FloatArray, o: Int) {
         val dall = Half.toFloat(u16(src, off))
-        val dmin = -Half.toFloat(u16(src, off + 2))
-        for (sub in 0 until 8) {
-            val (sc, mn) = scaleMinK4(sub, src, off + 4)
-            val dl = dall * sc
-            val ml = dmin * mn
-            for (l in 0 until 16) {
-                val b = src[off + 16 + sub * 16 + l].toInt() and 0xFF
-                out[o + sub * 32 + 2 * l] = dl * (b and 0x0F) - ml
-                out[o + sub * 32 + 2 * l + 1] = dl * (b ushr 4) - ml
+        val dmin = Half.toFloat(u16(src, off + 2))
+        for (j in 0 until 4) {
+            val (scLo, mnLo) = scaleMinK4(2 * j, src, off + 4)
+            val (scHi, mnHi) = scaleMinK4(2 * j + 1, src, off + 4)
+            val dLo = dall * scLo
+            val mLo = dmin * mnLo
+            val dHi = dall * scHi
+            val mHi = dmin * mnHi
+            for (l in 0 until 32) {
+                val b = src[off + 16 + 32 * j + l].toInt() and 0xFF
+                out[o + 64 * j + l] = dLo * (b and 0x0F) - mLo
+                out[o + 64 * j + 32 + l] = dHi * (b ushr 4) - mHi
             }
         }
     }
@@ -223,20 +232,21 @@ object Quant {
     @ExperimentalQuant
     private fun dequantQ5K(src: ByteArray, off: Int, out: FloatArray, o: Int) {
         val dall = Half.toFloat(u16(src, off))
-        val dmin = -Half.toFloat(u16(src, off + 2))
-        // qh: 256 bits, bit v belongs to value v (best-effort order; see ExperimentalQuant).
-        for (sub in 0 until 8) {
-            val (sc, mn) = scaleMinK4(sub, src, off + 4)
-            val dl = dall * sc
-            val ml = dmin * mn
-            for (l in 0 until 16) {
-                val v0 = sub * 32 + 2 * l
-                val v1 = v0 + 1
-                val b = src[off + 48 + sub * 16 + l].toInt() and 0xFF
-                val h0 = (((src[off + 16 + v0 / 8].toInt() and 0xFF) ushr (v0 % 8)) and 1) shl 4
-                val h1 = (((src[off + 16 + v1 / 8].toInt() and 0xFF) ushr (v1 % 8)) and 1) shl 4
-                out[o + v0] = dl * ((b and 0x0F) or h0) - ml
-                out[o + v1] = dl * ((b ushr 4) or h1) - ml
+        val dmin = Half.toFloat(u16(src, off + 2))
+        for (j in 0 until 4) {
+            val (scLo, mnLo) = scaleMinK4(2 * j, src, off + 4)
+            val (scHi, mnHi) = scaleMinK4(2 * j + 1, src, off + 4)
+            val dLo = dall * scLo
+            val mLo = dmin * mnLo
+            val dHi = dall * scHi
+            val mHi = dmin * mnHi
+            for (l in 0 until 32) {
+                val b = src[off + 48 + 32 * j + l].toInt() and 0xFF
+                val qh = src[off + 16 + l].toInt() and 0xFF
+                out[o + 64 * j + l] =
+                    dLo * ((b and 0x0F) or (((qh ushr (2 * j)) and 1) shl 4)) - mLo
+                out[o + 64 * j + 32 + l] =
+                    dHi * ((b ushr 4) or (((qh ushr (2 * j + 1)) and 1) shl 4)) - mHi
             }
         }
     }
@@ -244,18 +254,18 @@ object Quant {
     @ExperimentalQuant
     private fun dequantQ6K(src: ByteArray, off: Int, out: FloatArray, o: Int) {
         val dAll = Half.toFloat(u16(src, off + 208))
-        for (sub in 0 until 16) {
-            val sc = src[off + 192 + sub].toInt() // int8 scale
-            val dl = dAll * sc
-            for (l in 0 until 16) {
-                // ql packs two 4-bit values per byte; qh packs four 2-bit lanes per byte.
-                // best-effort layout; see ExperimentalQuant
-                val v = sub * 16 + l
-                val qlByte = src[off + v / 2].toInt() and 0xFF
-                val low = if (v % 2 == 0) qlByte and 0x0F else qlByte ushr 4
-                val lane = (v % 4) * 2
-                val high = (((src[off + 128 + v / 4].toInt() and 0xFF) ushr lane) and 3) shl 4
-                out[o + v] = dl * ((low or high) - 32)
+        for (g in 0 until 8) {
+            val half64 = g / 4
+            val highNibble = (g / 2) % 2 == 1
+            val half32 = g % 2
+            val lane = g % 4
+            for (l in 0 until 32) {
+                val qlByte = src[off + 64 * half64 + 32 * half32 + l].toInt() and 0xFF
+                val low = if (highNibble) qlByte ushr 4 else qlByte and 0x0F
+                val qh = (src[off + 128 + 32 * half64 + l].toInt() and 0xFF) ushr (2 * lane) and 3
+                val q = (low or (qh shl 4)) - 32
+                val sc = src[off + 192 + 2 * g + l / 16].toInt()
+                out[o + 32 * g + l] = dAll * sc * q
             }
         }
     }

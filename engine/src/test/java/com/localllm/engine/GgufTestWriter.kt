@@ -61,6 +61,20 @@ class GgufTestWriter {
         keys.add(key)
     }
 
+    /** String array written as raw bytes (GGUF strings are not guaranteed UTF-8). */
+    fun metaStringArrayBytes(key: String, values: List<ByteArray>) = apply {
+        metadata.add { out ->
+            out.le32(GgufFormat.V_ARRAY)
+            out.le32(GgufFormat.V_STRING.toLong())
+            out.le64(values.size.toLong())
+            values.forEach {
+                out.le64(it.size.toLong())
+                out.write(it)
+            }
+        }
+        keys.add(key)
+    }
+
     fun f32Tensor(name: String, dims: LongArray, values: FloatArray) = apply {
         require(dims.fold(1L) { a, d -> a * d } == values.size.toLong()) {
             "Tensor $name dims ${dims.toList()} do not match ${values.size} values"

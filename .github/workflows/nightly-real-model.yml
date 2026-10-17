@@ -12,6 +12,10 @@ on:
         description: "Gated-expert GGUF URL (overrides LOCALENGINE_MOE_URL secret)"
         required: false
         default: ""
+      golden_model_url:
+        description: "Qwen3-30B-A3B GGUF URL for the golden-logit test (defaults to the official Q4_K_M)"
+        required: false
+        default: "https://huggingface.co/Qwen/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
 
 jobs:
   real-model:
@@ -74,3 +78,49 @@ jobs:
           LOCALENGINE_MODEL: ${{ steps.provision.outputs.model }}
           LOCALENGINE_FULL: '1'
         run: ./gradlew :engine:testDebugUnitTest --tests "com.localllm.engine.RealModelTest" --stacktrace
+
+  # Golden-logit correctness gate: SDengine vs llama.cpp on the same Qwen3-30B-A3B
+  # GGUF. The committed golden JSON (engine/src/test/resources/golden) pins
+  # llama.cpp's prompt token ids, top-20 logprobs at the last prompt position and
+  # the greedy continuation. Accuracy gates (tokenizer ids match, top-1 >= 99%,
+  # greedy exact) are the Phase 1 completion criteria of the SDengine correctness
+  # plan: this job is expected to be RED until those fixes land, then must stay
+  # green. Runs nightly + manually; skips via Assume when no URL is configured.
+  golden:
+    name: Golden logits (SDengine vs llama.cpp)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space for the 17 GiB model
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Download golden model
+        env:
+          GOLDEN_URL: ${{ inputs.golden_model_url || 'https://huggingface.co/Qwen/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf' }}
+        run: |
+          mkdir -p /tmp/golden
+          curl -fL --retry 3 --retry-all-errors -C - --max-time 3600 \
+            -o /tmp/golden/model.gguf "$GOLDEN_URL"
+          ls -la /tmp/golden
+
+      - name: Run golden-logit test
+        env:
+          LOCALENGINE_GOLDEN_MODEL: /tmp/golden/model.gguf
+        run: ./gradlew :engine:testDebugUnitTest --tests "com.localllm.engine.GoldenLogitTest" --stacktrace

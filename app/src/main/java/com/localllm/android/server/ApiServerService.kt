@@ -150,6 +150,10 @@ class ApiServerService : Service() {
     }
 
     private fun startServer() {
+        // Stop any previous instance first: silently overwriting `server` would
+        // leak a live listener on the port while stop/key-rotation act on the
+        // dead replacement.
+        stopServer()
         // Disk-fresh key without needing the ViewModel (which may be long gone).
         // Models and settings are NOT snapshotted here: the getters below re-read
         // them per request.
@@ -187,12 +191,14 @@ class ApiServerService : Service() {
             stopSelf()
             return
         }
-        svc.start { _, msg ->
+        var started = false
+        svc.start { ok, msg ->
+            started = ok
             statusMessage = msg
             pushSnapshot()
             updateNotification()
         }
-        isRunning = true
+        isRunning = started
         pushSnapshot()
     }
 

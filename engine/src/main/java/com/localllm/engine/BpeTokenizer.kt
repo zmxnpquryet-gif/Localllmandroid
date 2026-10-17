@@ -12,7 +12,7 @@ package com.localllm.engine
  */
 class BpeTokenizer(
     tokens: List<ByteArray>,
-    merges: List<String>,
+    merges: List<ByteArray>,
     val bosId: Int = 1,
     val eosId: Int = 2
 ) {
@@ -44,14 +44,17 @@ class BpeTokenizer(
         }
     }
 
-    private fun splitMerge(merge: String): Pair<Int, Int>? {
-        val bytes = merge.toByteArray(Charsets.UTF_8)
+    private fun splitMerge(merge: ByteArray): Pair<Int, Int>? {
         // GGUF merges join the two token byte-strings with a single ASCII space.
-        // Resolve by longest valid left part.
-        for (cut in bytes.size - 1 downTo 1) {
-            if (bytes[cut - 1] != ' '.code.toByte()) continue
-            val left = tokenOf[ByteString(bytes.copyOfRange(0, cut - 1))]
-            val right = tokenOf[ByteString(bytes.copyOfRange(cut, bytes.size))]
+        // Resolve by longest valid left part. Each part goes through the same
+        // "<0xNN>" unveiling as the vocabulary: byte tokens are spelled that way
+        // in merges too, and looking them up raw would silently drop the rank.
+        // Merges arrive as raw bytes: they can contain the same non-UTF-8 byte
+        // tokens the table itself does.
+        for (cut in merge.size - 1 downTo 1) {
+            if (merge[cut - 1] != ' '.code.toByte()) continue
+            val left = tokenOf[ByteString(unveilByteToken(merge.copyOfRange(0, cut - 1)))]
+            val right = tokenOf[ByteString(unveilByteToken(merge.copyOfRange(cut, merge.size)))]
             if (left != null && right != null) return Pair(left, right)
         }
         return null
@@ -268,11 +271,14 @@ class BpeTokenizer(
         }
         /** Builds a tokenizer from GGUF `tokenizer.ggml.*` metadata. */
         fun fromMetadata(reader: GgufReader): BpeTokenizer? {
-            val tokenStrs = reader.stringArray("tokenizer.ggml.tokens")
-            if (tokenStrs.isEmpty()) return null
-            // GGUF stores tokens as UTF-8 strings; byte tokens appear as raw single chars.
-            val tokens = tokenStrs.map { it.toByteArray(Charsets.UTF_8) }
-            val merges = reader.stringArray("tokenizer.ggml.merges")
+            // GGUF strings are arbitrary bytes: byte-level BPE tables contain
+            // single bytes 0x80-0xFF that a String round-trip would corrupt to
+            // U+FFFD. Keep the raw bytes end to end.
+            val tokens = reader.stringArrayBytes("tokenizer.ggml.tokens")
+            if (tokens.isEmpty()) return null
+            // Merges reference token spellings, including raw 0x80-0xFF byte
+            // tokens: keep them as bytes too (see [GgufValue.Str]).
+            val merges = reader.stringArrayBytes("tokenizer.ggml.merges")
             val bos = reader.i32("tokenizer.ggml.bos_token_id") ?: 1
             val eos = reader.i32("tokenizer.ggml.eos_token_id") ?: 2
             return BpeTokenizer(tokens, merges, bos, eos)

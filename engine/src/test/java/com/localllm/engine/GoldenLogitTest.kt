@@ -195,7 +195,7 @@ class GoldenLogitTest {
     }
 
     @Test
-    fun `sdengine matches llama.cpp golden logits and greedy continuation`() {
+    fun `sdengine matches llama-cpp golden logits and greedy continuation`() {
         val model = modelFile()
         val text = goldenFile()?.readText() ?: classpathGolden()
         assumeTrue(
@@ -208,7 +208,7 @@ class GoldenLogitTest {
         val maxTokens = root.getJSONObject("params").getInt("max_tokens")
         val metrics = ArrayList<PromptMetrics>(prompts.size)
         SDEngine().use { engine ->
-            val info = engine.openModel(model, residentCapBytes = 4L * 1024 * 1024 * 1024)
+            val info = engine.openModel(model, residentCapBytes = 7L * 1024 * 1024 * 1024)
             println(
                 "model arch=${info.arch} vocab=${info.vocabSize} layers=${info.nLayers} " +
                     "experts=${info.nExperts} denseResidentMB=${info.denseResidentBytes / 1048576}"

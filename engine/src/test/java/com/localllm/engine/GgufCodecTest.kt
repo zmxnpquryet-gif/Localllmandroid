@@ -140,6 +140,33 @@ class GgufCodecTest {
     }
 
     @Test
+    fun `non-utf8 token bytes survive the metadata roundtrip`() {
+        val f = Files.createTempFile("gguf-bytes", ".gguf").toFile()
+        try {
+            GgufTestWriter()
+                .metaString("general.architecture", "llama")
+                .metaStringArrayBytes(
+                    "tokenizer.ggml.tokens",
+                    listOf(byteArrayOf(0xC2.toByte()), byteArrayOf(0x80.toByte()))
+                )
+                .metaI32("tokenizer.ggml.bos_token_id", -1)
+                .metaI32("tokenizer.ggml.eos_token_id", -1)
+                .build(f)
+            GgufReader.open(f).use { r ->
+                val toks = r.stringArrayBytes("tokenizer.ggml.tokens")
+                assertArrayEquals(byteArrayOf(0x80.toByte()), toks[1])
+                val tok = BpeTokenizer.fromMetadata(r)!!
+                // U+0080 = UTF-8 C2 80: each byte falls back to its raw byte token.
+                // A String round-trip used to corrupt both to U+FFFD and drop them.
+                assertArrayEquals(intArrayOf(0, 1), tok.encode("\u0080"))
+                assertEquals("\u0080", tok.decode(intArrayOf(0, 1)))
+            }
+        } finally {
+            f.delete()
+        }
+    }
+
+    @Test
     fun `bad magic and truncation are rejected`() {
         val bad = Files.createTempFile("gguf-bad", ".gguf").toFile()
         try {

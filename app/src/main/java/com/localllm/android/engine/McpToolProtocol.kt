@@ -158,7 +158,16 @@ object McpToolProtocol {
         // as an escape and silently undo the neutralization.
         val safe = RESULT_TAG.replace(body) { "<\\/tool_result>" }
         val status = if (success) "ok" else "error"
-        return "<tool_result name=\"$toolName\" status=\"$status\">\n$safe\n</tool_result>"
+        return "<tool_result name=\"${sanitizeName(toolName)}\" status=\"$status\">\n$safe\n</tool_result>"
+    }
+
+    /**
+     * Tool names are server-controlled and land in an attribute: keep only the
+     * documented safe charset so a name like `x" status="ok">…` cannot close the
+     * block early and inject free text into the prompt.
+     */
+    private fun sanitizeName(name: String): String = buildString(name.length) {
+        for (c in name) append(if (c.isLetterOrDigit() || c == '_' || c == '-' || c == '.') c else '_')
     }
 
     private val RESULT_TAG = Regex("</?\\s*tool_result\\b[^>]*>", RegexOption.IGNORE_CASE)
@@ -194,8 +203,12 @@ object McpToolProtocol {
     }
 
     /** Feedback for a call the parser rejected, so the model can correct itself. */
-    fun formatInvalid(reason: String): String =
-        "<tool_result status=\"error\">\n$reason\n</tool_result>"
+    fun formatInvalid(reason: String): String {
+        // The reason embeds server-controlled tool names ("Available tools: …"):
+        // neutralize tag-shaped breakouts the same way as result bodies.
+        val safe = RESULT_TAG.replace(reason) { "<\\/tool_result>" }
+        return "<tool_result status=\"error\">\n$safe\n</tool_result>"
+    }
 
     private fun stripCodeFence(s: String): String {
         val t = s.trim()

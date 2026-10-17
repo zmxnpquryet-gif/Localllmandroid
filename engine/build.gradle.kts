@@ -41,6 +41,7 @@ dependencies {
 }
 
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
-  // Real-model tests (opt-in via LOCALENGINE_MODEL) decode hundreds of MB.
-  maxHeapSize = "5g"
+  // Real-model tests keep the full dense weight set resident: e.g. Qwen3-30B-A3B
+  // Q4_K_M needs ~5.6 GB (attn+embd+head, experts stay paged) plus scratch.
+  maxHeapSize = "8g"
 }

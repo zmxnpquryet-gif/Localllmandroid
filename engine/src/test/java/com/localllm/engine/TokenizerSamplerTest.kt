@@ -18,7 +18,7 @@ class TokenizerSamplerTest {
 
     private fun tinyBpe(): BpeTokenizer {
         val tokens = listOf("a", "b", "c", " ", "ab", "abc").map { it.toByteArray(Charsets.UTF_8) }
-        return BpeTokenizer(tokens, listOf("a b", "ab c"), bosId = 99, eosId = 98)
+        return BpeTokenizer(tokens, listOf("a b", "ab c").map { it.toByteArray() }, bosId = 99, eosId = 98)
     }
 
     @Test
@@ -73,6 +73,20 @@ class TokenizerSamplerTest {
         val gtok = BpeTokenizer(gTokens, emptyList(), bosId = -1, eosId = -1)
         assertEquals("H world", gtok.decode(intArrayOf(0, 1)))
         assertEquals(byteArrayOf(0x20.toByte()).toList(), BpeTokenizer.unveilByteToken("<0x20>".toByteArray()).toList())
+    }
+
+    @Test
+    fun `merges over byte-token spellings resolve`() {
+        // Byte tokens spelled "<0xNN>" in the vocab are spelled that way in merges
+        // too; the rank lookup must unveil both sides or the merge is dropped.
+        val tokens = listOf(
+            "<0x61>".toByteArray(), // 'a'
+            "<0x62>".toByteArray(), // 'b'
+            "ab".toByteArray()
+        )
+        val tok = BpeTokenizer(tokens, listOf("<0x61> <0x62>".toByteArray()), bosId = -1, eosId = -1)
+        assertArrayEquals(intArrayOf(2), tok.encode("ab"))
+        assertEquals("ab", tok.decode(intArrayOf(2)))
     }
 
     @Test

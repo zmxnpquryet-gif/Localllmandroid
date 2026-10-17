@@ -89,7 +89,17 @@ sealed interface GgufValue {
     data class I32(val v: Int) : GgufValue
     data class F32(val v: Float) : GgufValue
     data class Bool(val v: Boolean) : GgufValue
-    data class Str(val v: String) : GgufValue
+    /**
+     * GGUF strings are length-prefixed arbitrary bytes, not guaranteed UTF-8.
+     * Byte-level BPE token tables contain single bytes 0x80-0xFF that a String
+     * round-trip would silently corrupt to U+FFFD, so the raw bytes are kept.
+     */
+    class Str(val bytes: ByteArray) : GgufValue {
+        val v: String get() = String(bytes, Charsets.UTF_8)
+        override fun equals(other: Any?): Boolean = other is Str && bytes.contentEquals(other.bytes)
+        override fun hashCode(): Int = bytes.contentHashCode()
+        override fun toString(): String = "Str(v=$v)"
+    }
     data class Arr(val elementType: Int, val items: List<GgufValue>) : GgufValue
     data class U64(val v: Long) : GgufValue
     data class I64(val v: Long) : GgufValue
@@ -151,7 +161,7 @@ fun expertTileRange(info: TensorInfo, expertIndex: Int, nExperts: Long): TileRan
     return TileRange(info.dataOffset + expertIndex * tileBytes, tileBytes, info.dtypeId)
 }
 
-/** Marks K-quant kernels whose bit-exactness against ggml is pending golden-vector verification. */
-@RequiresOptIn("K-quant dequantization is structurally complete but not yet verified bit-exact against ggml golden vectors.")
+/** Marks K-quant kernels whose real-model bit-exactness is verified only by the nightly golden harness. */
+@RequiresOptIn("K-quant dequantization follows the ggml reference layout (spec-vector pinned); real-model verification runs in the nightly golden harness.")
 @Retention(AnnotationRetention.BINARY)
 annotation class ExperimentalQuant
