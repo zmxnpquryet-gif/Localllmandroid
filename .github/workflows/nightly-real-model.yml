@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LOCALENGINE_MOE_URL: ${{ inputs.moe_url || secrets.LOCALENGINE_MOE_URL }}
+      LOCALENGINE_MODEL_URL: ${{ secrets.LOCALENGINE_MODEL_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -65,7 +66,7 @@ jobs:
       # 1000+ tokenizer vocab; a 19 GB flagship has no place here).
       - name: Provision small GGUF for RealModelTest
         id: provision
-        if: secrets.LOCALENGINE_MODEL_URL != ''
+        if: env.LOCALENGINE_MODEL_URL != ''
         run: |
           mkdir -p /tmp/realmodel
           curl -fL --retry 2 --max-time 1800 -o /tmp/realmodel/model.gguf "${{ secrets.LOCALENGINE_MODEL_URL }}"
