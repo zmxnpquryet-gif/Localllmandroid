@@ -20,7 +20,7 @@ coilCompose = "2.7.0"
 kotlinxCoroutinesAndroid = "1.11.0"
 kotlinxCoroutinesCore = "1.10.2"
 okhttp = "4.12.0"
-robolectric = "4.16.1"
+robolectric = "4.17"
 llamacppKotlin = "0.4.0"
 json = "20240303"
 
