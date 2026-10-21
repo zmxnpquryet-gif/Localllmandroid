@@ -25,7 +25,7 @@ jobs:
       LOCALENGINE_MOE_URL: ${{ inputs.moe_url || secrets.LOCALENGINE_MOE_URL }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Generate debug keystore
         run: |
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Free disk space for the 17 GiB model
         run: |
