@@ -1,0 +1,63 @@
+name: Release APK
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache vendored sherpa-onnx AAR
+        uses: actions/cache@v4
+        with:
+          path: app/libs/sherpa-onnx.aar
+          key: sherpa-onnx-aar-1.13.8
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build release APK (throwaway signing key)
+        run: |
+          keytool -genkeypair -v -keystore /tmp/ci-release.jks \
+            -storepass ci-release -alias upload -keypass ci-release \
+            -keyalg RSA -keysize 2048 -validity 30 \
+            -dname "CN=CI Throwaway,O=CI,C=US"
+          KEYSTORE_PATH=/tmp/ci-release.jks STORE_PASSWORD=ci-release KEY_PASSWORD=ci-release \
+            ./gradlew assembleRelease --stacktrace
+
+      - name: Create GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }} 中文汉化版
+          files: app/build/outputs/apk/release/*.apk
+          fail_on_unmatched_files: true
+          body: |
+            ## 本版本亮点
+
+            - ✅ **完整简体中文界面**（376+ 条 UI 文案 + 引擎状态/错误信息系统提示词全部本地化）
+            - ✅ **设置新增「模型下载源」**：Hugging Face 官方 / hf-mirror.com 镜像一键切换
+            - ✅ 语言切换器支持 中文 / English / 한국어 / 跟随系统
+
+            ## 安装
+
+            下载 `app-release.apk` 直接安装（覆盖安装需与旧签名一致）。
+
+            > ⚠️ **签名说明**：本 APK 使用 CI 临时密钥签名，仅用于试用分发。
+            > 正式发布请在本地用你的上传密钥重新签名（`KEYSTORE_PATH` 等环境变量见 README「Release 签名」）。

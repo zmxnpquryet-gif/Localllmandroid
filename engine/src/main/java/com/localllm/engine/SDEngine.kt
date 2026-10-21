@@ -38,10 +38,10 @@ class SDEngine : AutoCloseable {
          * chat banner, load status). Keep in sync, keep them loud.
          */
         val ADVISORIES: List<String> = listOf(
-            "TEST 빌드: SDengine은 실험 단계의 자체 추론엔진입니다. 실행은 되지만 출력 품질을 신뢰하지 마세요.",
-            "최적화 커널(융합 양자화 matvec, RoPE 캐시, 스크래치 재사용, top-k 힙)이 적용되었습니다. 성능 미측정, K-퀀트 bit-exact 검증은 pending이라 llama.cpp보다 느리고 수치 오차가 있을 수 있습니다.",
-            "SDengine은 MoE 전용입니다. Dense 전용 모델과 MoE가 아닌 하이브리드는 범위 밖이며, 로드에 실패하면 llama.cpp로 대체 실행됩니다.",
-            "dense 가중치는 양자화 그대로 상주하고 expert 타일은 SSD에서 스트리밍됩니다. 파일 전체가 아닌 dense+KV만 RAM에 들어가면 되므로, 메모리보다 큰 MoE도 로드할 수 있습니다. dense+KV가 가용 RAM을 넘으면 로드가 거부됩니다."
+            "TEST build: SDengine is an experimental in-house engine. It runs, but do not trust its output quality.",
+            "Optimized kernels (fused quantized matvec, RoPE cache, scratch reuse, top-k heap) are applied. Performance is unmeasured and K-quant bit-exact validation is pending, so it is slower than llama.cpp and may have numeric drift.",
+            "SDengine is MoE-only. Dense-only models and non-MoE hybrids are out of scope; a failed load falls back to llama.cpp.",
+            "Dense weights stay resident in quantized form while expert tiles stream from SSD. Only dense+KV needs to fit in RAM (not the whole file), so MoEs larger than memory can load; a load is refused when dense+KV exceeds available RAM."
         )
 
         /**
@@ -151,7 +151,7 @@ class SDEngine : AutoCloseable {
         GgufReader.open(file).use { r ->
             val arch = r.architecture() ?: throw GgufException("general.architecture missing")
             if (arch.lowercase() in DEFERRED_ARCHES) {
-                throw UnsupportedArchException("SDengine 미지원 아키텍처 '$arch' (llama.cpp로 실행하세요)")
+                throw UnsupportedArchException("SDengine unsupported architecture '$arch' (run with llama.cpp)")
             }
             val nLayers = r.archU32("block_count")?.toInt()
                 ?: throw GgufException("block_count missing")
@@ -218,7 +218,7 @@ class SDEngine : AutoCloseable {
             }?.value ?: "needs dedicated kernels (milestone)"
             try { r.close() } catch (_: Exception) {}
             reader = null
-            throw UnsupportedArchException("SDengine 미지원 아키텍처 '$arch': $reason (llama.cpp로 실행하세요)")
+            throw UnsupportedArchException("SDengine unsupported architecture '$arch': $reason (run with llama.cpp)")
         }
         val tok = BpeTokenizer.fromMetadata(r)
             ?: throw GgufException("tokenizer.ggml.tokens missing")

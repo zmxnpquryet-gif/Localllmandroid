@@ -22,19 +22,40 @@ class LiteRtAcceleratorPolicyTest {
             threadCount = 4
         ).map { it.label }
 
+    /** 断言按 kind 进行：label 是本地化文案，JVM 单测无资源。 */
+    private fun kinds(gpuAllowed: Boolean, hasOpenCl: Boolean, hasNpu: Boolean = false, hasVision: Boolean = false): List<LiteRtAcceleratorPolicy.Kind> =
+        LiteRtAcceleratorPolicy.buildCandidates(
+            gpuAllowed = gpuAllowed,
+            hasOpenCl = hasOpenCl,
+            hasNpu = hasNpu,
+            hasVision = hasVision,
+            maxTokens = 4096,
+            threadCount = 4
+        ).map { it.kind }
+
     @Test
     fun `no opencl driver means no gpu candidate`() {
-        val labels = labels(gpuAllowed = true, hasOpenCl = false)
-        assertTrue(labels.none { it.contains("GPU") })
-        assertTrue(labels.any { it.contains("CPU") })
+        val kinds = kinds(gpuAllowed = true, hasOpenCl = false)
+        assertTrue(kinds.none { it == LiteRtAcceleratorPolicy.Kind.GPU })
+        assertTrue(kinds.any { it == LiteRtAcceleratorPolicy.Kind.CPU })
     }
 
     @Test
     fun `opencl driver puts gpu first and vision gpu before text gpu`() {
-        val labels = labels(gpuAllowed = true, hasOpenCl = true, hasVision = true)
-        assertEquals("GPU 가속 (비전 연동)", labels.first())
-        assertTrue(labels[1].startsWith("GPU 가속"))
-        assertTrue(labels.count { it.contains("GPU") } == 2)
+        val candidates = LiteRtAcceleratorPolicy.buildCandidates(
+            gpuAllowed = true,
+            hasOpenCl = true,
+            hasNpu = false,
+            hasVision = true,
+            maxTokens = 4096,
+            threadCount = 4
+        )
+        // 视觉 GPU 候选必须排在纯文本 GPU 之前
+        assertEquals(LiteRtAcceleratorPolicy.Kind.GPU, candidates.first().kind)
+        assertTrue(candidates.first().withVision)
+        assertEquals(LiteRtAcceleratorPolicy.Kind.GPU, candidates[1].kind)
+        assertFalse(candidates[1].withVision)
+        assertEquals(2, candidates.count { it.kind == LiteRtAcceleratorPolicy.Kind.GPU })
     }
 
     @Test
@@ -55,8 +76,8 @@ class LiteRtAcceleratorPolicyTest {
 
     @Test
     fun `npu candidate only appears when a vendor runtime is present`() {
-        assertTrue(labels(gpuAllowed = true, hasOpenCl = true, hasNpu = false).none { it.contains("NPU") })
-        assertTrue(labels(gpuAllowed = true, hasOpenCl = true, hasNpu = true).any { it.contains("NPU") })
+        assertTrue(kinds(gpuAllowed = true, hasOpenCl = true, hasNpu = false).none { it == LiteRtAcceleratorPolicy.Kind.NPU })
+        assertTrue(kinds(gpuAllowed = true, hasOpenCl = true, hasNpu = true).any { it == LiteRtAcceleratorPolicy.Kind.NPU })
     }
 
     @Test

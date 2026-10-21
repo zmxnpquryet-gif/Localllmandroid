@@ -1,5 +1,8 @@
 package com.localllm.android.server
 
+import com.localllm.android.R
+import com.localllm.android.i18n.AppStrings
+
 import android.content.Context
 import android.util.Log
 import com.localllm.android.engine.LlmEngine
@@ -190,7 +193,7 @@ class OllamaApiServer(
 
     fun start(onStatusChange: (Boolean, String?) -> Unit) {
         if (isRunning) {
-            onStatusChange(true, "서버가 이미 포트 $DEFAULT_PORT 에서 실행 중입니다.")
+            onStatusChange(true, AppStrings.get(R.string.aps_already, DEFAULT_PORT))
             return
         }
 
@@ -205,8 +208,8 @@ class OllamaApiServer(
             }
             isRunning = true
 
-            val hostLabel = if (boundHost == "127.0.0.1") "로컬 루프백(127.0.0.1)" else "전체 인터페이스($boundHost)"
-            onStatusChange(true, "보안 API 서버가 $hostLabel 포트 $DEFAULT_PORT 에서 시작되었습니다.")
+            val hostLabel = if (boundHost == "127.0.0.1") AppStrings.get(R.string.aps_loopback) else AppStrings.get(R.string.aps_alliface, boundHost)
+            onStatusChange(true, AppStrings.get(R.string.aps_started, hostLabel, DEFAULT_PORT))
 
             serverJob = scope.launch {
                 while (isRunning) {
@@ -238,7 +241,7 @@ class OllamaApiServer(
             if (e is CancellationException) throw e
             isRunning = false
             Log.e(TAG, "Failed to start API server on $boundHost:$DEFAULT_PORT", e)
-            onStatusChange(false, "서버 시작 실패 ($boundHost:$DEFAULT_PORT): ${e.localizedMessage}")
+            onStatusChange(false, AppStrings.get(R.string.aps_start_fail, boundHost, DEFAULT_PORT, e.localizedMessage))
         }
     }
 
@@ -249,11 +252,11 @@ class OllamaApiServer(
             serverSocket = null
             serverJob?.cancel()
             serverJob = null
-            onStatusChange(false, "API 서버가 중지되었습니다.")
+            onStatusChange(false, AppStrings.get(R.string.aps_stopped))
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Log.e(TAG, "Failed to stop server", e)
-            onStatusChange(false, "서버 중지 중 오류: ${e.localizedMessage}")
+            onStatusChange(false, AppStrings.get(R.string.aps_stop_err, e.localizedMessage))
         }
     }
 

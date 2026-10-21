@@ -1,5 +1,8 @@
 package com.localllm.android.engine
 
+import com.localllm.android.R
+import com.localllm.android.i18n.AppStrings
+
 import java.io.File
 
 /**
@@ -74,31 +77,31 @@ object LiteRtAcceleratorPolicy {
         if (gpuUsable) {
             if (hasVision) {
                 candidates.add(
-                    Candidate("GPU 가속 (비전 연동)", Kind.GPU, withVision = true, maxNumTokens = maxTokens, useCacheDir = true, threadCount = threadCount)
+                    Candidate(AppStrings.get(R.string.pol_gpu_vision), Kind.GPU, withVision = true, maxNumTokens = maxTokens, useCacheDir = true, threadCount = threadCount)
                 )
             }
             candidates.add(
-                Candidate("GPU 가속 (${maxTokens} ctx)", Kind.GPU, withVision = false, maxNumTokens = maxTokens, useCacheDir = true, threadCount = threadCount)
+                Candidate(AppStrings.get(R.string.pol_gpu, maxTokens), Kind.GPU, withVision = false, maxNumTokens = maxTokens, useCacheDir = true, threadCount = threadCount)
             )
         }
         if (gpuAllowed && hasNpu) {
             candidates.add(
-                Candidate("NPU 가속 (${maxTokens} ctx)", Kind.NPU, withVision = false, maxNumTokens = maxTokens, useCacheDir = true, threadCount = threadCount)
+                Candidate(AppStrings.get(R.string.pol_npu, maxTokens), Kind.NPU, withVision = false, maxNumTokens = maxTokens, useCacheDir = true, threadCount = threadCount)
             )
         }
         if (hasVision) {
             candidates.add(
-                Candidate("CPU 멀티스레드(${threadCount}T, 비전 연동)", Kind.CPU, withVision = true, maxNumTokens = maxTokens, useCacheDir = true, threadCount = threadCount)
+                Candidate(AppStrings.get(R.string.pol_cpu_mt_vision, threadCount), Kind.CPU, withVision = true, maxNumTokens = maxTokens, useCacheDir = true, threadCount = threadCount)
             )
         }
         candidates.add(
-            Candidate("CPU 멀티스레드(${threadCount}T, ${maxTokens} ctx)", Kind.CPU, withVision = false, maxNumTokens = maxTokens, useCacheDir = true, threadCount = threadCount)
+            Candidate(AppStrings.get(R.string.pol_cpu_mt, threadCount, maxTokens), Kind.CPU, withVision = false, maxNumTokens = maxTokens, useCacheDir = true, threadCount = threadCount)
         )
         candidates.add(
-            Candidate("CPU 기본 컨텍스트(${threadCount}T)", Kind.CPU, withVision = false, maxNumTokens = null, useCacheDir = false, threadCount = threadCount)
+            Candidate(AppStrings.get(R.string.pol_cpu_ctx, threadCount), Kind.CPU, withVision = false, maxNumTokens = null, useCacheDir = false, threadCount = threadCount)
         )
         candidates.add(
-            Candidate("CPU 기본 백엔드", Kind.CPU, withVision = false, maxNumTokens = null, useCacheDir = false, threadCount = threadCount)
+            Candidate(AppStrings.get(R.string.pol_cpu_default), Kind.CPU, withVision = false, maxNumTokens = null, useCacheDir = false, threadCount = threadCount)
         )
         return candidates
     }

@@ -15,9 +15,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import com.localllm.android.i18n.AppStrings
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
 import com.localllm.android.ui.api.ApiServerScreen
@@ -48,6 +50,7 @@ class MainActivity : ComponentActivity() {
                 when (settings.languagePreference) {
                     "ko" -> Locale.KOREAN
                     "en" -> Locale.ENGLISH
+                    "zh" -> Locale.SIMPLIFIED_CHINESE
                     else -> Locale.getDefault()
                 }
             }
@@ -59,6 +62,8 @@ class MainActivity : ComponentActivity() {
                 }
                 baseContext.createConfigurationContext(config)
             }
+
+            SideEffect { AppStrings.attach(localizedContext.resources) }
 
             CompositionLocalProvider(
                 LocalContext provides localizedContext,

@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.localllm.android.R
+import com.localllm.android.i18n.SdEngineText
 import com.localllm.android.model.LlmModel
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
@@ -432,7 +433,7 @@ fun ChatScreen(
                                     Spacer(modifier = Modifier.width(6.dp))
                                     GText(
                                         text = stringResource(R.string.chat_sdengine_banner_prefix) +
-                                                com.localllm.engine.SDEngine.advisoryText(),
+                                                SdEngineText.advisoryText(),
                                         fontSize = 11.sp,
                                         color = GlassTheme.colors.onErrorContainer,
                                         maxLines = 5,
@@ -673,10 +674,13 @@ private fun isEngineErrorStatus(status: String?): Boolean {
     if (status.isNullOrBlank()) return false
     // A load that succeeded on a fallback backend (GPU/OpenCL → CPU, SDengine → llama.cpp)
     // reports the failure that caused it but is a working state, so it stays a warning.
-    if (status.contains("대체 실행") || status.lowercase().contains("fallback")) return false
     val lower = status.lowercase()
+    if (status.contains("대체 실행") || status.contains("回退") || status.contains("替代") ||
+        lower.contains("fallback")
+    ) return false
     return lower.contains("error") || lower.contains("failed") || lower.contains("exception") ||
-        status.contains("오류") || status.contains("실패") || status.contains("예외")
+        status.contains("오류") || status.contains("실패") || status.contains("예외") ||
+        status.contains("错误") || status.contains("失败") || status.contains("异常")
 }
 
 @Composable

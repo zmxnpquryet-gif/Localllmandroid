@@ -1,5 +1,8 @@
 ﻿package com.localllm.android.service
 
+import com.localllm.android.R
+import com.localllm.android.i18n.AppStrings
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -138,8 +141,8 @@ class ModelDownloadService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val model = activeDownloadingModel
         val initialNotification = buildNotification(
-            title = if (model != null) "다운로드 시작: ${model.name}" else "다운로드 서비스",
-            content = if (model != null) "${model.name} 다운로드를 준비하고 있습니다..." else "서비스 준비 중...",
+            title = if (model != null) AppStrings.get(R.string.svc_start_title, model.name) else AppStrings.get(R.string.svc_dl_service),
+            content = if (model != null) AppStrings.get(R.string.svc_start_content, model.name) else AppStrings.get(R.string.svc_ready),
             progress = 0,
             isIndeterminate = true
         )
@@ -230,8 +233,8 @@ class ModelDownloadService : Service() {
                     progress = 0f,
                     downloadedBytes = 0L,
                     totalBytes = 0L,
-                    speedText = "오류",
-                    errorMessage = e.localizedMessage ?: "다운로드 중 오류 발생",
+                    speedText = AppStrings.get(R.string.dl_error),
+                    errorMessage = e.localizedMessage ?: AppStrings.get(R.string.svc_dl_error),
                     isCompleted = false
                 )
                 releaseWakeLock()
@@ -259,15 +262,15 @@ class ModelDownloadService : Service() {
 
         val notification = if (status.isCompleted) {
             buildNotification(
-                title = "다운로드 완료",
-                content = "${model.name} 파일 다운로드가 완료되었습니다.",
+                title = AppStrings.get(R.string.svc_done_title),
+                content = AppStrings.get(R.string.svc_done_content, model.name),
                 progress = 100,
                 isIndeterminate = false,
                 isOngoing = false
             )
         } else if (status.errorMessage != null) {
             buildNotification(
-                title = "다운로드 오류",
+                title = AppStrings.get(R.string.svc_err_title),
                 content = status.errorMessage,
                 progress = 0,
                 isIndeterminate = false,
@@ -275,11 +278,11 @@ class ModelDownloadService : Service() {
             )
         } else {
             val percent = (status.progress * 100f).toInt()
-            val etaText = if (status.etaSeconds > 0) " • 남은시간: ${status.etaSeconds}초" else ""
+            val etaText = if (status.etaSeconds > 0) " " + AppStrings.get(R.string.svc_eta, status.etaSeconds) else ""
             val bodyText = "${status.speedText}$etaText (${percent}%)"
 
             buildNotification(
-                title = "모델 다운로드 중: ${model.name}",
+                title = AppStrings.get(R.string.svc_dl_title, model.name),
                 content = bodyText,
                 progress = percent,
                 isIndeterminate = false,
@@ -336,7 +339,7 @@ class ModelDownloadService : Service() {
             )
             builder.addAction(
                 android.R.drawable.ic_delete,
-                "취소",
+                AppStrings.get(R.string.svc_cancel),
                 pendingCancel
             )
         }
@@ -348,10 +351,10 @@ class ModelDownloadService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "모델 백그라운드 다운로드",
+                AppStrings.get(R.string.svc_channel),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "AI 모델 가중치 파일 다운로드 진행 상황 및 알림"
+                description = AppStrings.get(R.string.svc_channel_desc)
                 setShowBadge(false)
             }
             notificationManager?.createNotificationChannel(channel)

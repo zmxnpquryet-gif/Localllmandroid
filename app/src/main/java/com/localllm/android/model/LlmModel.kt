@@ -100,7 +100,7 @@ object ModelCatalog {
             mainModelUrl = "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf",
             isBundledModel = false,
             isDownloaded = false,
-            description = "초경량 360M 고속 모델. 다운로드가 매우 빠르고 모든 기기에서 쾌속 구동됩니다.",
+            description = "Ultra-light 360M model. Downloads very fast and runs snappily on any device.",
             quantization = "Q4_K_M"
         ),
         LlmModel(
@@ -117,7 +117,7 @@ object ModelCatalog {
             mainModelUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
             isBundledModel = false,
             isDownloaded = false,
-            description = "한국어 및 다국어 지원 0.5B 초경량 모델. 가볍고 빠른 응답 속도를 자랑합니다.",
+            description = "0.5B ultra-light model with Korean and multilingual support. Lightweight with fast responses.",
             quantization = "Q4_K_M"
         ),
         LlmModel(
@@ -134,12 +134,12 @@ object ModelCatalog {
             mainModelUrl = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
             isBundledModel = false,
             isDownloaded = false,
-            description = "Meta Llama 3.2 1B 경량 고성능 온디바이스 어시스턴트 모델.",
+            description = "Meta Llama 3.2 1B lightweight high-performance on-device assistant model.",
             quantization = "Q4_K_M"
         ),
         LlmModel(
             id = "deepseek-r1-distill-qwen-1.5b-gguf",
-            name = "DeepSeek-R1 Distill 1.5B (사고 추론)",
+            name = "DeepSeek-R1 Distill 1.5B",
             repoId = "bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
             fileName = "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
             runtimeType = ModelRuntimeType.LLAMA_CPP,
@@ -151,7 +151,7 @@ object ModelCatalog {
             mainModelUrl = "https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
             isBundledModel = false,
             isDownloaded = false,
-            description = "사고 과정(<think>)을 온디바이스에서 생성하는 심층 추론(CoT) 특화 모델.",
+            description = "Deep reasoning (CoT) model that generates its own thinking process (<think>) on-device.",
             quantization = "Q4_K_M"
         ),
         LlmModel(
@@ -168,7 +168,7 @@ object ModelCatalog {
             mainModelUrl = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
             isBundledModel = false,
             isDownloaded = false,
-            description = "고품질 한국어 대화 및 코딩, 요약 능력을 갖춘 1.5B 모델.",
+            description = "1.5B model with high-quality dialogue, coding, and summarization capabilities.",
             quantization = "Q4_K_M"
         ),
         LlmModel(
@@ -185,7 +185,7 @@ object ModelCatalog {
             mainModelUrl = "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf",
             isBundledModel = false,
             isDownloaded = false,
-            description = "추론 및 지시어 준수 능력이 뛰어난 1.7B 모바일 최적화 모델.",
+            description = "Mobile-optimized 1.7B model with strong reasoning and instruction-following abilities.",
             quantization = "Q4_K_M"
         ),
         LlmModel(
@@ -202,12 +202,12 @@ object ModelCatalog {
             mainModelUrl = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
             isBundledModel = false,
             isDownloaded = false,
-            description = "Google Gemma 2 2B 고성능 모델. Gemma 공식 템플릿 규격 완벽 지원.",
+            description = "High-performance Google Gemma 2 2B model with full support for the official Gemma template.",
             quantization = "Q4_K_M"
         ),
         LlmModel(
             id = "qwen2-vl-2b-instruct-gguf",
-            name = "Qwen2-VL 2B (비전 멀티모달)",
+            name = "Qwen2-VL 2B",
             repoId = "bartowski/Qwen2-VL-2B-Instruct-GGUF",
             fileName = "Qwen2-VL-2B-Instruct-Q4_K_M.gguf",
             runtimeType = ModelRuntimeType.LLAMA_CPP,
@@ -221,7 +221,7 @@ object ModelCatalog {
             visionTowerUrl = "https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/main/mmproj-Qwen2-VL-2B-Instruct-f16.gguf",
             isBundledModel = true,
             isDownloaded = false,
-            description = "이미지 입력 및 분석을 지원하는 공식 Qwen2-VL 멀티모달 비전 모델.",
+            description = "Official Qwen2-VL multimodal vision model with image input and analysis support.",
             quantization = "Q4_K_M"
         ),
         LlmModel(
@@ -240,7 +240,7 @@ object ModelCatalog {
             mainModelUrl = "https://huggingface.co/4ntoine/Qwen2.5-Coder-1.5B-Instruct-LiteRTLM/resolve/main/model.litertlm",
             isBundledModel = false,
             isDownloaded = false,
-            description = "Google LiteRT LM 엔진 구동용 Qwen 2.5 Coder 1.5B 모델. 공식 Jinja 프롬프트 템플릿(chat_template.jinja) 완벽 지원.",
+            description = "Qwen 2.5 Coder 1.5B for the Google LiteRT LM engine, with full official Jinja prompt template (chat_template.jinja) support.",
             quantization = "INT4"
         ),
         LlmModel(
@@ -257,7 +257,7 @@ object ModelCatalog {
             isBundledModel = false,
             isDownloaded = false,
             mainModelUrl = "https://huggingface.co/lotapa/gemma3-1b-it-int4.litertlm/resolve/main/gemma3-1b-it-int4.litertlm",
-            description = "Google 공식 LiteRT-LM 규격 Gemma 3 1B IT 온디바이스 모델. 584MB 초경량 INT4 양자화 탑재.",
+            description = "Google official LiteRT-LM Gemma 3 1B IT on-device model with ultra-light 584MB INT4 quantization.",
             quantization = "INT4"
         ),
         LlmModel(
@@ -274,7 +274,7 @@ object ModelCatalog {
             isBundledModel = true,
             isDownloaded = false,
             mainModelUrl = "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm/resolve/main/mobile-actions_q8_ekv1024.litertlm",
-            description = "Google 공식 LiteRT Community 모바일 액션 및 함수 호출 초경량 284MB 모델.",
+            description = "Google official LiteRT Community ultra-light 284MB model for mobile actions and function calling.",
             quantization = "Q8"
         )
     )

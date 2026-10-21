@@ -1,6 +1,8 @@
 ﻿package com.localllm.android.engine
 
 import com.localllm.android.BuildConfig
+import com.localllm.android.R
+import com.localllm.android.i18n.AppStrings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -101,7 +103,7 @@ class McpClient(client: OkHttpClient? = null) {
         disconnect()
         val clean = url.trim()
         if (clean.isBlank()) {
-            return@withContext McpConnectionResult(false, "Unknown", emptyList(), 0, "Enter an MCP URL.")
+            return@withContext McpConnectionResult(false, "Unknown", emptyList(), 0, AppStrings.get(R.string.mcp_enter_url))
         }
         val parsed = try {
             clean.toHttpUrlOrNull()
@@ -109,7 +111,7 @@ class McpClient(client: OkHttpClient? = null) {
             null
         }
         if (parsed == null || (parsed.scheme != "http" && parsed.scheme != "https")) {
-            return@withContext McpConnectionResult(false, "Unknown", emptyList(), 0, "Not an http(s) MCP URL.")
+            return@withContext McpConnectionResult(false, "Unknown", emptyList(), 0, AppStrings.get(R.string.mcp_bad_url))
         }
         val token = bearerToken?.trim()?.takeIf { it.isNotEmpty() }
         if (token != null && !isTokenSafeTransport(parsed)) {
@@ -141,13 +143,13 @@ class McpClient(client: OkHttpClient? = null) {
                 val tools = fetchTools(clean)
                 cachedTools = tools
                 serverName = name
-                McpConnectionResult(true, name, tools, elapsed(), "Connected: ${tools.size} tools")
+                McpConnectionResult(true, name, tools, elapsed(), AppStrings.get(R.string.mcp_connected, tools.size))
             } catch (e: CancellationException) {
                 disconnect()
                 throw e
             } catch (e: Exception) {
                 disconnect()
-                McpConnectionResult(false, name, emptyList(), elapsed(), "Tool list failed: ${e.message}")
+                McpConnectionResult(false, name, emptyList(), elapsed(), AppStrings.get(R.string.mcp_tools_fail, e.message))
             }
         }
 
@@ -166,27 +168,27 @@ class McpClient(client: OkHttpClient? = null) {
                     val tools = fetchTools(sseEndpoint)
                     cachedTools = tools
                     serverName = name
-                    McpConnectionResult(true, name, tools, elapsed(), "Connected (SSE): ${tools.size} tools")
+                    McpConnectionResult(true, name, tools, elapsed(), AppStrings.get(R.string.mcp_connected_sse, tools.size))
                 } catch (e: CancellationException) {
                     disconnect()
                     throw e
                 } catch (e: Exception) {
                     disconnect()
-                    McpConnectionResult(false, name, emptyList(), elapsed(), "Tool list failed: ${e.message}")
+                    McpConnectionResult(false, name, emptyList(), elapsed(), AppStrings.get(R.string.mcp_tools_fail, e.message))
                 }
             }
         }
 
-        val hint = if (direct != null) "HTTP ${direct.code}" else "connection failed"
+        val hint = if (direct != null) "HTTP ${direct.code}" else AppStrings.get(R.string.mcp_conn_fail)
         McpConnectionResult(
             false, parsed.host, emptyList(), elapsed(),
-            "MCP handshake failed ($hint). Check that the URL is a Streamable HTTP or SSE MCP server."
+            AppStrings.get(R.string.mcp_handshake, hint)
         )
     }
 
     suspend fun callTool(name: String, argumentsJson: String = "{}"): McpToolCallResult = withContext(Dispatchers.IO) {
         val endpoint = messageEndpoint
-            ?: return@withContext McpToolCallResult(false, "", "Not connected to an MCP server. Connect first.")
+            ?: return@withContext McpToolCallResult(false, "", AppStrings.get(R.string.mcp_not_connected))
         // Malformed arguments are reported, not silently replaced by {}: calling a tool
         // with arguments the model never wrote would be a wrong action, not a soft error.
         val args = try {
@@ -196,15 +198,15 @@ class McpClient(client: OkHttpClient? = null) {
         }
         val call = rpcRequest("tools/call", JSONObject().put("name", name).put("arguments", args))
         val resp = postJson(endpoint, call.json, sessionId, call.id)
-            ?: return@withContext McpToolCallResult(false, "", "Tool call request failed (network error).")
+            ?: return@withContext McpToolCallResult(false, "", AppStrings.get(R.string.mcp_call_net))
         if (resp.code !in 200..299) {
-            return@withContext McpToolCallResult(false, "", "Tool call failed (HTTP ${resp.code}).")
+            return@withContext McpToolCallResult(false, "", AppStrings.get(R.string.mcp_call_http, resp.code))
         }
         val body = resp.bodyJson
-            ?: return@withContext McpToolCallResult(false, "", "Could not parse the tool call response.")
+            ?: return@withContext McpToolCallResult(false, "", AppStrings.get(R.string.mcp_call_parse))
         if (body.has("error") && !body.isNull("error")) {
-            val msg = body.optJSONObject("error")?.optString("message") ?: "unknown error"
-            return@withContext McpToolCallResult(false, "", "Tool error: $msg")
+            val msg = body.optJSONObject("error")?.optString("message") ?: AppStrings.get(R.string.eng_unknown_err)
+            return@withContext McpToolCallResult(false, "", AppStrings.get(R.string.mcp_tool_error, msg))
         }
         val result = body.optJSONObject("result")
         val texts = mutableListOf<String>()
@@ -225,7 +227,7 @@ class McpClient(client: OkHttpClient? = null) {
         McpToolCallResult(
             !failed,
             texts.joinToString("\n"),
-            if (texts.isEmpty()) "The tool returned an empty result." else "Tool ran successfully"
+            if (texts.isEmpty()) AppStrings.get(R.string.mcp_empty) else AppStrings.get(R.string.mcp_exec_ok)
         )
     }
 
@@ -399,12 +401,12 @@ class McpClient(client: OkHttpClient? = null) {
     private suspend fun fetchTools(endpoint: String): List<McpTool> {
         val req = rpcRequest("tools/list", JSONObject())
         val first = postJson(endpoint, req.json, sessionId, req.id)
-            ?: throw IllegalStateException("Tool list request failed (network error).")
-        if (first.code !in 200..299) throw IllegalStateException("Tool list failed (HTTP ${first.code}).")
-        val body = first.bodyJson ?: throw IllegalStateException("Could not parse the tool list response.")
+            ?: throw IllegalStateException(AppStrings.get(R.string.mcp_list_net))
+        if (first.code !in 200..299) throw IllegalStateException(AppStrings.get(R.string.mcp_list_http, first.code))
+        val body = first.bodyJson ?: throw IllegalStateException(AppStrings.get(R.string.mcp_list_parse))
         if (body.has("error") && !body.isNull("error")) {
-            val msg = body.optJSONObject("error")?.optString("message") ?: "unknown error"
-            throw IllegalStateException("Server error: $msg")
+            val msg = body.optJSONObject("error")?.optString("message") ?: AppStrings.get(R.string.eng_unknown_err)
+            throw IllegalStateException(AppStrings.get(R.string.mcp_server_error, msg))
         }
         val arr = body.optJSONObject("result")?.optJSONArray("tools") ?: JSONArray()
         val out = mutableListOf<McpTool>()

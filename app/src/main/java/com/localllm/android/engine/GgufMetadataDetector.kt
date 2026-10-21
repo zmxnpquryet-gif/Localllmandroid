@@ -1,5 +1,8 @@
 ﻿package com.localllm.android.engine
 
+import com.localllm.android.R
+import com.localllm.android.i18n.AppStrings
+
 import android.util.Log
 import com.localllm.android.model.ModelRuntimeType
 import com.localllm.engine.GgufReader
@@ -178,16 +181,16 @@ object GgufMetadataDetector {
 
             val detailsList = mutableListOf<String>()
             if (detectedRuntime == ModelRuntimeType.LITE_RT) {
-                detailsList.add("LiteRT 올인원 통합 모델")
+                detailsList.add(AppStrings.get(R.string.det_litert_all))
             }
             if (expertCount > 1) {
-                detailsList.add("MoE 전문가 ${expertCount}개 (SDengine 수동 전환 가능)")
+                detailsList.add(AppStrings.get(R.string.det_moe, expertCount))
             }
             if (finalVision) {
-                detailsList.add(if (detectedRuntime == ModelRuntimeType.LITE_RT) "통합 비전타워(Vision Encoder) 내장" else "비전타워 내장 감지")
+                detailsList.add(if (detectedRuntime == ModelRuntimeType.LITE_RT) AppStrings.get(R.string.det_vision_integrated) else AppStrings.get(R.string.det_vision_detected))
             }
             if (finalDrafter) {
-                detailsList.add(if (detectedRuntime == ModelRuntimeType.LITE_RT) "통합 추측 디코딩 드래프터 내장" else "드래프터(MTP) 내장 감지")
+                detailsList.add(if (detectedRuntime == ModelRuntimeType.LITE_RT) AppStrings.get(R.string.det_drafter_integrated) else AppStrings.get(R.string.det_drafter_detected))
             }
 
             Log.d(

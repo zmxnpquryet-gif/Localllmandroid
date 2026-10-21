@@ -2,6 +2,8 @@
 
 import android.os.Build
 import com.localllm.android.BuildConfig
+import com.localllm.android.R
+import com.localllm.android.i18n.AppStrings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
@@ -100,7 +102,7 @@ object ChatCrypto {
             key
         } catch (e: Throwable) {
             Log.e(TAG, "KEYSTORE_KEY_UNAVAILABLE")
-            throw SecurityException("Android Keystore key access failed.", e)
+            throw SecurityException(AppStrings.get(R.string.cry_keystore_fail, e.localizedMessage), e)
         }
     }
 
@@ -174,7 +176,7 @@ object ChatCrypto {
             return VERSION_PREFIX + Base64.encodeToString(combined, Base64.NO_WRAP)
         } catch (e: Exception) {
             Log.e(TAG, "ENCRYPT_FAILED")
-            throw SecurityException("암호화 처리 중 보안 오류가 발생했습니다.", e)
+            throw SecurityException(AppStrings.get(R.string.cry_encrypt_err, e.localizedMessage), e)
         }
     }
 
@@ -195,12 +197,12 @@ object ChatCrypto {
         val combined = try {
             Base64.decode(body, Base64.NO_WRAP)
         } catch (e: Exception) {
-            throw SecurityException("손상된 Base64 암호문 데이터입니다.", e)
+            throw SecurityException(AppStrings.get(R.string.cry_corrupt), e)
         }
 
         val minLength = IV_LENGTH_BYTE + TAG_LENGTH_BIT / 8 + 1 // IV + tag + >=1 ciphertext byte
         if (combined.size < minLength) {
-            throw SecurityException("암호문 데이터 길이가 유효하지 않습니다 (최소 ${minLength}바이트 필요).")
+            throw SecurityException(AppStrings.get(R.string.cry_bad_length, minLength))
         }
 
         val iv = ByteArray(IV_LENGTH_BYTE)
@@ -218,7 +220,7 @@ object ChatCrypto {
             return String(decrypted, StandardCharsets.UTF_8)
         } catch (e: Exception) {
             Log.e(TAG, "DECRYPT_FAILED")
-            throw SecurityException("암호문 복호화 실패: 무결성 검증에 실패했거나 키가 일치하지 않습니다.", e)
+            throw SecurityException(AppStrings.get(R.string.cry_decrypt_fail), e)
         }
     }
 

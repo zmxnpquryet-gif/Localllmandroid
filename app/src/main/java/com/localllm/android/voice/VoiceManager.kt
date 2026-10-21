@@ -1,5 +1,8 @@
 package com.localllm.android.voice
 
+import com.localllm.android.R
+import com.localllm.android.i18n.AppStrings
+
 import android.content.Context
 import android.content.Intent
 import android.media.AudioFormat
@@ -200,7 +203,7 @@ class VoiceManager(private val context: Context) {
             -1
         }
         if (minBuf <= 0) {
-            onError("이 기기에서 로컬 녹음을 시작할 수 없습니다.")
+            onError(AppStrings.get(R.string.vmgr_rec_start_fail))
             return
         }
         val record = try {
@@ -209,15 +212,15 @@ class VoiceManager(private val context: Context) {
                 sampleRate, channelConfig, audioFormat, minBuf * 4
             )
         } catch (e: SecurityException) {
-            onError("음성 입력을 위해 마이크 권한이 필요합니다.")
+            onError(AppStrings.get(R.string.vmgr_mic_permission))
             return
         } catch (e: Exception) {
-            onError("마이크 초기화 실패: ${e.localizedMessage}")
+            onError(AppStrings.get(R.string.vmgr_mic_init_fail, e.localizedMessage))
             return
         }
         if (record.state != AudioRecord.STATE_INITIALIZED) {
             try { record.release() } catch (_: Throwable) {}
-            onError("마이크 초기화 실패 (상태 오류).")
+            onError(AppStrings.get(R.string.vmgr_mic_state))
             return
         }
         pendingResult = onResult
@@ -331,20 +334,20 @@ class VoiceManager(private val context: Context) {
         ioScope.launch {
             try {
                 if (samples.size < LocalSttEngine.SAMPLE_RATE / 2) {
-                    throw IllegalStateException("녹음된 음성이 너무 짧습니다.")
+                    throw IllegalStateException(AppStrings.get(R.string.vmgr_too_short))
                 }
                 val text = localStt.transcribe(samples)
                 withContext(Dispatchers.Main) {
                     _voiceState.value = InteractiveVoiceState.IDLE
                     _recognizedText.value = text
                     if (text.isNotBlank()) onResult?.invoke(text)
-                    else onError?.invoke("음성을 인식하지 못했습니다.")
+                    else onError?.invoke(AppStrings.get(R.string.vmgr_no_speech))
                 }
             } catch (e: Exception) {
                 android.util.Log.w(TAG, "Local STT failed", e)
                 withContext(Dispatchers.Main) {
                     _voiceState.value = InteractiveVoiceState.IDLE
-                    onError?.invoke(e.localizedMessage ?: "로컬 음성 인식 실패")
+                    onError?.invoke(e.localizedMessage ?: AppStrings.get(R.string.vmgr_stt_fail))
                 }
             }
         }
@@ -352,7 +355,7 @@ class VoiceManager(private val context: Context) {
 
     private fun startSystemListening(onResult: (String) -> Unit, onError: (String) -> Unit) {
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            onError("음성 인식을 지원하지 않는 기기입니다.")
+            onError(AppStrings.get(R.string.vmgr_no_stt_support))
             return
         }
         destroySystemRecognizer()
@@ -367,10 +370,10 @@ class VoiceManager(private val context: Context) {
                 override fun onError(error: Int) {
                     _voiceState.value = InteractiveVoiceState.IDLE
                     val msg = when (error) {
-                        SpeechRecognizer.ERROR_NO_MATCH -> "음성을 인식하지 못했습니다."
-                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "음성 입력 시간이 초과되었습니다."
-                        SpeechRecognizer.ERROR_AUDIO -> "오디오 녹음 오류가 발생했습니다."
-                        else -> "음성 인식 오류 ($error)"
+                        SpeechRecognizer.ERROR_NO_MATCH -> AppStrings.get(R.string.vmgr_no_speech)
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> AppStrings.get(R.string.vmgr_timeout)
+                        SpeechRecognizer.ERROR_AUDIO -> AppStrings.get(R.string.vmgr_audio_err)
+                        else -> AppStrings.get(R.string.vmgr_stt_err, error)
                     }
                     onError(msg)
                 }
@@ -428,7 +431,7 @@ class VoiceManager(private val context: Context) {
         stopSpeaking()
         val cleanSpeech = text
             .replace(Regex("<think>[\\s\\S]*?</think>"), "")
-            .replace(Regex("`{1,3}[^`]*`{1,3}"), "코드 블록")
+            .replace(Regex("`{1,3}[^`]*`{1,3}"), AppStrings.get(R.string.vmgr_code_block))
             .replace(Regex("[#*_\\[\\]()]"), "")
             .trim()
         // Nothing to say (or no synthesizer): the caller still gets its completion so

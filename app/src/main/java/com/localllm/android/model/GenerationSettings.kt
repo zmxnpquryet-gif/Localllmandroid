@@ -1,5 +1,8 @@
 package com.localllm.android.model
 
+import com.localllm.android.R
+import com.localllm.android.i18n.AppStrings
+
 data class GenerationSettings(
     val runtime: ModelRuntimeType = ModelRuntimeType.LLAMA_CPP,
     val contextWindow: Int = 4096,
@@ -19,7 +22,8 @@ data class GenerationSettings(
     val isMcpEnabled: Boolean = false,
     val darkModePreference: String = "dark", // "system", "dark", "light"
     val themeColorName: String = "artistic", // "artistic", "liquid", "chatgpt", "cyber", "obsidian", "amber", "frost"
-    val languagePreference: String = "system", // "system", "en", "ko"
+    val languagePreference: String = "system", // "system", "en", "ko", "zh"
+    val hfSource: String = "official", // "official", "mirror" — 模型下载源
     val hfToken: String = "" // Optional Hugging Face Access Token for gated/private models
 ) {
     val isApiExternalAccessEnabled: Boolean
@@ -27,9 +31,9 @@ data class GenerationSettings(
 
     val reasoningEffortLabel: String
         get() = when {
-            reasoningEffort <= 0.25f -> "낮음 (Low)"
-            reasoningEffort <= 0.6f -> "보통 (Medium)"
-            reasoningEffort <= 0.85f -> "높음 (High)"
-            else -> "최대 (Max)"
+            reasoningEffort <= 0.25f -> AppStrings.get(R.string.gen_effort_low)
+            reasoningEffort <= 0.6f -> AppStrings.get(R.string.gen_effort_medium)
+            reasoningEffort <= 0.85f -> AppStrings.get(R.string.gen_effort_high)
+            else -> AppStrings.get(R.string.gen_effort_max)
         }
 }

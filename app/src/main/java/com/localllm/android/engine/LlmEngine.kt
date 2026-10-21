@@ -1,5 +1,9 @@
 ﻿package com.localllm.android.engine
 
+import com.localllm.android.R
+import com.localllm.android.i18n.AppStrings
+import com.localllm.android.i18n.SdEngineText
+
 import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -142,7 +146,7 @@ class LlmEngine(private val context: Context) {
         } catch (e: Throwable) {
             Log.d(tag, "ParcelFileDescriptor.open direct failed (${e.message}), trying ContentResolver...")
             context.contentResolver.openFileDescriptor(Uri.fromFile(file), "r")
-        } ?: throw IllegalStateException("모델 파일 디스크립터를 열 수 없습니다: ${file.path}")
+        } ?: throw IllegalStateException(AppStrings.get(R.string.eng_no_fd, file.path))
     }
 
     private val settingsPrefs by lazy {
@@ -217,19 +221,19 @@ class LlmEngine(private val context: Context) {
     ): String = withContext(Dispatchers.IO) {
         if (model == null || !model.isDownloaded) {
             unloadCurrentModel()
-            return@withContext "다운로드된 로컬 모델이 없습니다. 모델 관리자에서 모델을 먼저 다운로드하거나 불러오세요."
+            return@withContext AppStrings.get(R.string.eng_no_model)
         }
 
         val modelPath = model.localFilePath
         if (modelPath.isNullOrBlank()) {
             unloadCurrentModel()
-            return@withContext "모델 파일 경로를 찾을 수 없습니다."
+            return@withContext AppStrings.get(R.string.eng_no_path)
         }
 
         val modelFile = File(modelPath)
         if (!modelFile.exists() || !modelFile.isFile || modelFile.length() == 0L) {
             unloadCurrentModel()
-            return@withContext "모델 파일이 디스크에 존재하지 않거나 빈 파일입니다: ${modelFile.name}"
+            return@withContext AppStrings.get(R.string.eng_no_file, modelFile.name)
         }
 
         var effectiveContext = settings.contextWindow
@@ -280,7 +284,7 @@ class LlmEngine(private val context: Context) {
         when (decision?.status) {
             MemoryEstimator.Status.REFUSED -> {
                 unloadCurrentModel()
-                onStageUpdate?.invoke("가용 메모리 부족", 0f)
+                onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_nomem), 0f)
                 MemoryGuard.get()?.record(
                     cause = MemoryGuardStore.Cause.LOAD_REFUSED,
                     detail = "${modelFile.name}: ${decision.reason}",
@@ -289,22 +293,19 @@ class LlmEngine(private val context: Context) {
                 if (sdEstimate != null) {
                     val denseMb = sdEstimate.denseFileBytes / MemorySnapshot.MB
                     val expertMb = sdEstimate.expertFileBytes / MemorySnapshot.MB
-                    return@withContext "SDengine으로도 메모리 부족: dense ${denseMb}MB + KV가 RAM에 들어가야 하지만 " +
-                            "가용 RAM이 ${snapshot.availMb}MB입니다 (expert ${expertMb}MB는 SSD 스트리밍 대상이라 RAM과 무관). " +
-                            "컨텍스트를 512까지 낮춰도 안 되면 이 기기에서는 무리입니다."
+                    return@withContext AppStrings.get(R.string.eng_sd_nomem, denseMb, snapshot.availMb, expertMb)
                 }
-                return@withContext "가용 메모리 부족: ${model.name} 로드에 약 ${decision.estimate?.totalMb()}MB가 필요하지만 " +
-                        "가용 RAM이 ${snapshot.availMb}MB입니다. 백그라운드 앱을 정리하거나 더 작은 양자화 모델을 선택하세요."
+                return@withContext AppStrings.get(R.string.eng_no_mem_model, model.name, decision.estimate?.totalMb(), snapshot.availMb)
             }
             MemoryEstimator.Status.REDUCED -> {
                 effectiveContext = decision.effectiveContextWindow
                 onStageUpdate?.invoke(
-                    "메모리 보호: 컨텍스트 ${settings.contextWindow} → $effectiveContext 자동 하향 (${decision.reason})",
+                    AppStrings.get(R.string.eng_mem_guard, settings.contextWindow, effectiveContext, decision.reason),
                     0.10f
                 )
                 Log.w(tag, "컨텍스트 자동 하향: ${decision.reason}")
             }
-            else -> onStageUpdate?.invoke("모델 무결성 검증 중...", 0.10f)
+            else -> onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_verify), 0.10f)
         }
         // Approved envelope for the SDengine resident cap: dense + KV + overhead at
         // the effective context. The loader counts dense raw bytes only, so this cap
@@ -322,7 +323,7 @@ class LlmEngine(private val context: Context) {
 
         // Branch by runtime type
         if (model.runtimeType == ModelRuntimeType.LITE_RT) {
-            onStageUpdate?.invoke("LiteRT 모델 파일 검증 중...", 0.10f)
+            onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_litert_verify), 0.10f)
 
             val preview = try {
                 FileInputStream(modelFile).use { fis ->
@@ -334,21 +335,21 @@ class LlmEngine(private val context: Context) {
 
             if (preview.contains("Unauthorized", ignoreCase = true) || preview.contains("401", ignoreCase = true)) {
                 unloadCurrentModel()
-                onStageUpdate?.invoke("인증 실패 (401)", 0f)
-                return@withContext "모델 파일 오류: Hugging Face 인증 필요 (401 Unauthorized). 설정에서 HF 토큰을 입력 후 모델을 다시 다운로드하세요."
+                onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_401), 0f)
+                return@withContext AppStrings.get(R.string.eng_err_401)
             }
             if (preview.startsWith("<!DOCTYPE", ignoreCase = true) || preview.startsWith("<html", ignoreCase = true)) {
                 unloadCurrentModel()
-                onStageUpdate?.invoke("HTML 오류 페이지", 0f)
-                return@withContext "모델 파일 오류: 다운로드된 파일이 모델 바이너리가 아닌 HTML 웹페이지입니다."
+                onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_html), 0f)
+                return@withContext AppStrings.get(R.string.eng_err_html)
             }
             if (modelFile.length() < 1024 * 1024L) {
                 unloadCurrentModel()
-                onStageUpdate?.invoke("파일 크기 오류", 0f)
-                return@withContext "모델 파일 오류: 파일 크기가 비정상적으로 작습니다 (${modelFile.length()} bytes). 올바른 모델 바이너리가 아닙니다."
+                onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_size), 0f)
+                return@withContext AppStrings.get(R.string.eng_err_size, modelFile.length())
             }
 
-            onStageUpdate?.invoke("LiteRT JNI 네이티브 라이브러리 검증 중...", 0.20f)
+            onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_jni), 0.20f)
             try {
                 System.loadLibrary("litertlm_jni")
             } catch (t: Throwable) {
@@ -369,9 +370,9 @@ class LlmEngine(private val context: Context) {
                 !effectiveSettings.enableGpuAcceleration ->
                     Log.i(tag, "GPU 가속이 설정에서 꺼져 있어 CPU 백엔드로 시작합니다.")
                 gpuPreviouslyFailed ->
-                    onStageUpdate?.invoke("이전 GPU 초기화 실패 기록 → CPU로 시작", 0.30f)
+                    onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_gpu_prev), 0.30f)
                 !hasOpenCl ->
-                    onStageUpdate?.invoke("OpenCL 드라이버 없음 → GPU 건너뜀", 0.30f)
+                    onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_no_opencl), 0.30f)
             }
 
             val candidates = LiteRtAcceleratorPolicy.buildCandidates(
@@ -409,9 +410,9 @@ class LlmEngine(private val context: Context) {
             for ((backendName, config) in configsToTry) {
                 var attempt: Engine? = null
                 try {
-                    onStageUpdate?.invoke("LiteRT $backendName 초기화 중...", 0.45f)
+                    onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_litert_init, backendName), 0.45f)
                     attempt = Engine(config)
-                    onStageUpdate?.invoke("LiteRT 가중치 매핑 및 모델 초기화...", 0.70f)
+                    onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_litert_map), 0.70f)
                     attempt.initialize()
 
                     val conv = createConfiguredConversation(attempt, effectiveSettings)
@@ -439,14 +440,14 @@ class LlmEngine(private val context: Context) {
 
             if (successEngine == null || successConv == null) {
                 unloadCurrentModel()
-                onStageUpdate?.invoke("LiteRT 초기화 실패", 0f)
-                val summary = failures.joinToString(" | ") { "${it.first}: ${it.second}" }.ifBlank { "알 수 없는 오류" }
+                onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_litert_fail), 0f)
+                val summary = failures.joinToString(" | ") { "${it.first}: ${it.second}" }.ifBlank { AppStrings.get(R.string.eng_unknown_err) }
                 MemoryGuard.get()?.record(
                     cause = MemoryGuardStore.Cause.LOAD_REFUSED,
                     detail = summary.take(400),
                     modelName = model.name
                 )
-                return@withContext "LiteRT LM 엔진 초기화 오류: $summary"
+                return@withContext AppStrings.get(R.string.eng_litert_init_err, summary)
             }
 
             litertEngine = successEngine
@@ -454,17 +455,17 @@ class LlmEngine(private val context: Context) {
             litertBackendName = usedBackendName
             activeModel = model
             isModelLoaded = true
-            isVisionTowerLoaded = usedBackendName.contains("비전 연동")
+            isVisionTowerLoaded = usedBackendName.contains("비전 연동") || usedBackendName.contains("vision") || usedBackendName.contains("视觉")
 
-            val visionMsg = if (isVisionTowerLoaded) " + 통합 올인원 비전타워" else ""
-            val drafterMsg = if (model.supportsMtp) " + 통합 드래프터" else ""
-            val templateMsg = if (model.localTemplatePath != null) " (Jinja 템플릿 적용)" else ""
+            val visionMsg = if (isVisionTowerLoaded) " " + AppStrings.get(R.string.eng_msg_vision) else ""
+            val drafterMsg = if (model.supportsMtp) " " + AppStrings.get(R.string.eng_msg_drafter) else ""
+            val templateMsg = if (model.localTemplatePath != null) " " + AppStrings.get(R.string.eng_msg_template) else ""
             val fallbackNote = failures.firstOrNull { it.first.contains("GPU") }
-                ?.let { " · GPU/OpenCL 초기화 실패 → CPU 대체 실행 (${it.second})" }
+                ?.let { " · " + AppStrings.get(R.string.eng_gpu_fallback, it.second) }
                 ?: ""
-            val resultMsg = "[LiteRT LM] ${model.name} 온디바이스 로드 완료 [$usedBackendName]$visionMsg$drafterMsg$templateMsg$fallbackNote"
+            val resultMsg = AppStrings.get(R.string.eng_litert_loaded, model.name, usedBackendName, visionMsg, drafterMsg, templateMsg, fallbackNote)
             Log.i(tag, resultMsg)
-            onStageUpdate?.invoke("로드 완료", 1.0f)
+            onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_loaded), 1.0f)
             return@withContext resultMsg
         }
 
@@ -493,21 +494,21 @@ class LlmEngine(private val context: Context) {
 
             val errorReason = when {
                 preview.contains("Unauthorized", ignoreCase = true) || preview.contains("401", ignoreCase = true) ->
-                    "Hugging Face 인증 필요 (401 Unauthorized). 설정에서 HF 토큰을 입력 후 모델을 다시 다운로드하세요."
+                    AppStrings.get(R.string.eng_err_401)
                 preview.contains("404", ignoreCase = true) || preview.contains("Not Found", ignoreCase = true) ->
-                    "모델 다운로드 링크가 유효하지 않습니다 (404 Not Found)."
+                    AppStrings.get(R.string.eng_err_404)
                 preview.startsWith("<!DOCTYPE", ignoreCase = true) || preview.startsWith("<html", ignoreCase = true) ->
-                    "다운로드된 파일이 모델 바이너리가 아닌 HTML 에러 페이지입니다. 파일을 삭제하고 올바른 URL로 다시 다운로드하세요."
+                    AppStrings.get(R.string.eng_err_html2)
                 else ->
-                    "파일 헤더가 GGUF 매직넘버('GGUF')와 일치하지 않습니다. 손상되었거나 유효하지 않은 파일입니다."
+                    AppStrings.get(R.string.eng_err_magic)
             }
-            onStageUpdate?.invoke("무결성 검증 실패", 0f)
-            return@withContext "모델 파일 형식 오류: $errorReason"
+            onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_integrity), 0f)
+            return@withContext AppStrings.get(R.string.eng_fmt_err, errorReason)
         }
 
         if (effectiveSettings.runtime == ModelRuntimeType.SD_ENGINE) {
             unloadCurrentModel()
-            onStageUpdate?.invoke("SDengine(TEST) 가중치 바인딩 중...", 0.30f)
+            onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_sd_bind), 0.30f)
             val guard = MemoryGuard.get()
             // Approved envelope from the SD-aware gate (dense + KV + overhead).
             // Only when metadata was unreadable (generic gate fallback) use the
@@ -525,12 +526,9 @@ class LlmEngine(private val context: Context) {
                 activeModel = model
                 isModelLoaded = true
                 isVisionTowerLoaded = false
-                val resultMsg = "[SDengine][TEST] ${model.name} 로드 완료 (layers=${info.nLayers}, experts=${info.nExperts}, " +
-                        "resident dense=${info.denseResidentBytes / MemorySnapshot.MB}MB, " +
-                        "experts ${info.expertBytes / MemorySnapshot.MB}MB SSD 스트리밍, tensors=${info.tensorCount}) · " +
-                        SDEngine.advisoryText()
+                val resultMsg = AppStrings.get(R.string.eng_sd_loaded, model.name, info.nLayers, info.nExperts, info.denseResidentBytes / MemorySnapshot.MB, info.expertBytes / MemorySnapshot.MB, info.tensorCount) + " · " + SdEngineText.advisoryText()
                 Log.i(tag, resultMsg)
-                onStageUpdate?.invoke("로드 완료", 1.0f)
+                onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_loaded), 1.0f)
                 return@withContext resultMsg
             } catch (t: Throwable) {
                 unloadCurrentModel()
@@ -541,13 +539,13 @@ class LlmEngine(private val context: Context) {
                     detail = "SDengine load failed: $reason",
                     modelName = model.name
                 )
-                onStageUpdate?.invoke("SDengine 로드 실패 → llama.cpp 대체 실행", 0.30f)
+                onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_sd_fallback), 0.30f)
                 val fallbackStatus = loadModelLocked(
                     model,
                     effectiveSettings.copy(runtime = ModelRuntimeType.LLAMA_CPP),
                     onStageUpdate
                 )
-                return@withContext "SDengine 로드 실패($reason) — llama.cpp 대체 실행. $fallbackStatus"
+                return@withContext AppStrings.get(R.string.eng_sd_fallback_msg, reason, fallbackStatus)
             }
         }
 
@@ -568,7 +566,7 @@ class LlmEngine(private val context: Context) {
 
         unloadCurrentModel()
 
-        onStageUpdate?.invoke("llama.cpp 네이티브 컨텍스트 생성 중...", 0.35f)
+        onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_llama_ctx), 0.35f)
 
         val contextWindow = effectiveSettings.contextWindow.coerceIn(512, 16384)
         val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
@@ -591,23 +589,23 @@ class LlmEngine(private val context: Context) {
         // 1. GPU Acceleration candidates (if enabled)
         if (targetGpuLayers > 0) {
             if (mmprojPath != null) {
-                candidates.add(GgufInitCandidate("GPU 가속 (${targetGpuLayers}L) + mmproj 비전타워", useMmap = true, useMmproj = true, ctxLength = contextWindow, gpuLayers = targetGpuLayers))
+                candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand1, targetGpuLayers), useMmap = true, useMmproj = true, ctxLength = contextWindow, gpuLayers = targetGpuLayers))
             }
-            candidates.add(GgufInitCandidate("GPU 가속 (${targetGpuLayers}L, ${contextWindow} ctx)", useMmap = true, useMmproj = false, ctxLength = contextWindow, gpuLayers = targetGpuLayers))
+            candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand2, targetGpuLayers, contextWindow), useMmap = true, useMmproj = false, ctxLength = contextWindow, gpuLayers = targetGpuLayers))
         }
 
         // 2. CPU fallback candidates
         if (mmprojPath != null) {
-            candidates.add(GgufInitCandidate("네이티브 mmap + mmproj 비전타워", useMmap = true, useMmproj = true, ctxLength = contextWindow, gpuLayers = 0))
-            candidates.add(GgufInitCandidate("직접 메모리 로드 + mmproj 비전타워", useMmap = false, useMmproj = true, ctxLength = contextWindow, gpuLayers = 0))
+            candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand3), useMmap = true, useMmproj = true, ctxLength = contextWindow, gpuLayers = 0))
+            candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand4), useMmap = false, useMmproj = true, ctxLength = contextWindow, gpuLayers = 0))
         }
-        candidates.add(GgufInitCandidate("네이티브 mmap (${contextWindow} ctx)", useMmap = true, useMmproj = false, ctxLength = contextWindow, gpuLayers = 0))
-        candidates.add(GgufInitCandidate("직접 메모리 로드 (${contextWindow} ctx)", useMmap = false, useMmproj = false, ctxLength = contextWindow, gpuLayers = 0))
+        candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand5, contextWindow), useMmap = true, useMmproj = false, ctxLength = contextWindow, gpuLayers = 0))
+        candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand6, contextWindow), useMmap = false, useMmproj = false, ctxLength = contextWindow, gpuLayers = 0))
 
         // 3. Fallback to reduced context if large context fails
         if (contextWindow > 2048) {
-            candidates.add(GgufInitCandidate("안정화 mmap 모드 (2048 ctx)", useMmap = true, useMmproj = false, ctxLength = 2048, gpuLayers = 0))
-            candidates.add(GgufInitCandidate("절전 직접 메모리 모드 (1024 ctx)", useMmap = false, useMmproj = false, ctxLength = 1024, gpuLayers = 0))
+            candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand7), useMmap = true, useMmproj = false, ctxLength = 2048, gpuLayers = 0))
+            candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand8), useMmap = false, useMmproj = false, ctxLength = 1024, gpuLayers = 0))
         }
 
         var newLlamaContext: LlamaContext? = null
@@ -617,7 +615,7 @@ class LlmEngine(private val context: Context) {
 
         for ((idx, cand) in candidates.withIndex()) {
             val progressFraction = 0.40f + (idx.toFloat() / candidates.size.toFloat()) * 0.45f
-            onStageUpdate?.invoke("${cand.desc} 로드 시도 중...", progressFraction)
+            onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_try, cand.desc), progressFraction)
             Log.d(tag, "GGUF 로드 시도 (${idx + 1}/${candidates.size}): ${cand.desc}")
 
             var modelPfd: ParcelFileDescriptor? = null
@@ -666,7 +664,7 @@ class LlmEngine(private val context: Context) {
                 // Instantiate LlamaContext directly - no reflection on private fields!
                 val createdContext = LlamaContext(newContextId, params)
                 if (createdContext.context == 0L) {
-                    throw IllegalStateException("llama.cpp 네이티브 컨텍스트 핸들(0) 반환 실패")
+                    throw IllegalStateException(AppStrings.get(R.string.eng_ctx_handle_fail))
                 }
 
                 createdContext.setTokenCallback(tokenCallback)
@@ -708,10 +706,10 @@ class LlmEngine(private val context: Context) {
 
         if (newLlamaContext == null) {
             unloadCurrentModel()
-            val errorMsg = lastError?.localizedMessage ?: lastError?.message ?: "llama.cpp 네이티브 컨텍스트 생성 실패"
+            val errorMsg = lastError?.localizedMessage ?: lastError?.message ?: AppStrings.get(R.string.eng_ctx_create_fail)
             Log.e(tag, "모든 GGUF 로드 전략 실패: $errorMsg", lastError)
-            onStageUpdate?.invoke("로드 실패", 0f)
-            return@withContext "모델 로드 실패: $errorMsg"
+            onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_load_fail), 0f)
+            return@withContext AppStrings.get(R.string.eng_load_fail, errorMsg)
         }
 
         currentLlamaContext = newLlamaContext
@@ -719,10 +717,10 @@ class LlmEngine(private val context: Context) {
         isModelLoaded = true
         isVisionTowerLoaded = loadedWithMmproj
 
-        val visionText = if (isVisionTowerLoaded) " + mmproj 비전타워" else ""
-        val resultMsg = "[llama.cpp GGUF] ${model.name} 온디바이스 로드 완료 ($successfulDesc, ${threadCount}T$visionText)"
+        val visionText = if (isVisionTowerLoaded) " " + AppStrings.get(R.string.eng_msg_mmproj) else ""
+        val resultMsg = AppStrings.get(R.string.eng_llama_loaded, model.name, successfulDesc, threadCount, visionText)
         Log.i(tag, resultMsg)
-        onStageUpdate?.invoke("로드 완료", 1.0f)
+        onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_loaded), 1.0f)
         return@withContext resultMsg
     }
 
@@ -801,7 +799,7 @@ class LlmEngine(private val context: Context) {
         numPredictOverride: Int? = null
     ): Flow<GenerationChunk> = flow {
         if (!acquireInferenceLock()) {
-            throw IllegalStateException("BUSY_INFERENCE: 다른 추론 요청이 진행 중입니다. 잠시 후 다시 시도하세요.")
+            throw IllegalStateException("BUSY_INFERENCE: " + AppStrings.get(R.string.eng_busy))
         }
         try {
             try {
@@ -821,8 +819,7 @@ class LlmEngine(private val context: Context) {
                     null
                 )
                 Log.i(tag, "CPU 백엔드 재로드: $reloadStatus")
-                backendNote = "LiteRT GPU(OpenCL) 샘플러를 사용할 수 없어 CPU 백엔드로 전환했습니다. " +
-                        "다음 실행부터는 GPU를 건너뜁니다 (설정에서 GPU 가속을 다시 켜면 재시도)."
+                backendNote = AppStrings.get(R.string.eng_sampler_cpu)
                 emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride))
             }
         } finally {
@@ -873,10 +870,10 @@ class LlmEngine(private val context: Context) {
         numPredictOverride: Int?
     ): Flow<GenerationChunk> = flow {
         val model = activeModel
-            ?: throw IllegalStateException("선택된 로컬 모델이 없습니다. 모델 관리자에서 모델을 먼저 로드하세요.")
+            ?: throw IllegalStateException(AppStrings.get(R.string.eng_no_selected))
 
         if (!isModelLoaded) {
-            throw IllegalStateException("${model.name} 모델이 아직 로드되지 않았습니다. 모델을 먼저 로드해 주세요.")
+            throw IllegalStateException(AppStrings.get(R.string.eng_not_loaded, model.name))
         }
 
         // Construct standard prompt formatted for on-device instruction-tuned model
@@ -900,7 +897,7 @@ class LlmEngine(private val context: Context) {
 
         if (settings.runtime == ModelRuntimeType.SD_ENGINE && sdEngine != null) {
             val engine = sdEngine
-                ?: throw IllegalStateException("SDengine이 준비되지 않았습니다.")
+                ?: throw IllegalStateException(AppStrings.get(R.string.eng_sd_not_ready))
             val maxNewTokens = numPredictOverride?.coerceIn(1, 16384) ?: 256
             sdStopRequested = false
             val tokenChannel = Channel<String>(Channel.UNLIMITED)
@@ -982,11 +979,11 @@ class LlmEngine(private val context: Context) {
             // would duplicate context and leak one chat's state into another.
             // Per-request sampler also honors temperature/topP/topK without a reload.
             val engine = litertEngine
-                ?: throw IllegalStateException("LiteRT 엔진이 준비되지 않았습니다.")
+                ?: throw IllegalStateException(AppStrings.get(R.string.eng_litert_not_ready))
             val conv = try {
                 createConfiguredConversation(engine, settings)
             } catch (e: Throwable) {
-                throw IllegalStateException("LiteRT 대화 세션을 준비하지 못했습니다: ${e.localizedMessage ?: e.message}")
+                throw IllegalStateException(AppStrings.get(R.string.eng_session_fail, e.localizedMessage ?: e.message))
             }
             activeLitertConversation = conv
 
@@ -1114,7 +1111,7 @@ class LlmEngine(private val context: Context) {
                 ) {
                     throw LiteRtGpuUnavailableException(reason ?: "unknown")
                 }
-                throw RuntimeException("LiteRT 추론 오류: ${e.localizedMessage ?: e.message}")
+                throw RuntimeException(AppStrings.get(R.string.eng_litert_infer_err, e.localizedMessage ?: e.message))
             } finally {
                 if (activeLitertConversation === conv) activeLitertConversation = null
                 try {
@@ -1129,7 +1126,7 @@ class LlmEngine(private val context: Context) {
 
         // Native llama.cpp (GGUF)
         val llamaCtx = currentLlamaContext
-            ?: throw IllegalStateException("추론 엔진이 초기화되지 않았습니다.")
+            ?: throw IllegalStateException(AppStrings.get(R.string.eng_not_init))
 
         val imagePath = if (attachment?.isImage == true && isVisionTowerLoaded) {
             val raw = attachment.uriString

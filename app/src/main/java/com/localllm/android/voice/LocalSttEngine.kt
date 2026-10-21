@@ -1,5 +1,8 @@
 package com.localllm.android.voice
 
+import com.localllm.android.R
+import com.localllm.android.i18n.AppStrings
+
 import android.content.Context
 import android.util.Log
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
@@ -128,7 +131,7 @@ class LocalSttEngine(private val context: Context) {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "STT model download failed", e)
-            _modelState.value = ModelState.Failed(e.localizedMessage ?: "다운로드 실패")
+            _modelState.value = ModelState.Failed(e.localizedMessage ?: AppStrings.get(R.string.stt_dl_fail))
             false
         }
     }
@@ -168,7 +171,7 @@ class LocalSttEngine(private val context: Context) {
     /** Transcribes 16kHz mono float samples. Empty string = nothing recognized. */
     suspend fun transcribe(samples: FloatArray, sampleRate: Int = SAMPLE_RATE): String =
         withContext(Dispatchers.IO) {
-            val rec = ensureRecognizer() ?: throw IllegalStateException("로컬 STT 모델이 없습니다.")
+            val rec = ensureRecognizer() ?: throw IllegalStateException(AppStrings.get(R.string.stt_no_model))
             var stream: OfflineStream? = null
             try {
                 stream = rec.createStream()

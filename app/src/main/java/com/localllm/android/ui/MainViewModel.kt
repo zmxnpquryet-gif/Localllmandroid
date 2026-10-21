@@ -10,6 +10,9 @@ import com.localllm.android.data.local.ChatDatabase
 import com.localllm.android.data.repository.ChatRepository
 import com.localllm.android.engine.GgufMetadataDetector
 import com.localllm.android.engine.GenerationChunk
+import com.localllm.android.engine.HfSource
+import com.localllm.android.i18n.AppStrings
+import com.localllm.android.i18n.SdEngineText
 import com.localllm.android.engine.LlmEngine
 import com.localllm.android.data.crypto.SecretPrefs
 import com.localllm.android.engine.McpClient
@@ -107,11 +110,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             apiServerBindAddress = settingsPrefs.getString("api_server_bind_address", "127.0.0.1") ?: "127.0.0.1",
             apiServerRequireAuth = settingsPrefs.getBoolean("api_server_require_auth", true),
             languagePreference = settingsPrefs.getString("language_preference", "system") ?: "system",
+            hfSource = settingsPrefs.getString("hf_source", "official") ?: "official",
             mcpServerUrl = settingsPrefs.getString("mcp_server_url", "") ?: "",
             isMcpEnabled = settingsPrefs.getBoolean("is_mcp_enabled", false)
         )
     )
     val settings: StateFlow<GenerationSettings> = _settings.asStateFlow()
+
+    init {
+        // 先以系统语言兜底（防引擎层在 Activity 挂载前被触发），MainActivity 会升级为应用内语言
+        AppStrings.attach(getApplication<Application>().resources)
+        // 下载源与语言无关的运行期开关，启动即同步
+        HfSource.useMirror = _settings.value.hfSource == "mirror"
+    }
 
     // ---- memory protection ----
     private val memoryGuard: MemoryGuardStore? = MemoryGuard.get()
@@ -565,7 +576,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _engineStatusMessage.value = when (runtime) {
                 ModelRuntimeType.LLAMA_CPP -> localizedString(R.string.vm_status_no_llamacpp_model)
                 ModelRuntimeType.LITE_RT -> localizedString(R.string.vm_status_no_litert_model)
-                ModelRuntimeType.SD_ENGINE -> com.localllm.engine.SDEngine.advisoryText()
+                ModelRuntimeType.SD_ENGINE -> SdEngineText.advisoryText()
             }
         }
     }
@@ -620,6 +631,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putString("api_server_bind_address", newSettings.apiServerBindAddress)
             putBoolean("api_server_require_auth", newSettings.apiServerRequireAuth)
             putString("language_preference", newSettings.languagePreference)
+            putString("hf_source", newSettings.hfSource)
             putString("mcp_server_url", newSettings.mcpServerUrl)
             putBoolean("is_mcp_enabled", newSettings.isMcpEnabled)
             apply()
@@ -651,6 +663,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setLanguagePreference(pref: String) {
         val updated = _settings.value.copy(languagePreference = pref)
+        updateSettings(updated)
+    }
+
+    fun setHfSource(source: String) {
+        val updated = _settings.value.copy(hfSource = source)
+        HfSource.useMirror = source == "mirror"
         updateSettings(updated)
     }
 
@@ -1893,6 +1911,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val locale = when (pref) {
                 "ko" -> Locale.KOREAN
                 "en" -> Locale.ENGLISH
+                "zh" -> Locale.SIMPLIFIED_CHINESE
                 else -> Locale.getDefault()
             }
             val config = Configuration(getApplication<Application>().resources.configuration).apply { setLocale(locale) }

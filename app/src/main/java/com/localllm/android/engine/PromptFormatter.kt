@@ -1,5 +1,8 @@
 ﻿package com.localllm.android.engine
 
+import com.localllm.android.R
+import com.localllm.android.i18n.AppStrings
+
 import android.util.Log
 import com.localllm.android.model.PromptTemplateType
 import org.json.JSONObject
@@ -68,13 +71,13 @@ object PromptFormatter {
             if (systemPrompt.isNotBlank()) {
                 append(systemPrompt.trim())
             } else {
-                append("당신은 Android 기기에서 완전히 로컬로 실행되는 친절하고 유능한 AI 어시스턴트입니다. 외부 서버 없이 기기 내부에서 모든 답변을 생성합니다.")
+                append(AppStrings.get(R.string.sys_prompt))
             }
             if (!toolsContext.isNullOrBlank()) {
-                append("\n\n[현재 기기 로컬 컨텍스트 및 도구 정보]:\n").append(toolsContext.trim())
+                append("\n\n" + AppStrings.get(R.string.sys_ctx_header) + "\n").append(toolsContext.trim())
             }
             if (supportsReasoning) {
-                append("\n답변을 작성할 때 사고 및 추론 과정은 반드시 <think>...</think> 태그 안에 작성하세요.")
+                append("\n" + AppStrings.get(R.string.sys_think))
             }
         }
     }
