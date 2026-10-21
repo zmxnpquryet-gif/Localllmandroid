@@ -25,7 +25,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Cache vendored sherpa-onnx AAR
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: app/libs/sherpa-onnx.aar
           key: sherpa-onnx-aar-1.13.8
