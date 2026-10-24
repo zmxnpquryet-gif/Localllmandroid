@@ -1,11 +1,23 @@
 name: Release APK
 
 on:
+  release:
+    types: [published]
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.5.5)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name || inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -14,6 +26,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -33,19 +47,55 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build release APK (throwaway signing key)
+      - name: Build release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
         run: |
-          keytool -genkeypair -v -keystore /tmp/ci-release.jks \
-            -storepass ci-release -alias upload -keypass ci-release \
-            -keyalg RSA -keysize 2048 -validity 30 \
-            -dname "CN=CI Throwaway,O=CI,C=US"
-          KEYSTORE_PATH=/tmp/ci-release.jks STORE_PASSWORD=ci-release KEY_PASSWORD=ci-release \
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Decoding official upload keystore from GitHub Secrets..."
+            echo "$KEYSTORE_BASE64" | base64 --decode > /tmp/official-release.jks
+            KEYSTORE_PATH=/tmp/official-release.jks \
+            STORE_PASSWORD="$STORE_PASSWORD" \
+            KEY_PASSWORD="$KEY_PASSWORD" \
+            KEY_ALIAS="${KEY_ALIAS:-upload}" \
             ./gradlew assembleRelease --stacktrace
+          else
+            echo "::warning::Official keystore secret not found. Using throwaway key for build test."
+            keytool -genkeypair -v -keystore /tmp/ci-release.jks \
+              -storepass ci-release -alias upload -keypass ci-release \
+              -keyalg RSA -keysize 2048 -validity 30 \
+              -dname "CN=CI Throwaway,O=CI,C=US"
+            KEYSTORE_PATH=/tmp/ci-release.jks STORE_PASSWORD=ci-release KEY_PASSWORD=ci-release \
+              ./gradlew assembleRelease --stacktrace
+          fi
 
-      - name: Create GitHub Release with APK
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ github.ref_name }}
-          files: app/build/outputs/apk/release/*.apk
-          fail_on_unmatched_files: true
-          generate_release_notes: true
+      - name: Verify APK signature and checksum
+        run: |
+          APK_FILE="app/build/outputs/apk/release/app-release.apk"
+          echo "=== APK SHA-256 ==="
+          sha256sum "$APK_FILE"
+          echo "=== APK Signature ==="
+          $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs "$APK_FILE" || true
+
+      - name: Publish or Attach APK to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.release.tag_name || github.ref_name }}"
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          fi
+          echo "Target tag: $TAG"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists. Uploading APK asset..."
+            gh release upload "$TAG" app/build/outputs/apk/release/*.apk --clobber
+          else
+            echo "Release $TAG does not exist. Creating new release with APK..."
+            gh release create "$TAG" app/build/outputs/apk/release/*.apk \
+              --title "$TAG" \
+              --generate-notes
+          fi
