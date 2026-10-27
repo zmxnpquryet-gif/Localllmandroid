@@ -109,7 +109,7 @@ class ReasoningStreamParserTest {
     @Test
     fun `partial lookalike tag with no think tag flushes as content`() {
         val parser = ReasoningStreamParser()
-        // "</thi" is not a prefix of the OPEN tag "<​think>", so it goes straight
+        // "</thi" is not a prefix of the OPEN tag "<think>", so it goes straight
         // to content instead of waiting for more chunks.
         parser.processChunk("</thi")
         parser.finish()
@@ -146,7 +146,7 @@ class ReasoningStreamParserTest {
     @Test
     fun `consecutive think blocks are all routed`() {
         val parser = ReasoningStreamParser()
-        parser.processChunk("<think>first<​/think>A<think>second</think>B")
+        parser.processChunk("<think>first</think>A<think>second</think>B")
         parser.finish()
 
         assertFalse(parser.isInReasoningMode)
