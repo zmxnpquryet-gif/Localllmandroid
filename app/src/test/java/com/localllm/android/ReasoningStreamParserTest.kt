@@ -76,4 +76,104 @@ class ReasoningStreamParserTest {
         assertEquals("1+1=2", parser.reasoningBuffer.toString())
         assertEquals("Result: 2", parser.contentBuffer.toString())
     }
+
+    // ------------------------------------------------------------------
+    // Edge cases
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `unclosed think tag at end of stream flushes pending text as reasoning`() {
+        val parser = ReasoningStreamParser()
+        parser.processChunk("<think>")
+        assertTrue(parser.isInReasoningMode)
+        parser.processChunk("thinking, but the stream ends mid-s")
+        // No close tag ever arrives; everything stays in the reasoning buffer.
+        parser.finish()
+
+        assertTrue(parser.isInReasoningMode)
+        assertEquals("thinking, but the stream ends mid-s", parser.reasoningBuffer.toString())
+        assertEquals("", parser.contentBuffer.toString())
+    }
+
+    @Test
+    fun `unclosed think tag with a partial close tag pending flushes it as reasoning`() {
+        val parser = ReasoningStreamParser()
+        parser.processChunk("<think>reasoning</thi")
+        assertTrue(parser.isInReasoningMode)
+        parser.finish()
+
+        assertEquals("reasoning</thi", parser.reasoningBuffer.toString())
+        assertEquals("", parser.contentBuffer.toString())
+    }
+
+    @Test
+    fun `partial lookalike tag with no think tag flushes as content`() {
+        val parser = ReasoningStreamParser()
+        // "</thi" is not a prefix of the OPEN tag "<​think>", so it goes straight
+        // to content instead of waiting for more chunks.
+        parser.processChunk("</thi")
+        parser.finish()
+
+        assertFalse(parser.isInReasoningMode)
+        assertEquals("</thi", parser.contentBuffer.toString())
+        assertEquals("", parser.reasoningBuffer.toString())
+    }
+
+    @Test
+    fun `lookalike text similar to think tag is emitted as content`() {
+        val parser = ReasoningStreamParser()
+        parser.processChunk("<thin ice>hello")
+        parser.finish()
+
+        assertFalse(parser.isInReasoningMode)
+        assertEquals("<thin ice>hello", parser.contentBuffer.toString())
+        assertEquals("", parser.reasoningBuffer.toString())
+    }
+
+    @Test
+    fun `lookalike tag split across chunks is emitted as content`() {
+        val parser = ReasoningStreamParser()
+        // "<thi" is a prefix of "<think>" and gets held; "n ice>" breaks the match.
+        parser.processChunk("wait <thi")
+        parser.processChunk("n ice> ok")
+        parser.finish()
+
+        assertFalse(parser.isInReasoningMode)
+        assertEquals("wait <thin ice> ok", parser.contentBuffer.toString())
+        assertEquals("", parser.reasoningBuffer.toString())
+    }
+
+    @Test
+    fun `consecutive think blocks are all routed`() {
+        val parser = ReasoningStreamParser()
+        parser.processChunk("<think>first<​/think>A<think>second</think>B")
+        parser.finish()
+
+        assertFalse(parser.isInReasoningMode)
+        assertEquals("firstsecond", parser.reasoningBuffer.toString())
+        assertEquals("AB", parser.contentBuffer.toString())
+    }
+
+    @Test
+    fun `consecutive think blocks with no content between them`() {
+        val parser = ReasoningStreamParser()
+        parser.processChunk("<think>a</think><think>b</think>")
+        parser.finish()
+
+        assertFalse(parser.isInReasoningMode)
+        assertEquals("ab", parser.reasoningBuffer.toString())
+        assertEquals("", parser.contentBuffer.toString())
+    }
+
+    @Test
+    fun `consecutive think blocks split across chunks`() {
+        val parser = ReasoningStreamParser()
+        parser.processChunk("<think>one")
+        parser.processChunk("</think>mid<think>two</think>")
+        parser.finish()
+
+        assertFalse(parser.isInReasoningMode)
+        assertEquals("onetwo", parser.reasoningBuffer.toString())
+        assertEquals("mid", parser.contentBuffer.toString())
+    }
 }
