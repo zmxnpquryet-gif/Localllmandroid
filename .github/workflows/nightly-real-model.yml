@@ -96,7 +96,7 @@ jobs:
 
       - name: Free disk space for the 17 GiB model
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
             /opt/hostedtoolcache/CodeQL || true
           df -h /
 
