@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -107,6 +108,7 @@ fun GSlider(
 ) {
     val colors = GlassTheme.colors
     var dragging by remember { mutableStateOf(false) }
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -118,7 +120,7 @@ fun GSlider(
                     steps = steps.coerceAtLeast(0)
                 )
                 setProgress { target ->
-                    onValueChange(
+                    currentOnValueChange(
                         snap(target.coerceIn(valueRange.start, valueRange.endInclusive), valueRange, steps)
                     )
                     true
@@ -132,7 +134,7 @@ fun GSlider(
                 ) { change, _ ->
                     change.consume()
                     val fraction = (change.position.x / size.width).coerceIn(0f, 1f)
-                    onValueChange(snap(fraction, valueRange, steps))
+                    currentOnValueChange(snap(fraction, valueRange, steps))
                 }
             },
         contentAlignment = Alignment.CenterStart

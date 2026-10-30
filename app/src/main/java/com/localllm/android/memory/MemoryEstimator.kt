@@ -14,6 +14,7 @@ object MemoryEstimator {
 
     private const val OVERHEAD_BYTES = 96L * 1024L * 1024L
     private const val KV_BYTES_PER_ELEMENT = 2L
+    private const val SD_KV_BYTES_PER_ELEMENT = 4L
     private val CONTEXT_STEPS = intArrayOf(512, 1024, 2048, 4096, 8192)
 
     data class Estimate(
@@ -23,7 +24,8 @@ object MemoryEstimator {
         val contextWindow: Int,
         val nLayers: Int,
         val kvHeads: Int,
-        val headDim: Int
+        val headDim: Int,
+        val kvBytesPerElement: Long = KV_BYTES_PER_ELEMENT
     ) {
         val totalBytes: Long get() = fileBytes + kvBytes + overheadBytes
 
@@ -70,8 +72,14 @@ object MemoryEstimator {
         }
     }
 
-    fun kvBytes(nLayers: Int, kvHeads: Int, headDim: Int, contextWindow: Int): Long {
-        return 2L * nLayers * kvHeads * headDim * contextWindow * KV_BYTES_PER_ELEMENT
+    fun kvBytes(
+        nLayers: Int,
+        kvHeads: Int,
+        headDim: Int,
+        contextWindow: Int,
+        bytesPerElement: Long = KV_BYTES_PER_ELEMENT
+    ): Long {
+        return 2L * nLayers * kvHeads * headDim * contextWindow * bytesPerElement
     }
 
     /**
@@ -87,12 +95,13 @@ object MemoryEstimator {
         contextWindow: Int
     ): Estimate = Estimate(
         fileBytes = denseBytes,
-        kvBytes = kvBytes(nLayers, kvHeads, headDim, contextWindow),
+        kvBytes = kvBytes(nLayers, kvHeads, headDim, contextWindow, SD_KV_BYTES_PER_ELEMENT),
         overheadBytes = OVERHEAD_BYTES,
         contextWindow = contextWindow,
         nLayers = nLayers,
         kvHeads = kvHeads,
-        headDim = headDim
+        headDim = headDim,
+        kvBytesPerElement = SD_KV_BYTES_PER_ELEMENT
     )
 
     /**
@@ -115,7 +124,13 @@ object MemoryEstimator {
             .sortedDescending()
             .firstOrNull { ctx ->
                 val shrunk = estimate.copy(
-                    kvBytes = kvBytes(estimate.nLayers, estimate.kvHeads, estimate.headDim, ctx),
+                    kvBytes = kvBytes(
+                        estimate.nLayers,
+                        estimate.kvHeads,
+                        estimate.headDim,
+                        ctx,
+                        estimate.kvBytesPerElement
+                    ),
                     contextWindow = ctx
                 )
                 shrunk.totalBytes <= softLimit
@@ -125,14 +140,26 @@ object MemoryEstimator {
                 Status.REDUCED,
                 candidate,
                 estimate.copy(
-                    kvBytes = kvBytes(estimate.nLayers, estimate.kvHeads, estimate.headDim, candidate),
+                    kvBytes = kvBytes(
+                        estimate.nLayers,
+                        estimate.kvHeads,
+                        estimate.headDim,
+                        candidate,
+                        estimate.kvBytesPerElement
+                    ),
                     contextWindow = candidate
                 ),
                 "context reduced to $candidate (est ${estimate.totalMb()}MB vs avail ${snapshot.availMb}MB)"
             )
         }
         val fitsAtMinimum = estimate.copy(
-            kvBytes = kvBytes(estimate.nLayers, estimate.kvHeads, estimate.headDim, CONTEXT_STEPS.first()),
+            kvBytes = kvBytes(
+                estimate.nLayers,
+                estimate.kvHeads,
+                estimate.headDim,
+                CONTEXT_STEPS.first(),
+                estimate.kvBytesPerElement
+            ),
             contextWindow = CONTEXT_STEPS.first()
         ).totalBytes <= hardLimit
         return if (fitsAtMinimum) {
@@ -140,7 +167,13 @@ object MemoryEstimator {
                 Status.REDUCED,
                 CONTEXT_STEPS.first(),
                 estimate.copy(
-                    kvBytes = kvBytes(estimate.nLayers, estimate.kvHeads, estimate.headDim, CONTEXT_STEPS.first()),
+                    kvBytes = kvBytes(
+                        estimate.nLayers,
+                        estimate.kvHeads,
+                        estimate.headDim,
+                        CONTEXT_STEPS.first(),
+                        estimate.kvBytesPerElement
+                    ),
                     contextWindow = CONTEXT_STEPS.first()
                 ),
                 "context reduced to ${CONTEXT_STEPS.first()} (est ${estimate.totalMb()}MB vs avail ${snapshot.availMb}MB)"

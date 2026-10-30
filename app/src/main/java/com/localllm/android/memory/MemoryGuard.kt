@@ -195,9 +195,9 @@ class MemoryGuardStore(
         }
     }
 
-    fun incidents(): List<Incident> {
+    fun incidents(): List<Incident> = synchronized(lock) {
         ensureLoaded()
-        return incidents.toList()
+        incidents.toList()
     }
 
     /** Reads the in-flight marker; a leftover marker means the last run died during inference. */

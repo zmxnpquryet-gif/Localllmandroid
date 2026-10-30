@@ -48,7 +48,7 @@ import com.localllm.android.voice.SttEngine
 import com.localllm.android.voice.TtsEngineMode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +68,7 @@ import com.localllm.android.R
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
 import com.localllm.android.voice.InteractiveVoiceState
+import java.util.Locale
 
 @Composable
 fun VoiceModeScreen(
@@ -75,13 +76,13 @@ fun VoiceModeScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val voiceState by viewModel.voiceManager.voiceState.collectAsState()
-    val amplitude by viewModel.voiceManager.audioAmplitude.collectAsState()
-    val recognizedText by viewModel.voiceManager.recognizedText.collectAsState()
-    val ttsMode by viewModel.voiceManager.ttsMode.collectAsState()
-    val localTtsState by viewModel.voiceManager.localTts.modelState.collectAsState()
-    val ttsSpeaker by viewModel.voiceManager.ttsSpeakerId.collectAsState()
-    val ttsSpeed by viewModel.voiceManager.ttsSpeed.collectAsState()
+    val voiceState by viewModel.voiceManager.voiceState.collectAsStateWithLifecycle()
+    val amplitude by viewModel.voiceManager.audioAmplitude.collectAsStateWithLifecycle()
+    val recognizedText by viewModel.voiceManager.recognizedText.collectAsStateWithLifecycle()
+    val ttsMode by viewModel.voiceManager.ttsMode.collectAsStateWithLifecycle()
+    val localTtsState by viewModel.voiceManager.localTts.modelState.collectAsStateWithLifecycle()
+    val ttsSpeaker by viewModel.voiceManager.ttsSpeakerId.collectAsStateWithLifecycle()
+    val ttsSpeed by viewModel.voiceManager.ttsSpeed.collectAsStateWithLifecycle()
 
     var isMicMuted by remember { mutableStateOf(false) }
 
@@ -405,8 +406,8 @@ fun VoiceModeScreen(
 
 @Composable
 private fun SttStatusRow(viewModel: MainViewModel) {
-    val sttState by viewModel.voiceManager.localStt.modelState.collectAsState()
-    val lastEngine by viewModel.voiceManager.lastSttEngine.collectAsState()
+    val sttState by viewModel.voiceManager.localStt.modelState.collectAsStateWithLifecycle()
+    val lastEngine by viewModel.voiceManager.lastSttEngine.collectAsStateWithLifecycle()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -538,7 +539,7 @@ private fun TtsVoiceControls(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             GText(
-                text = stringResource(R.string.voice_tts_speed, String.format("%.1f", speed)),
+                text = stringResource(R.string.voice_tts_speed, String.format(Locale.US, "%.1f", speed)),
                 fontSize = 11.sp,
                 color = Color.White.copy(alpha = 0.8f)
             )

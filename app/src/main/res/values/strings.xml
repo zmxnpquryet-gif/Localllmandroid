@@ -29,18 +29,18 @@
     <string name="conversation_untitled">Untitled</string>
 
     <!-- Chat Screen -->
-    <string name="input_placeholder">Type a message...</string>
+    <string name="input_placeholder">Type a message…</string>
     <string name="send">Send</string>
     <string name="stop">Stop</string>
     <string name="model_loading">Loading model: %1$s</string>
-    <string name="model_loading_default">Loading model...</string>
+    <string name="model_loading_default">Loading model…</string>
     <string name="model_loaded">Model ready</string>
     <string name="no_model_selected">No model selected</string>
     <string name="no_model_downloaded">No downloaded model. Please download one from the Model Hub.</string>
     <string name="prompt_suggestion_1">Recommend a healthy dinner menu</string>
     <string name="prompt_suggestion_2">Recommend a good book to read this weekend</string>
     <string name="prompt_suggestion_3">Help me organize my daily schedule effectively</string>
-    <string name="reasoning_thinking">Thinking...</string>
+    <string name="reasoning_thinking">Thinking…</string>
     <string name="reasoning_finished">Thought process</string>
     <string name="metrics_tps">TPS</string>
     <string name="metrics_prefill">Prefill</string>
@@ -64,7 +64,7 @@
     <string name="storage_usage">App Model Storage Used</string>
     <string name="storage_available">Device Free</string>
     <string name="download">Download</string>
-    <string name="downloading">Downloading...</string>
+    <string name="downloading">Downloading…</string>
     <string name="download_paused">Paused</string>
     <string name="run_model">Run</string>
     <string name="active_model">Active</string>
@@ -130,9 +130,9 @@
     <!-- Voice Mode Screen -->
     <string name="voice_mode_title">Voice Conversation Mode</string>
     <string name="voice_state_idle">Ready to listen</string>
-    <string name="voice_state_listening">Listening to voice...</string>
-    <string name="voice_state_processing">Thinking...</string>
-    <string name="voice_state_speaking">Speaking...</string>
+    <string name="voice_state_listening">Listening to voice…</string>
+    <string name="voice_state_processing">Thinking…</string>
+    <string name="voice_state_speaking">Speaking…</string>
     <string name="voice_stop_dialogue">Stop Conversation</string>
     <string name="voice_start_dialogue">Start Conversation</string>
     <string name="voice_permission_required">Microphone permission is required for voice conversation mode.</string>
@@ -146,14 +146,14 @@
     <string name="vm_status_no_default_model">No base model installed: download the latest model from the Model Hub.</string>
     <string name="vm_conversation_default_title">New Chat</string>
     <string name="vm_status_model_not_downloaded">%1$s is not downloaded yet. Download it from the Model Hub.</string>
-    <string name="vm_stage_preparing_load">Preparing to load...</string>
+    <string name="vm_stage_preparing_load">Preparing to load…</string>
     <string name="vm_stage_load_complete">Load complete</string>
     <string name="vm_stage_load_failed">Load failed</string>
     <string name="vm_status_model_load_exception">Model load exception: %1$s</string>
     <string name="vm_status_no_llamacpp_model">No downloaded model in llama.cpp format. Download one from the Model Hub.</string>
     <string name="vm_status_no_litert_model">No downloaded model in LiteRT LM format. Download one from the Model Hub.</string>
     <string name="vm_status_settings_apply_error">Settings apply error: %1$s</string>
-    <string name="vm_mcp_checking">Checking connection...</string>
+    <string name="vm_mcp_checking">Checking connection…</string>
     <string name="vm_mcp_connected">%1$s (%2$dms, %3$d tools)</string>
     <string name="vm_mcp_failed">Connection failed: %1$s</string>
     <string name="vm_status_no_downloaded_model">No downloaded model. Download one from the Model Hub.</string>
@@ -174,15 +174,15 @@
     <string name="vm_status_message_too_long">Message is too long (max %1$d characters). Only the beginning will be sent.</string>
     <string name="vm_conversation_photo_title">Photo chat</string>
     <string name="vm_notice_no_model">No downloaded model. Please download one from the top menu or the Model Hub first.</string>
-    <string name="vm_status_loading_memory">Loading %1$s into memory...</string>
-    <string name="vm_stage_loading_weights">Loading on-device weights...</string>
+    <string name="vm_status_loading_memory">Loading %1$s into memory…</string>
+    <string name="vm_stage_loading_weights">Loading on-device weights…</string>
     <string name="vm_notice_model_load_failed">Model load failed: %1$s. Check the model status in the Model Hub.</string>
     <string name="vm_error_prefix">Error: %1$s</string>
     <string name="vm_error_inference_generic">Something went wrong during inference.</string>
     <string name="vm_voice_no_model">No downloaded local model. Please download one from the Model Hub first.</string>
     <string name="vm_voice_load_failed">Model load failed: %1$s</string>
     <string name="vm_voice_error">An error occurred during the voice conversation.</string>
-    <string name="vm_status_copying_gguf">Copying GGUF model from device...</string>
+    <string name="vm_status_copying_gguf">Copying GGUF model from device…</string>
     <string name="vm_desc_engine_note">Engine structure verified (%1$d tensors)</string>
     <string name="vm_desc_imported_litert">LiteRT all-in-one unified model imported from device storage</string>
     <string name="vm_desc_imported_litert_vision">" • Integrated vision tower (Vision Encoder)"</string>
@@ -227,13 +227,13 @@
     <string name="chat_attached_image_desc">Attached image</string>
     <string name="chat_speak_desc">Read aloud</string>
     <string name="chat_reasoning_desc">Reasoning</string>
-    <string name="chat_reasoning_processing">Processing reasoning...</string>
+    <string name="chat_reasoning_processing">Processing reasoning…</string>
     <string name="chat_reasoning_complete">Reasoning complete</string>
     <string name="chat_reasoning_collapse">Collapse</string>
     <string name="chat_reasoning_expand">Expand</string>
     <string name="chat_performance_desc">Performance</string>
     <string name="chat_search_desc">Search</string>
-    <string name="chat_search_placeholder">Search conversations...</string>
+    <string name="chat_search_placeholder">Search conversations…</string>
     <string name="chat_encryption_desc">Encrypted</string>
     <string name="chat_encrypted_storage_notice">Stored encrypted in local SQLite (AES-256)</string>
     <string name="chat_rename_desc">Edit</string>
@@ -284,7 +284,7 @@
     <string name="settings_mcp_connected_tools">Connected tools: %1$s</string>
     <string name="settings_hf_token_title">Hugging Face Access Token (Optional)</string>
     <string name="settings_hf_token_desc">Sent as an auth header when downloading gated models (Gemma, Meta Llama, etc.) or private repositories. Public model downloads work fine when left empty.</string>
-    <string name="settings_hf_token_label">Hugging Face token (hf_...)</string>
+    <string name="settings_hf_token_label">Hugging Face token (hf_…)</string>
     <string name="settings_hide">Hide</string>
     <string name="settings_show">Show</string>
     <string name="settings_hf_token_set">✓ Token configured (Authorization header added automatically on download)</string>
@@ -312,7 +312,7 @@
     <string name="model_manager_downloading_title">Downloading</string>
     <string name="model_manager_speed">Speed: %1$s</string>
     <string name="model_manager_eta">Time left: about %1$d s</string>
-    <string name="model_manager_finishing">Finishing...</string>
+    <string name="model_manager_finishing">Finishing…</string>
     <string name="model_manager_segments">Segmented download progress</string>
     <string name="model_manager_integrity_verified">SHA-256 verified against the hash published by the host</string>
     <string name="model_manager_integrity_unverified">No hash published by the host — format check only, not hash-verified</string>
@@ -350,7 +350,7 @@
     <string name="model_manager_field_hf_token">Hugging Face token (optional: gated/private models)</string>
     <string name="model_manager_field_template_url_recommended">LiteRT Jinja/JSON template file link [recommended]</string>
     <string name="model_manager_field_template_url_optional">LiteRT Jinja/JSON template file link (optional)</string>
-    <string name="model_manager_field_template_url_hint">https://.../chat_template.jinja or tokenizer_config.json</string>
+    <string name="model_manager_field_template_url_hint">https://…/chat_template.jinja or tokenizer_config.json</string>
     <string name="model_manager_reasoning_toggle">Enable thinking (Thinking/reasoning)</string>
     <string name="model_manager_reasoning_toggle_desc">Supports &lt;think&gt; tags and the expand/collapse reasoning step UI</string>
     <string name="model_manager_embedded_vision">Embedded vision tower (Vision Tower)</string>
@@ -363,8 +363,8 @@
 
     <!-- Voice Mode screen -->
     <string name="voice_interactive_permission_required">Microphone permission is required for interactive voice mode.</string>
-    <string name="voice_state_local_thinking">The local model is thinking...</string>
-    <string name="voice_state_speaking_answer">Speaking the answer...</string>
+    <string name="voice_state_local_thinking">The local model is thinking…</string>
+    <string name="voice_state_speaking_answer">Speaking the answer…</string>
     <string name="voice_state_idle_hint">Tap the center orb to start a conversation</string>
     <string name="voice_tts_section">Voice output (TTS engine)</string>
     <string name="voice_tts_system_title">System TTS</string>
@@ -425,19 +425,19 @@
     <string name="eng_sd_nomem">Not enough memory even for SDengine: dense %1$sMB + KV must fit in RAM, but only %2$sMB is free (the %3$sMB of experts stream from SSD and do not use RAM). If lowering the context to 512 does not help, this device cannot run it.</string>
     <string name="eng_no_mem_model">Not enough free memory: loading %1$s needs about %2$sMB, but only %3$sMB RAM is free. Close background apps or pick a smaller quantization.</string>
     <string name="eng_mem_guard">Memory guard: context %1$s → %2$s auto-reduced (%3$s)</string>
-    <string name="eng_stage_verify">Verifying model integrity...</string>
-    <string name="eng_stage_litert_verify">Verifying LiteRT model file...</string>
+    <string name="eng_stage_verify">Verifying model integrity…</string>
+    <string name="eng_stage_litert_verify">Verifying LiteRT model file…</string>
     <string name="eng_stage_401">Authentication failed (401)</string>
     <string name="eng_err_401">Model file error: Hugging Face authentication required (401). Enter an HF token in Settings and download the model again.</string>
     <string name="eng_stage_html">HTML error page</string>
     <string name="eng_err_html">Model file error: the downloaded file is an HTML page, not a model binary.</string>
     <string name="eng_stage_size">File size error</string>
     <string name="eng_err_size">Model file error: file is abnormally small (%1$s bytes) and is not a valid model binary.</string>
-    <string name="eng_stage_jni">Verifying LiteRT JNI native library...</string>
+    <string name="eng_stage_jni">Verifying LiteRT JNI native library…</string>
     <string name="eng_stage_gpu_prev">Previous GPU init failure recorded → starting on CPU</string>
     <string name="eng_stage_no_opencl">No OpenCL driver → skipping GPU</string>
-    <string name="eng_stage_litert_init">Initializing LiteRT %1$s...</string>
-    <string name="eng_stage_litert_map">Mapping LiteRT weights and initializing model...</string>
+    <string name="eng_stage_litert_init">Initializing LiteRT %1$s…</string>
+    <string name="eng_stage_litert_map">Mapping LiteRT weights and initializing model…</string>
     <string name="eng_stage_litert_fail">LiteRT initialization failed</string>
     <string name="eng_unknown_err">Unknown error</string>
     <string name="eng_litert_init_err">LiteRT LM engine init error: %1$s</string>
@@ -451,11 +451,11 @@
     <string name="eng_err_magic">File header does not match the GGUF magic number (\'GGUF\'). The file is corrupted or invalid.</string>
     <string name="eng_stage_integrity">Integrity check failed</string>
     <string name="eng_fmt_err">Model file format error: %1$s</string>
-    <string name="eng_stage_sd_bind">Binding SDengine(TEST) weights...</string>
+    <string name="eng_stage_sd_bind">Binding SDengine(TEST) weights…</string>
     <string name="eng_sd_loaded">[SDengine][TEST] %1$s loaded (layers=%2$s, experts=%3$s, resident dense=%4$sMB, experts %5$sMB SSD streaming, tensors=%6$s)</string>
     <string name="eng_stage_sd_fallback">SDengine load failed → falling back to llama.cpp</string>
     <string name="eng_sd_fallback_msg">SDengine load failed (%1$s) — running on llama.cpp instead. %2$s</string>
-    <string name="eng_stage_llama_ctx">Creating llama.cpp native context...</string>
+    <string name="eng_stage_llama_ctx">Creating llama.cpp native context…</string>
     <string name="eng_cand1">GPU offload (%1$sL) + mmproj vision tower</string>
     <string name="eng_cand2">GPU offload (%1$sL, %2$s ctx)</string>
     <string name="eng_cand3">Native mmap + mmproj vision tower</string>
@@ -464,7 +464,7 @@
     <string name="eng_cand6">Direct memory load (%1$s ctx)</string>
     <string name="eng_cand7">Stabilized mmap mode (2048 ctx)</string>
     <string name="eng_cand8">Power-saving direct memory mode (1024 ctx)</string>
-    <string name="eng_stage_try">Trying to load %1$s...</string>
+    <string name="eng_stage_try">Trying to load %1$s…</string>
     <string name="eng_ctx_handle_fail">llama.cpp native context handle (0) returned failure</string>
     <string name="eng_ctx_create_fail">Failed to create llama.cpp native context</string>
     <string name="eng_stage_load_fail">Load failed</string>
@@ -507,7 +507,7 @@
     <string name="dl_empty_body">Server response body is empty</string>
     <string name="dl_fail_generic">Download failed: %1$s</string>
     <string name="svc_start_title">Download started: %1$s</string>
-    <string name="svc_start_content">Preparing to download %1$s...</string>
+    <string name="svc_start_content">Preparing to download %1$s…</string>
     <string name="svc_dl_error">Error occurred during download</string>
     <string name="svc_done_title">Download complete</string>
     <string name="svc_done_content">The %1$s file has finished downloading.</string>
@@ -590,7 +590,7 @@
     <string name="cry_decrypt_fail">Decryption failed: integrity check failed or the key does not match.</string>
     <string name="sys_prompt">You are a friendly and capable AI assistant that runs entirely locally on an Android device. You generate all answers on-device, without any external servers.</string>
     <string name="sys_ctx_header">[Current device local context and tool information]:</string>
-    <string name="sys_think">When writing your answer, always put your thinking and reasoning process inside &lt;think&gt;...&lt;/think&gt; tags.</string>
+    <string name="sys_think">When writing your answer, always put your thinking and reasoning process inside &lt;think&gt;…&lt;/think&gt; tags.</string>
     <string name="gen_effort_low">Low</string>
     <string name="gen_effort_medium">Medium</string>
     <string name="gen_effort_high">High</string>

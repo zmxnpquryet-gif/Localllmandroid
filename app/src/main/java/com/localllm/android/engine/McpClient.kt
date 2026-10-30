@@ -4,9 +4,16 @@ import com.localllm.android.BuildConfig
 import com.localllm.android.R
 import com.localllm.android.i18n.AppStrings
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl
@@ -69,8 +76,11 @@ class McpClient(client: OkHttpClient? = null) {
         .followSslRedirects(false)
         .build()
 
+    // The legacy transport keeps this GET stream open for the whole session,
+    // so it needs a generous idle timeout (servers usually send SSE pings) and
+    // must not share the short timeout used for one-shot HTTP calls.
     private val sseHttp: OkHttpClient = http.newBuilder()
-        .readTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
     private val idSeq = AtomicLong(0)
@@ -80,6 +90,13 @@ class McpClient(client: OkHttpClient? = null) {
     @Volatile private var serverName: String = ""
     @Volatile private var cachedTools: List<McpTool> = emptyList()
     @Volatile private var bearerToken: String? = null
+
+    // ---- legacy SSE transport state ----
+    private val sseScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val ssePending = java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
+    @Volatile private var sseJob: Job? = null
+    @Volatile private var sseCall: Call? = null
+    @Volatile private var sseResponse: Response? = null
 
     fun currentTools(): List<McpTool> = cachedTools
 
@@ -91,6 +108,31 @@ class McpClient(client: OkHttpClient? = null) {
         serverName = ""
         cachedTools = emptyList()
         bearerToken = null
+        stopSseTransport()
+    }
+
+    private fun stopSseTransport() {
+        sseJob?.cancel()
+        sseJob = null
+        try {
+            sseCall?.cancel()
+        } catch (_: Throwable) {
+        }
+        sseCall = null
+        try {
+            sseResponse?.close()
+        } catch (_: Throwable) {
+        }
+        sseResponse = null
+        failPendingSse("MCP SSE transport closed")
+    }
+
+    private fun failPendingSse(reason: String) {
+        val pending = ssePending.values.toList()
+        ssePending.clear()
+        // An IOException, not a CancellationException: a closed stream is a
+        // transport failure, and must not silently cancel the caller's coroutine.
+        pending.forEach { it.completeExceptionally(IOException(reason)) }
     }
 
     /**
@@ -236,6 +278,8 @@ class McpClient(client: OkHttpClient? = null) {
         internal const val MAX_TOOLS_CONTEXT_CHARS = 4000
         internal const val MAX_RESPONSE_BYTES = 8L * 1024 * 1024
         internal const val MAX_SSE_LINE_BYTES = 256L * 1024
+        /** POST may be only an acknowledgement; the real reply arrives over SSE. */
+        internal const val SSE_RESPONSE_TIMEOUT_MS = 60_000L
     }
 
     // ---- JSON-RPC plumbing ----
@@ -275,6 +319,17 @@ class McpClient(client: OkHttpClient? = null) {
         if (!session.isNullOrBlank()) builder.header("Mcp-Session-Id", session)
         authHeaderFor(url)?.let { builder.header("Authorization", it) }
         builder.post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+
+        // Legacy SSE servers acknowledge the POST with 202 and deliver the
+        // JSON-RPC response later on the still-open event stream. Register the
+        // waiter before sending so an early response cannot be lost.
+        val pendingKey = expectedId?.toString()
+        val pending = if (pendingKey != null && sseResponse != null) {
+            CompletableDeferred<JSONObject>().also { ssePending[pendingKey] = it }
+        } else {
+            null
+        }
+
         val call = http.newCall(builder.build())
         return try {
             call.await().use { resp ->
@@ -290,12 +345,18 @@ class McpClient(client: OkHttpClient? = null) {
                 } catch (_: Exception) {
                     null
                 }
-                JsonResponse(resp.code, sid, extractJsonMessage(raw, expectedId))
+                var body = extractJsonMessage(raw, expectedId)
+                if (body == null && pending != null && resp.code in 200..299) {
+                    body = withTimeoutOrNull(SSE_RESPONSE_TIMEOUT_MS) { pending.await() }
+                }
+                JsonResponse(resp.code, sid, body)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             null
+        } finally {
+            if (pendingKey != null) ssePending.remove(pendingKey)
         }
     }
 
@@ -419,41 +480,119 @@ class McpClient(client: OkHttpClient? = null) {
         return out
     }
 
-    /** Legacy SSE transport handshake: returns the POST message endpoint, or null. */
+    /**
+     * Legacy SSE transport handshake. The GET stream is deliberately kept open:
+     * MCP must continue reading it to receive responses to every subsequent POST.
+     * Returns the POST message endpoint, or null.
+     */
     private suspend fun openSseEndpoint(baseUrl: String): String? {
+        var call: Call? = null
+        var response: Response? = null
+        var keepOpen = false
         return try {
             val reqBuilder = Request.Builder().url(baseUrl).header("Accept", "text/event-stream").get()
             authHeaderFor(baseUrl)?.let { reqBuilder.header("Authorization", it) }
-            val req = reqBuilder.build()
-            sseHttp.newCall(req).execute().use { resp ->
-                if (resp.code !in 200..299) return null
-                val contentType = resp.header("Content-Type") ?: ""
-                if (!contentType.contains("text/event-stream", ignoreCase = true)) return null
-                val source = resp.body?.source() ?: return null
-                var eventName: String? = null
-                repeat(200) {
-                    val line = try {
-                        readBoundedLine(source)
-                    } catch (_: Exception) {
-                        return null
-                    } ?: return null
-                    val t = line.trim()
-                    when {
-                        t.startsWith("event:") -> eventName = t.removePrefix("event:").trim()
-                        t.startsWith("data:") -> {
-                            val data = t.removePrefix("data:").trim()
-                            if (eventName == "endpoint" && data.isNotBlank()) {
-                                return resolveEndpoint(baseUrl, data)
-                            }
+            call = sseHttp.newCall(reqBuilder.build())
+            response = call.await()
+            val resp = response
+            if (resp.code !in 200..299) return null
+            val contentType = resp.header("Content-Type") ?: ""
+            if (!contentType.contains("text/event-stream", ignoreCase = true)) return null
+            val source = resp.body?.source() ?: return null
+
+            var eventName: String? = null
+            repeat(200) {
+                val line = readBoundedLine(source) ?: return null
+                val t = line.trim()
+                when {
+                    t.startsWith("event:") -> eventName = t.removePrefix("event:").trim()
+                    t.startsWith("data:") -> {
+                        val data = t.removePrefix("data:").trim()
+                        if (eventName == "endpoint" && data.isNotBlank()) {
+                            val endpoint = resolveEndpoint(baseUrl, data) ?: return null
+                            sseCall = call
+                            sseResponse = resp
+                            startSsePump(source, resp)
+                            keepOpen = true
+                            return endpoint
                         }
-                        t.isEmpty() -> eventName = null
                     }
+                    t.isEmpty() -> eventName = null
                 }
-                null
             }
+            null
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             null
+        } finally {
+            if (!keepOpen) {
+                try {
+                    response?.close()
+                } catch (_: Throwable) {
+                }
+                try {
+                    call?.cancel()
+                } catch (_: Throwable) {
+                }
+            }
         }
+    }
+
+    /**
+     * Reads the event stream until it closes. Every JSON-RPC object carrying an
+     * id completes the matching pending POST; notifications are ignored.
+     */
+    private fun startSsePump(source: BufferedSource, response: Response) {
+        sseJob?.cancel()
+        sseJob = sseScope.launch {
+            try {
+                val data = StringBuilder()
+                while (isActive) {
+                    val line = readBoundedLine(source) ?: break
+                    when {
+                        line.isEmpty() -> {
+                            if (data.isNotEmpty()) dispatchSseData(data.toString())
+                            data.setLength(0)
+                        }
+                        line.startsWith("data:") -> {
+                            val payload = line.removePrefix("data:").trim()
+                            if (payload.isEmpty() || payload == "[DONE]") continue
+                            if (data.isNotEmpty()) data.append('\n')
+                            data.append(payload)
+                        }
+                        // event:/id:/retry:/comment lines carry no JSON payload.
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A read timeout or a server restart ends this stream; pending
+                // requests fail fast instead of hanging until their timeout.
+                android.util.Log.w("McpClient", "SSE stream ended: ${e.message}")
+            } finally {
+                if (sseResponse === response) sseResponse = null
+                if (sseCall != null && sseJob === kotlinx.coroutines.currentCoroutineContext()[Job]) {
+                    sseJob = null
+                    sseCall = null
+                }
+                try {
+                    response.close()
+                } catch (_: Throwable) {
+                }
+                failPendingSse("MCP SSE stream ended")
+            }
+        }
+    }
+
+    private fun dispatchSseData(payload: String) {
+        val obj = try {
+            JSONObject(payload)
+        } catch (_: Exception) {
+            return
+        }
+        val id = obj.opt("id") ?: return
+        ssePending.remove(id.toString())?.complete(obj)
     }
 
     /**

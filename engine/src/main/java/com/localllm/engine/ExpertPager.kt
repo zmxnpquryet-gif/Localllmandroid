@@ -2,8 +2,8 @@
 package com.localllm.engine
 
 import java.io.File
+import java.io.RandomAccessFile
 import java.nio.channels.FileChannel
-import java.nio.file.StandardOpenOption
 
 /** One expert weight tile in one layer. `kind` selects gate/up/down. */
 data class ExpertTileKey(val layer: Int, val expert: Int, val kind: Int) {
@@ -25,7 +25,9 @@ class FileExpertTileSource(
     file: File,
     private val layout: Map<ExpertTileKey, Pair<Long, Int>>
 ) : ExpertTileSource, AutoCloseable {
-    private val channel: FileChannel = FileChannel.open(file.toPath(), StandardOpenOption.READ)
+    // API 24 compatible (FileChannel.open(file.toPath(), ...) is API 26+).
+    private val randomAccess = RandomAccessFile(file, "r")
+    private val channel: FileChannel = randomAccess.channel
     private val fileSize = file.length()
 
     override fun readTile(key: ExpertTileKey): ByteArray {
@@ -48,6 +50,10 @@ class FileExpertTileSource(
     override fun close() {
         try {
             channel.close()
+        } catch (_: Exception) {
+        }
+        try {
+            randomAccess.close()
         } catch (_: Exception) {
         }
     }

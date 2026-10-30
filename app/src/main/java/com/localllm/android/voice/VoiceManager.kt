@@ -102,10 +102,12 @@ class VoiceManager(private val context: Context) {
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var recordingThread: Thread? = null
     @Volatile private var isRecording = false
-    /** Set alongside the stop signal: the capture thread drops the fragment. */
-    @Volatile private var discardRecording = false
-    private var pendingResult: ((String) -> Unit)? = null
-    private var pendingError: ((String) -> Unit)? = null
+    /**
+     * Invalidates an in-flight capture. Stop, dispose and a subsequent start all
+     * bump this value, so an old thread can never transcribe into the new
+     * session's callbacks or resurrect its discarded fragment.
+     */
+    private val recordingSession = java.util.concurrent.atomic.AtomicInteger(0)
 
     // ---- local TTS playback state ----
     @Volatile private var localTtsJob: Job? = null
@@ -223,12 +225,10 @@ class VoiceManager(private val context: Context) {
             onError(AppStrings.get(R.string.vmgr_mic_state))
             return
         }
-        pendingResult = onResult
-        pendingError = onError
+        val session = recordingSession.incrementAndGet()
         _lastSttEngine.value = SttEngine.LOCAL_WHISPER
         _voiceState.value = InteractiveVoiceState.LISTENING
         isRecording = true
-        discardRecording = false
         recorder = record
         val thread = Thread({
             val chunks = ArrayList<FloatArray>(256)
@@ -246,7 +246,7 @@ class VoiceManager(private val context: Context) {
             var speechEndSample = -1
             try {
                 record.startRecording()
-                while (isRecording && total < maxSamples) {
+                while (isRecording && session == recordingSession.get() && total < maxSamples) {
                     val n = record.read(buf, 0, buf.size)
                     if (n < 0) break
                     if (n == 0) continue
@@ -284,27 +284,17 @@ class VoiceManager(private val context: Context) {
                 }
             } catch (_: Throwable) {
             } finally {
-                // The capture loop is over: never leave isRecording latched, or every
-                // later startListening() would return early for the rest of the process.
-                isRecording = false
+                // Only the current session may unlatch isRecording; a newer
+                // session already owns that flag.
+                if (session == recordingSession.get()) isRecording = false
                 try { record.stop() } catch (_: Throwable) {}
                 try { record.release() } catch (_: Throwable) {}
                 if (recorder === record) recorder = null
                 if (recordingThread === Thread.currentThread()) recordingThread = null
             }
 
-            // A Stop tap is a discard, not an early endpoint: transcribing the
-            // fragment would answer a question the user cancelled.
-            if (discardRecording) {
-                discardRecording = false
-                pendingResult = null
-                pendingError = null
-                mainHandler.post {
-                    _audioAmplitude.value = 0f
-                    _voiceState.value = InteractiveVoiceState.IDLE
-                }
-                return@Thread
-            }
+            // Stop/dispose invalidated this session: the fragment is a discard.
+            if (session != recordingSession.get()) return@Thread
             var flat = FloatArray(total)
             var pos = 0
             for (chunk in chunks) {
@@ -316,20 +306,23 @@ class VoiceManager(private val context: Context) {
                 val tail = min(flat.size, speechEndSample + sampleRate * TRIM_TAIL_MS / 1000)
                 if (tail > head) flat = flat.copyOfRange(head, tail)
             }
-            finishLocalRecording(flat)
+            finishLocalRecording(flat, onResult, onError, session)
         }, "LocalSttRecord")
         recordingThread = thread
         thread.start()
     }
 
-    private fun finishLocalRecording(samples: FloatArray) {
-        val onResult = pendingResult
-        val onError = pendingError
-        pendingResult = null
-        pendingError = null
+    private fun finishLocalRecording(
+        samples: FloatArray,
+        onResult: (String) -> Unit,
+        onError: (String) -> Unit,
+        session: Int
+    ) {
         mainHandler.post {
-            _audioAmplitude.value = 0f
-            _voiceState.value = InteractiveVoiceState.PROCESSING
+            if (session == recordingSession.get()) {
+                _audioAmplitude.value = 0f
+                _voiceState.value = InteractiveVoiceState.PROCESSING
+            }
         }
         ioScope.launch {
             try {
@@ -338,16 +331,18 @@ class VoiceManager(private val context: Context) {
                 }
                 val text = localStt.transcribe(samples)
                 withContext(Dispatchers.Main) {
+                    if (session != recordingSession.get()) return@withContext
                     _voiceState.value = InteractiveVoiceState.IDLE
                     _recognizedText.value = text
-                    if (text.isNotBlank()) onResult?.invoke(text)
-                    else onError?.invoke(AppStrings.get(R.string.vmgr_no_speech))
+                    if (text.isNotBlank()) onResult(text)
+                    else onError(AppStrings.get(R.string.vmgr_no_speech))
                 }
             } catch (e: Exception) {
                 android.util.Log.w(TAG, "Local STT failed", e)
                 withContext(Dispatchers.Main) {
+                    if (session != recordingSession.get()) return@withContext
                     _voiceState.value = InteractiveVoiceState.IDLE
-                    onError?.invoke(e.localizedMessage ?: AppStrings.get(R.string.vmgr_stt_fail))
+                    onError(e.localizedMessage ?: AppStrings.get(R.string.vmgr_stt_fail))
                 }
             }
         }
@@ -415,13 +410,20 @@ class VoiceManager(private val context: Context) {
      * fires when done) — the caller is never blocked.
      */
     fun stopListening() {
+        // Bumping the session invalidates the capture thread *and* any STT job
+        // that is still transcribing the fragment. A subsequent startListening()
+        // gets a fresh session, so the two can never cross-talk.
+        val cancelledSession = recordingSession.incrementAndGet()
         if (isRecording) {
-            discardRecording = true
             isRecording = false
+            mainHandler.post {
+                if (cancelledSession == recordingSession.get()) {
+                    _voiceState.value = InteractiveVoiceState.IDLE
+                    _audioAmplitude.value = 0f
+                }
+            }
             return
         }
-        pendingResult = null
-        pendingError = null
         destroySystemRecognizer()
         _voiceState.value = InteractiveVoiceState.IDLE
         _audioAmplitude.value = 0f
@@ -525,12 +527,11 @@ class VoiceManager(private val context: Context) {
 
     fun release() {
         try { isRecording = false } catch (_: Throwable) {}
+        recordingSession.incrementAndGet()
         try { recordingThread?.join(1000) } catch (_: Throwable) {}
         recordingThread = null
         try { recorder?.release() } catch (_: Throwable) {}
         recorder = null
-        pendingResult = null
-        pendingError = null
         destroySystemRecognizer()
         stopSpeaking()
         isTtsInitialized = false

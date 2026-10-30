@@ -29,18 +29,18 @@
     <string name="conversation_untitled">제목 없음</string>
 
     <!-- Chat Screen -->
-    <string name="input_placeholder">메시지 입력...</string>
+    <string name="input_placeholder">메시지 입력…</string>
     <string name="send">전송</string>
     <string name="stop">중지</string>
     <string name="model_loading">모델 로딩 중: %1$s</string>
-    <string name="model_loading_default">모델 로딩 중...</string>
+    <string name="model_loading_default">모델 로딩 중…</string>
     <string name="model_loaded">모델 준비 완료</string>
     <string name="no_model_selected">선택된 모델 없음</string>
     <string name="no_model_downloaded">다운로드된 모델이 없습니다. 모델 관리자에서 모델을 먼저 다운로드해 주세요.</string>
     <string name="prompt_suggestion_1">오늘 저녁 메뉴 추천해줘</string>
     <string name="prompt_suggestion_2">주말에 읽을 만한 책 추천해줘</string>
     <string name="prompt_suggestion_3">하루 일정 정리하는 방법 알려줘</string>
-    <string name="reasoning_thinking">사고 과정 (생각 중...)</string>
+    <string name="reasoning_thinking">사고 과정 (생각 중…)</string>
     <string name="reasoning_finished">사고 과정 (완료)</string>
     <string name="metrics_tps">TPS</string>
     <string name="metrics_prefill">프롬프트 속도</string>
@@ -64,7 +64,7 @@
     <string name="storage_usage">앱 모델 실제 사용 용량</string>
     <string name="storage_available">기기 여유</string>
     <string name="download">다운로드</string>
-    <string name="downloading">다운로드 중...</string>
+    <string name="downloading">다운로드 중…</string>
     <string name="download_paused">일시 중지됨</string>
     <string name="run_model">실행</string>
     <string name="active_model">사용 중</string>
@@ -130,9 +130,9 @@
     <!-- Voice Mode Screen -->
     <string name="voice_mode_title">음성 대화 모드</string>
     <string name="voice_state_idle">음성 대화 준비 완료</string>
-    <string name="voice_state_listening">음성을 듣고 있습니다...</string>
-    <string name="voice_state_processing">생각 중...</string>
-    <string name="voice_state_speaking">답변 중...</string>
+    <string name="voice_state_listening">음성을 듣고 있습니다…</string>
+    <string name="voice_state_processing">생각 중…</string>
+    <string name="voice_state_speaking">답변 중…</string>
     <string name="voice_stop_dialogue">대화 중지</string>
     <string name="voice_start_dialogue">음성 시작</string>
     <string name="voice_permission_required">음성 대화 모드를 사용하려면 마이크 권한이 필요합니다.</string>
@@ -146,14 +146,14 @@
     <string name="vm_status_no_default_model">기본 모델 미탑재: 모델 관리자에서 최신 모델을 다운로드하세요.</string>
     <string name="vm_conversation_default_title">새로운 대화</string>
     <string name="vm_status_model_not_downloaded">%1$s 모델은 아직 다운로드되지 않았습니다. 모델 관리자에서 다운로드해 주세요.</string>
-    <string name="vm_stage_preparing_load">로딩 준비 중...</string>
+    <string name="vm_stage_preparing_load">로딩 준비 중…</string>
     <string name="vm_stage_load_complete">로드 완료</string>
     <string name="vm_stage_load_failed">로드 실패</string>
     <string name="vm_status_model_load_exception">모델 로드 예외: %1$s</string>
     <string name="vm_status_no_llamacpp_model">llama.cpp 형식의 다운로드된 모델이 없습니다. 모델 관리자에서 다운로드하세요.</string>
     <string name="vm_status_no_litert_model">LiteRT LM 형식의 다운로드된 모델이 없습니다. 모델 관리자에서 다운로드하세요.</string>
     <string name="vm_status_settings_apply_error">설정 적용 오류: %1$s</string>
-    <string name="vm_mcp_checking">연결 확인 중...</string>
+    <string name="vm_mcp_checking">연결 확인 중…</string>
     <string name="vm_mcp_connected">%1$s (%2$dms, %3$d개 도구)</string>
     <string name="vm_mcp_failed">연결 실패: %1$s</string>
     <string name="vm_status_no_downloaded_model">다운로드된 모델이 없습니다. 모델 관리자에서 다운로드해 주세요.</string>
@@ -174,15 +174,15 @@
     <string name="vm_status_message_too_long">메시지가 너무 깁니다 (최대 %1$d자). 앞부분만 전송됩니다.</string>
     <string name="vm_conversation_photo_title">사진 대화</string>
     <string name="vm_notice_no_model">다운로드된 모델이 없습니다. 상단 메뉴 또는 모델 관리에서 모델을 먼저 다운로드해 주세요.</string>
-    <string name="vm_status_loading_memory">%1$s 메모리 로드 중...</string>
-    <string name="vm_stage_loading_weights">온디바이스 가중치 로드 중...</string>
+    <string name="vm_status_loading_memory">%1$s 메모리 로드 중…</string>
+    <string name="vm_stage_loading_weights">온디바이스 가중치 로드 중…</string>
     <string name="vm_notice_model_load_failed">모델 로드 실패: %1$s. 모델 관리자에서 모델 상태를 확인해 주세요.</string>
     <string name="vm_error_prefix">오류 발생: %1$s</string>
     <string name="vm_error_inference_generic">추론 중 문제가 발생했습니다.</string>
     <string name="vm_voice_no_model">다운로드된 로컬 모델이 없습니다. 모델 관리자에서 모델을 먼저 다운로드해 주세요.</string>
     <string name="vm_voice_load_failed">모델 로드 실패: %1$s</string>
     <string name="vm_voice_error">음성 대화 중 오류가 발생했습니다.</string>
-    <string name="vm_status_copying_gguf">기기에서 GGUF 모델 복사 중...</string>
+    <string name="vm_status_copying_gguf">기기에서 GGUF 모델 복사 중…</string>
     <string name="vm_desc_engine_note">Engine 구조 확인(%1$d 텐서)</string>
     <string name="vm_desc_imported_litert">기기 저장소에서 불러온 LiteRT 올인원 통합 모델</string>
     <string name="vm_desc_imported_litert_vision">" • 통합 비전타워(Vision Encoder)"</string>
@@ -227,13 +227,13 @@
     <string name="chat_attached_image_desc">첨부 이미지</string>
     <string name="chat_speak_desc">읽기</string>
     <string name="chat_reasoning_desc">추론</string>
-    <string name="chat_reasoning_processing">추론 과정 처리 중...</string>
+    <string name="chat_reasoning_processing">추론 과정 처리 중…</string>
     <string name="chat_reasoning_complete">추론 과정 완료</string>
     <string name="chat_reasoning_collapse">접기</string>
     <string name="chat_reasoning_expand">펼치기</string>
     <string name="chat_performance_desc">성능</string>
     <string name="chat_search_desc">검색</string>
-    <string name="chat_search_placeholder">대화 검색...</string>
+    <string name="chat_search_placeholder">대화 검색…</string>
     <string name="chat_encryption_desc">암호화</string>
     <string name="chat_encrypted_storage_notice">로컬 SQLite AES-256 암호화 저장됨</string>
     <string name="chat_rename_desc">수정</string>
@@ -284,7 +284,7 @@
     <string name="settings_mcp_connected_tools">연결된 도구: %1$s</string>
     <string name="settings_hf_token_title">Hugging Face 액세스 토큰 (선택)</string>
     <string name="settings_hf_token_desc">Gated 모델(Gemma, Meta Llama 등) 또는 비공개 저장소 모델을 다운로드할 때 인증 헤더로 전송됩니다. 공개 모델 다운로드 시에는 비워두셔도 정상 동작합니다.</string>
-    <string name="settings_hf_token_label">Hugging Face 토큰 (hf_...)</string>
+    <string name="settings_hf_token_label">Hugging Face 토큰 (hf_…)</string>
     <string name="settings_hide">숨기기</string>
     <string name="settings_show">보기</string>
     <string name="settings_hf_token_set">✓ 토큰 설정됨 (다운로드 요청 시 Authorization 헤더 자동 포함)</string>
@@ -312,7 +312,7 @@
     <string name="model_manager_downloading_title">다운로드 중</string>
     <string name="model_manager_speed">속도: %1$s</string>
     <string name="model_manager_eta">남은 시간: 약 %1$d초</string>
-    <string name="model_manager_finishing">완료 중...</string>
+    <string name="model_manager_finishing">완료 중…</string>
     <string name="model_manager_segments">분할 다운로드 진행 상태</string>
     <string name="model_manager_integrity_verified">호스트가 게시한 해시와 SHA-256 일치 확인됨</string>
     <string name="model_manager_integrity_unverified">호스트가 게시한 해시 없음 — 포맷 검사만 완료, 해시 미검증</string>
@@ -350,7 +350,7 @@
     <string name="model_manager_field_hf_token">Hugging Face 토큰 (선택: Gated/비공개 모델)</string>
     <string name="model_manager_field_template_url_recommended">LiteRT Jinja/JSON 템플릿 파일 링크 [권장]</string>
     <string name="model_manager_field_template_url_optional">LiteRT Jinja/JSON 템플릿 파일 링크 (선택)</string>
-    <string name="model_manager_field_template_url_hint">https://.../chat_template.jinja 또는 tokenizer_config.json</string>
+    <string name="model_manager_field_template_url_hint">https://…/chat_template.jinja 또는 tokenizer_config.json</string>
     <string name="model_manager_reasoning_toggle">사고 과정 (Thinking/추론) 활성화</string>
     <string name="model_manager_reasoning_toggle_desc">&lt;think&gt; 태그 또는 추론 단계 펼침/접기 UI 지원</string>
     <string name="model_manager_embedded_vision">내장 비전 타워 (Vision Tower)</string>
@@ -363,8 +363,8 @@
 
     <!-- Voice Mode screen -->
     <string name="voice_interactive_permission_required">대화형 음성 모드를 위해 마이크 권한이 필요합니다.</string>
-    <string name="voice_state_local_thinking">로컬 모델이 생각 중입니다...</string>
-    <string name="voice_state_speaking_answer">답변을 말하는 중입니다...</string>
+    <string name="voice_state_local_thinking">로컬 모델이 생각 중입니다…</string>
+    <string name="voice_state_speaking_answer">답변을 말하는 중입니다…</string>
     <string name="voice_state_idle_hint">중앙 오브를 눌러 대화를 시작하세요</string>
     <string name="voice_tts_section">음성 출력 (TTS 엔진)</string>
     <string name="voice_tts_system_title">시스템 TTS</string>
@@ -425,19 +425,19 @@
     <string name="eng_sd_nomem">SDengine으로도 메모리 부족: dense %1$sMB + KV가 RAM에 들어가야 하지만 가용 RAM이 %2$sMB입니다 (expert %3$sMB는 SSD 스트리밍 대상이라 RAM과 무관). 컨텍스트를 512까지 낮춰도 안 되면 이 기기에서는 무리입니다.</string>
     <string name="eng_no_mem_model">가용 메모리 부족: %1$s 로드에 약 %2$sMB가 필요하지만 가용 RAM이 %3$sMB입니다. 백그라운드 앱을 정리하거나 더 작은 양자화 모델을 선택하세요.</string>
     <string name="eng_mem_guard">메모리 보호: 컨텍스트 %1$s → %2$s 자동 하향 (%3$s)</string>
-    <string name="eng_stage_verify">모델 무결성 검증 중...</string>
-    <string name="eng_stage_litert_verify">LiteRT 모델 파일 검증 중...</string>
+    <string name="eng_stage_verify">모델 무결성 검증 중…</string>
+    <string name="eng_stage_litert_verify">LiteRT 모델 파일 검증 중…</string>
     <string name="eng_stage_401">인증 실패 (401)</string>
     <string name="eng_err_401">모델 파일 오류: Hugging Face 인증 필요 (401 Unauthorized). 설정에서 HF 토큰을 입력 후 모델을 다시 다운로드하세요.</string>
     <string name="eng_stage_html">HTML 오류 페이지</string>
     <string name="eng_err_html">모델 파일 오류: 다운로드된 파일이 모델 바이너리가 아닌 HTML 웹페이지입니다.</string>
     <string name="eng_stage_size">파일 크기 오류</string>
     <string name="eng_err_size">모델 파일 오류: 파일 크기가 비정상적으로 작습니다 (%1$s bytes). 올바른 모델 바이너리가 아닙니다.</string>
-    <string name="eng_stage_jni">LiteRT JNI 네이티브 라이브러리 검증 중...</string>
+    <string name="eng_stage_jni">LiteRT JNI 네이티브 라이브러리 검증 중…</string>
     <string name="eng_stage_gpu_prev">이전 GPU 초기화 실패 기록 → CPU로 시작</string>
     <string name="eng_stage_no_opencl">OpenCL 드라이버 없음 → GPU 건너뜀</string>
-    <string name="eng_stage_litert_init">LiteRT %1$s 초기화 중...</string>
-    <string name="eng_stage_litert_map">LiteRT 가중치 매핑 및 모델 초기화...</string>
+    <string name="eng_stage_litert_init">LiteRT %1$s 초기화 중…</string>
+    <string name="eng_stage_litert_map">LiteRT 가중치 매핑 및 모델 초기화…</string>
     <string name="eng_stage_litert_fail">LiteRT 초기화 실패</string>
     <string name="eng_unknown_err">알 수 없는 오류</string>
     <string name="eng_litert_init_err">LiteRT LM 엔진 초기화 오류: %1$s</string>
@@ -451,11 +451,11 @@
     <string name="eng_err_magic">파일 헤더가 GGUF 매직넘버(\'GGUF\')와 일치하지 않습니다. 손상되었거나 유효하지 않은 파일입니다.</string>
     <string name="eng_stage_integrity">무결성 검증 실패</string>
     <string name="eng_fmt_err">모델 파일 형식 오류: %1$s</string>
-    <string name="eng_stage_sd_bind">SDengine(TEST) 가중치 바인딩 중...</string>
+    <string name="eng_stage_sd_bind">SDengine(TEST) 가중치 바인딩 중…</string>
     <string name="eng_sd_loaded">[SDengine][TEST] %1$s 로드 완료 (layers=%2$s, experts=%3$s, resident dense=%4$sMB, experts %5$sMB SSD 스트리밍, tensors=%6$s)</string>
     <string name="eng_stage_sd_fallback">SDengine 로드 실패 → llama.cpp 대체 실행</string>
     <string name="eng_sd_fallback_msg">SDengine 로드 실패(%1$s) — llama.cpp 대체 실행. %2$s</string>
-    <string name="eng_stage_llama_ctx">llama.cpp 네이티브 컨텍스트 생성 중...</string>
+    <string name="eng_stage_llama_ctx">llama.cpp 네이티브 컨텍스트 생성 중…</string>
     <string name="eng_cand1">GPU 가속 (%1$sL) + mmproj 비전타워</string>
     <string name="eng_cand2">GPU 가속 (%1$sL, %2$s ctx)</string>
     <string name="eng_cand3">네이티브 mmap + mmproj 비전타워</string>
@@ -464,7 +464,7 @@
     <string name="eng_cand6">직접 메모리 로드 (%1$s ctx)</string>
     <string name="eng_cand7">안정화 mmap 모드 (2048 ctx)</string>
     <string name="eng_cand8">절전 직접 메모리 모드 (1024 ctx)</string>
-    <string name="eng_stage_try">%1$s 로드 시도 중...</string>
+    <string name="eng_stage_try">%1$s 로드 시도 중…</string>
     <string name="eng_ctx_handle_fail">llama.cpp 네이티브 컨텍스트 핸들(0) 반환 실패</string>
     <string name="eng_ctx_create_fail">llama.cpp 네이티브 컨텍스트 생성 실패</string>
     <string name="eng_stage_load_fail">로드 실패</string>
@@ -507,7 +507,7 @@
     <string name="dl_empty_body">서버 응답 본문이 비어 있습니다.</string>
     <string name="dl_fail_generic">다운로드 실패: %1$s</string>
     <string name="svc_start_title">다운로드 시작: %1$s</string>
-    <string name="svc_start_content">%1$s 다운로드를 준비하고 있습니다...</string>
+    <string name="svc_start_content">%1$s 다운로드를 준비하고 있습니다…</string>
     <string name="svc_dl_error">다운로드 중 오류 발생</string>
     <string name="svc_done_title">다운로드 완료</string>
     <string name="svc_done_content">%1$s 파일 다운로드가 완료되었습니다.</string>
@@ -590,7 +590,7 @@
     <string name="cry_decrypt_fail">암호문 복호화 실패: 무결성 검증에 실패했거나 키가 일치하지 않습니다.</string>
     <string name="sys_prompt">당신은 Android 기기에서 완전히 로컬로 실행되는 친절하고 유능한 AI 어시스턴트입니다. 외부 서버 없이 기기 내부에서 모든 답변을 생성합니다.</string>
     <string name="sys_ctx_header">[현재 기기 로컬 컨텍스트 및 도구 정보]:</string>
-    <string name="sys_think">답변을 작성할 때 사고 및 추론 과정은 반드시 &lt;think&gt;...&lt;/think&gt; 태그 안에 작성하세요.</string>
+    <string name="sys_think">답변을 작성할 때 사고 및 추론 과정은 반드시 &lt;think&gt;…&lt;/think&gt; 태그 안에 작성하세요.</string>
     <string name="gen_effort_low">낮음 (Low)</string>
     <string name="gen_effort_medium">보통 (Medium)</string>
     <string name="gen_effort_high">높음 (High)</string>

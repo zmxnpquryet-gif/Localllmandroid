@@ -96,6 +96,8 @@ Estimates the real footprint (weights + KV cache + compute buffers) before mappi
 | **Qwen 2.5** | 1.5B | Q4_K_M | ~1.0 GB | 3 GB | llama.cpp | Excellent quality/size ratio; strong multilingual |
 | **Qwen 2.5** | 3B | Q4_K_M | ~2.0 GB | 4 GB | llama.cpp | Sweet spot for most 8 GB phones |
 | **Qwen 2.5** | 7B | Q4_K_M | ~4.7 GB | 6 GB | llama.cpp | Best in-app quality; needs a flagship or 12 GB device |
+| **LFM3** | 1.7B | Q4_K_M | ~1.0 GB | 3 GB | llama.cpp | Liquid AI; hybrid reasoning with 262K-context support |
+| **LFM3-VL** | 2B | Q4_K_M + mmproj Q8_0 | ~1.3 GB | 3 GB | llama.cpp | Liquid AI vision model; image input through `mmproj` |
 | **DeepSeek-R1-Distill** | 1.5B | Q4_K_M | ~1.1 GB | 3 GB | llama.cpp | Reasoning model — `<​think>` parsing built in |
 | **DeepSeek-R1-Distill** | 7B | Q4_K_M | ~4.7 GB | 6 GB | llama.cpp | Chain-of-thought on device |
 | **Llama 3.2** | 1B | Q4_K_M | ~0.8 GB | 2.5 GB | llama.cpp | Fast drafts, tool calls |
@@ -113,7 +115,7 @@ Estimates the real footprint (weights + KV cache + compute buffers) before mappi
 
 ## 🏛️ Architecture
 
-Rather than being tied to a single engine, Local LLM Android integrates both **llama.cpp** and **Google LiteRT-LM** behind a unified inference abstraction.
+Rather than being tied to a single engine, Local LLM Android integrates both **llama.cpp** and **Google LiteRT-LM** behind a unified inference abstraction. The upstream llama.cpp engine is vendored as a pinned git submodule (v0.8.0 / b11960), so the GGUF runtime, LFM3 architecture, and mtmd vision support build from source with the app.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -139,13 +141,13 @@ Rather than being tied to a single engine, Local LLM Android integrates both **l
 │ • GGUF quants     │   │ • Google mobile      │   │ • MoE-only core     │
 │   (Q4_K_M, Q8_0,  │   │   binaries           │   │ • paged expert      │
 │   K-quants)       │   │ • Gemma-2,           │   │   streaming         │
-│ • Qwen, DeepSeek- │   │   FunctionGemma      │   │ • Kotlin/JVM +      │
-│   R1, Llama 3     │   │ • GPU/NPU delegates  │   │   C++ JNI reference │
+│ • Qwen, DeepSeek, │   │   FunctionGemma      │   │ • Kotlin/JVM +      │
+│   Llama 3, LFM3   │   │ • GPU/NPU delegates  │   │   C++ JNI reference │
 │ • CPU multi-      │   │   where supported    │   │ • GGUF reader, BPE, │
 │   threading & GPU │   │   (automatic CPU     │   │   K-quants, RoPE    │
 │   layer offload   │   │   fallback)          │   │                     │
 │ • mmproj vision   │   │ • low-power mobile   │   │                     │
-│   (multimodal)    │   │   inference          │   │                     │
+│   (Qwen2/LFM3-VL) │   │   inference          │   │                     │
 └─────────┬─────────┘   └──────────┬───────────┘   └──────────┬──────────┘
           ▼                        ▼                          ▼
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -265,7 +267,7 @@ The model id is the filename of the GGUF installed on the phone (without the `.g
 <details>
 <summary><b>Model Context Protocol (MCP) Client (<code>McpClient</code>)</b></summary>
 
-- JSON-RPC client speaking Streamable HTTP first, legacy SSE second (with the session id kept and `notifications/initialized` sent on both paths; the legacy path consumes responses answered on the POST endpoint — servers that stream every response on the SSE channel only are not supported). Responses are matched to their request id (stale or unsolicited frames are ignored), bodies and stream lines are size-capped, and tool names are sanitized before they reach the prompt. Optional bearer token, re-checked per request: https anywhere, or plain http only to loopback/private-LAN hosts (mDNS `.local` excluded — it resolves over broadcast, so it needs https); a token saved for one server is never re-sent to a changed address without re-entry, and https is never downgraded on redirect. Legacy-SSE endpoints on another origin are rejected, and `Mcp-Session-Id` is tracked per connection.
+- JSON-RPC client speaking Streamable HTTP first, legacy SSE second (with the session id kept and `notifications/initialized` sent on both paths; the legacy SSE stream stays open for the whole session and responses delivered there — including servers that answer only over SSE — are matched to their pending POST by request id). Responses are matched to their request id (stale or unsolicited frames are ignored), bodies and stream lines are size-capped, and tool names are sanitized before they reach the prompt. Optional bearer token, re-checked per request: https anywhere, or plain http only to loopback/private-LAN hosts (mDNS `.local` excluded — it resolves over broadcast, so it needs https); a token saved for one server is never re-sent to a changed address without re-entry, and https is never downgraded on redirect. Legacy-SSE endpoints on another origin are rejected, and `Mcp-Session-Id` is tracked per connection.
 - Tools are offered in the prompt and called with one `<​tool_call>{"name": ..., "arguments": {...}}<​/tool_call>` block per reply (only names the connected server advertised; first call per turn only; fenced code examples and unclosed blocks are never calls). Every call waits for an explicit approval dialog (no always-allow, auto-declines after 60 s); a decline ends the tool use and a second straight syntax error ends it too, at most 3 tool rounds per message. Requests are async and cancellable, so Stop never leaves an orphan running on the tool server. Results come back wrapped as untrusted `<tool_result>` data (all tag spellings neutralized), shown as a tool card with the recorded call, and fed to the next turn framed as external data. Whether a small local model calls tools well depends on the model.
 
 </details>
@@ -342,7 +344,8 @@ Grab the signed APK from the [**latest release**](https://github.com/zmxnpquryet
 - Android Studio Ladybug (2024.2.1+) or newer
 - JDK 17
 - Android SDK 36 (Min SDK 24)
-- Android NDK 27.2 + CMake 3.22+ (required by the `:engine` module)
+- Android NDK 27.2 + CMake 3.22+ (required by the `:engine` module and the upstream llama.cpp build)
+- Git submodule checkout: clone with `--recurse-submodules` or run `git submodule update --init --recursive`. `app/src/main/cpp/llama.cpp` is pinned to upstream v0.8.0 (b11960), the first release with LFM3 support
 - Target device with 64-bit ARM architecture (`arm64-v8a`) or `x86_64`
 - No manual native dependencies: the sherpa-onnx STT AAR (~50 MB) is not committed — Gradle fetches it automatically via the `fetchSherpaAar` task (pinned version + SHA-256) before every build
 

@@ -10,8 +10,8 @@
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 
 # Keep native inference engine wrappers
--keep class org.nehuatl.llamacpp.** { *; }
--dontwarn org.nehuatl.llamacpp.**
+-keep class com.localllm.android.engine.llama.** { *; }
+-dontwarn com.localllm.android.engine.llama.**
 
 -keep class com.google.ai.edge.litertlm.** { *; }
 -dontwarn com.google.ai.edge.litertlm.**

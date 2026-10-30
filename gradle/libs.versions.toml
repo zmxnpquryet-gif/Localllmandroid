@@ -21,7 +21,6 @@ kotlinxCoroutinesAndroid = "1.11.0"
 kotlinxCoroutinesCore = "1.10.2"
 okhttp = "4.12.0"
 robolectric = "4.17"
-llamacppKotlin = "0.4.0"
 json = "20240303"
 
 
@@ -48,7 +47,6 @@ kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 json = { group = "org.json", name = "json", version.ref = "json" }
-llamacpp = { group = "io.github.ljcamargo", name = "llamacpp-kotlin", version.ref = "llamacppKotlin" }
 
 
 [plugins]

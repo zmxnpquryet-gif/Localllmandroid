@@ -22,6 +22,7 @@ import com.localllm.android.ui.glass.GIcon
 import com.localllm.android.ui.glass.GIcons
 import com.localllm.android.ui.glass.GText
 import com.localllm.android.ui.glass.GlassTheme
+import java.util.Locale
 
 @Composable
 fun PerformanceMetricsChip(
@@ -53,7 +54,7 @@ fun PerformanceMetricsChip(
         )
 
         GText(
-            text = String.format("%.1f t/s", tps),
+            text = String.format(Locale.US, "%.1f t/s", tps),
             style = GlassTheme.type.labelSmall,
             color = GlassTheme.colors.onSurface,
             fontSize = 11.sp
@@ -67,7 +68,7 @@ fun PerformanceMetricsChip(
         )
 
         GText(
-            text = String.format("PP %.0f t/s", promptSpeed),
+            text = String.format(Locale.US, "PP %.0f t/s", promptSpeed),
             style = GlassTheme.type.labelSmall,
             color = GlassTheme.colors.onSurfaceVariant,
             fontSize = 11.sp

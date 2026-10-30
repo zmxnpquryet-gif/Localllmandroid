@@ -44,6 +44,7 @@ object PromptFormatter {
             PromptTemplateType.GEMMA -> formatGemma(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
             PromptTemplateType.PHI -> formatPhi(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
             PromptTemplateType.LLAMA3 -> formatLlama3(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
+            PromptTemplateType.LFM3 -> formatLfm3(systemPrompt, history, userPrompt, toolsContext)
             PromptTemplateType.CHATML, PromptTemplateType.CUSTOM -> formatChatML(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
         }
     }
@@ -141,6 +142,44 @@ object PromptFormatter {
 
         sb.append("<|im_start|>user\n").append(userPrompt.trim()).append("<|im_end|>\n")
         sb.append("<|im_start|>assistant\n")
+        return sb.toString()
+    }
+
+    /**
+     * LFM3 format: ChatML-style turns with explicit thinking blocks and no BOS.
+     * The native tokenizer adds BOS, matching the official template's leading
+     * `bos_token`. Previous assistant turns get an empty thinking block because
+     * the app persists only user-visible content.
+     */
+    fun formatLfm3(
+        systemPrompt: String,
+        history: List<Pair<String, String>>,
+        userPrompt: String,
+        toolsContext: String?
+    ): String {
+        val sb = StringBuilder()
+        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning = false)
+        if (systemText.isNotBlank()) {
+            sb.append("<|im_start|>system\n").append(systemText).append("<|im_end|>\n")
+        }
+
+        for ((role, text) in normalizedHistory(history)) {
+            if (role.equals("user", ignoreCase = true)) {
+                sb.append("<|im_start|>user\n").append(text.trim()).append("<|im_end|>\n")
+            } else {
+                val content = text.trim()
+                sb.append("<|im_start|>assistant\n")
+                if (content.contains("<think>")) {
+                    sb.append(content)
+                } else {
+                    sb.append("<think></think>").append(content)
+                }
+                sb.append("<|im_end|>\n")
+            }
+        }
+
+        sb.append("<|im_start|>user\n").append(userPrompt.trim()).append("<|im_end|>\n")
+        sb.append("<|im_start|>assistant\n<think>")
         return sb.toString()
     }
 

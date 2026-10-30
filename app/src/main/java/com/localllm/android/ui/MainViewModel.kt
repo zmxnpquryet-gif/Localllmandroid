@@ -1,5 +1,6 @@
 package com.localllm.android.ui
 
+import android.annotation.SuppressLint
 import android.app.Application
 import android.content.res.Configuration
 import androidx.annotation.StringRes
@@ -1227,10 +1228,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            // 2. Start streaming assistant response
+            // 2. Start streaming assistant response. Wait for a cancelled
+            // predecessor to finish unwinding before publishing the new
+            // placeholder: otherwise its blocking native call can later clear
+            // or overwrite the *new* stream's UI state.
             val assistantMessageId = UUID.randomUUID().toString()
-            _isGenerating.value = true
-
             val streamPlaceholder = ChatMessage(
                 id = assistantMessageId,
                 conversationId = convId,
@@ -1238,11 +1240,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 content = "",
                 isStreaming = true
             )
-            _streamingMessage.value = streamPlaceholder
-
             val history = currentList.takeLast(6).map { toHistoryPair(it) }
 
-            currentStreamJob?.cancel()
+            val previousJob = currentStreamJob
+            previousJob?.cancel()
+            previousJob?.join()
+            _isGenerating.value = true
+            _streamingMessage.value = streamPlaceholder
             currentStreamJob = launch {
                 beginInferenceGuard()
                 // Tool use only when MCP is on AND the server really exposes tools: without
@@ -1545,15 +1549,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (t: Throwable) {
             android.util.Log.w("MainViewModel", "Engine stop error", t)
         }
+        // Clear UI state synchronously. Persisting the partial answer is
+        // asynchronous, and it must never clear a *new* stream that the user
+        // started immediately after pressing Stop.
         val cur = _streamingMessage.value
+        _streamingMessage.value = null
+        _isGenerating.value = false
         if (cur != null) {
             viewModelScope.launch {
                 repository.saveMessage(cur.copy(isStreaming = false))
-                _streamingMessage.value = null
-                _isGenerating.value = false
             }
-        } else {
-            _isGenerating.value = false
         }
     }
 
@@ -1901,6 +1906,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // measurably wasteful on the streaming path. Keyed on the preference plus the
     // device locale (a "system" choice must follow a device language change).
     private var localizedCacheKey: String? = null
+    @SuppressLint("StaticFieldLeak") // Application-scoped configuration context.
     private var localizedCacheContext: android.content.Context? = null
 
     private fun localizedString(@StringRes id: Int, vararg args: Any?): String {

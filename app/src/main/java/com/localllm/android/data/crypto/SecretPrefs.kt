@@ -1,5 +1,6 @@
 package com.localllm.android.data.crypto
 
+import android.annotation.SuppressLint
 import android.content.SharedPreferences
 import android.util.Log
 
@@ -65,6 +66,7 @@ class SecretPrefs(private val prefs: SharedPreferences) {
      * false when encryption was impossible; nothing is written in that case (no
      * plaintext fallback).
      */
+    @SuppressLint("ApplySharedPref") // commit() is required to report persistence.
     fun put(name: String, value: String?): Boolean {
         if (value.isNullOrBlank()) {
             remove(name)

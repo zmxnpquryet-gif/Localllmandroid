@@ -27,14 +27,21 @@ class ModelStorageManager(private val context: Context) {
     }
 
     private val metadataFile: File = File(context.filesDir, "models_metadata.json")
+    private val metadataTempFile: File = File(context.filesDir, "models_metadata.json.tmp")
+    private val metadataBackupFile: File = File(context.filesDir, "models_metadata.json.bak")
+    private val metadataLock = Any()
 
     /**
      * Loads the combined list of models:
      * 1. Starts with default catalog models.
      * 2. Overlays saved metadata (including user-added custom models and status).
      * 3. Verifies physical file existence on disk to guarantee accurate download status.
+     *
+     * A crash between writing the temp file and renaming it is recovered on the
+     * next launch instead of silently resetting the user's model list.
      */
-    fun loadModels(): List<LlmModel> {
+    fun loadModels(): List<LlmModel> = synchronized(metadataLock) {
+        recoverMetadataIfNeeded()
         val defaultList = ModelCatalog.defaultModels.toMutableList()
         val savedModelsMap = mutableMapOf<String, LlmModel>()
         val customModels = mutableListOf<LlmModel>()
@@ -185,17 +192,43 @@ class ModelStorageManager(private val context: Context) {
     }
 
     /**
-     * Saves all models metadata to disk.
+     * Saves all models metadata atomically: readers (and the next launch) see
+     * either the old complete file or the new complete file, never a truncated
+     * JSON document. A failed write restores the backup.
      */
-    fun saveModels(models: List<LlmModel>) {
-        try {
+    fun saveModels(models: List<LlmModel>) = synchronized(metadataLock) {
+        val json = try {
             val array = JSONArray()
             for (model in models) {
                 array.put(modelToJson(model))
             }
-            metadataFile.writeText(array.toString(2))
+            array.toString(2)
         } catch (e: Exception) {
-            Log.e("ModelStorageManager", "Failed to save models metadata", e)
+            Log.e("ModelStorageManager", "Failed to serialize models metadata", e)
+            return@synchronized
+        }
+
+        try {
+            metadataTempFile.outputStream().use { out ->
+                out.write(json.toByteArray(Charsets.UTF_8))
+                out.flush()
+                out.fd.sync()
+            }
+
+            metadataBackupFile.delete()
+            if (metadataFile.exists() && !metadataFile.renameTo(metadataBackupFile)) {
+                throw java.io.IOException("Could not move metadata aside")
+            }
+            if (!metadataTempFile.renameTo(metadataFile)) {
+                // Put the previous file back so a transient rename failure does
+                // not leave the app with no metadata at all.
+                if (metadataBackupFile.exists()) metadataBackupFile.renameTo(metadataFile)
+                throw java.io.IOException("Could not publish metadata")
+            }
+            metadataBackupFile.delete()
+        } catch (e: Exception) {
+            Log.e("ModelStorageManager", "Failed to save models metadata atomically", e)
+            metadataTempFile.delete()
         }
     }
 
@@ -225,6 +258,36 @@ class ModelStorageManager(private val context: Context) {
 
     fun getActiveModelId(): String? {
         return prefs.getString("active_model_id", null)
+    }
+
+    /**
+     * Completes an interrupted atomic save. The temp file is preferred only when
+     * it parses as JSON; otherwise the pre-save backup is restored. Anything
+     * unreadable is discarded rather than trusted.
+     */
+    private fun recoverMetadataIfNeeded() {
+        if (metadataFile.exists()) {
+            metadataTempFile.delete()
+            metadataBackupFile.delete()
+            return
+        }
+        val candidates = listOf(metadataTempFile, metadataBackupFile)
+        for (candidate in candidates) {
+            if (!candidate.exists()) continue
+            val valid = try {
+                JSONArray(candidate.readText())
+                true
+            } catch (_: Exception) {
+                false
+            }
+            if (valid && candidate.renameTo(metadataFile)) {
+                Log.w("ModelStorageManager", "Recovered metadata from ${candidate.name}")
+                break
+            }
+            candidate.delete()
+        }
+        metadataTempFile.delete()
+        metadataBackupFile.delete()
     }
 
     private fun modelToJson(m: LlmModel): JSONObject {

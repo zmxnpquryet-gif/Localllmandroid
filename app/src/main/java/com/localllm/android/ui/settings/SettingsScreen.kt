@@ -44,7 +44,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import com.localllm.android.R
 import com.localllm.android.i18n.SdEngineText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +61,7 @@ import com.localllm.android.model.ModelRuntimeType
 import com.localllm.android.memory.MemoryGuardStore
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
+import java.util.Locale
 
 @Composable
 private fun memoryLevelDescription(level: Int): String = stringResource(
@@ -79,13 +80,13 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val settings by viewModel.settings.collectAsState()
-    val mcpStatusText by viewModel.mcpStatusText.collectAsState()
-    val mcpTools by viewModel.mcpTools.collectAsState()
-    val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsState()
-    val apiPort by viewModel.apiServerPort.collectAsState()
-    val localIpAddress by viewModel.localIpAddress.collectAsState()
-    val memoryGuardState by viewModel.memoryGuardState.collectAsState()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val mcpStatusText by viewModel.mcpStatusText.collectAsStateWithLifecycle()
+    val mcpTools by viewModel.mcpTools.collectAsStateWithLifecycle()
+    val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsStateWithLifecycle()
+    val apiPort by viewModel.apiServerPort.collectAsStateWithLifecycle()
+    val localIpAddress by viewModel.localIpAddress.collectAsStateWithLifecycle()
+    val memoryGuardState by viewModel.memoryGuardState.collectAsStateWithLifecycle()
 
     var showClearDialog by remember { mutableStateOf(false) }
     var showMemoryLog by remember { mutableStateOf(false) }
@@ -368,7 +369,7 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     GText(stringResource(R.string.settings_temperature))
-                    GText(String.format("%.2f", settings.temperature), color = GlassTheme.colors.primary)
+                    GText(String.format(Locale.US, "%.2f", settings.temperature), color = GlassTheme.colors.primary)
                 }
                 GSlider(
                     value = settings.temperature,
@@ -385,7 +386,7 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     GText(stringResource(R.string.settings_top_p_sampling))
-                    GText(String.format("%.2f", settings.topP), color = GlassTheme.colors.primary)
+                    GText(String.format(Locale.US, "%.2f", settings.topP), color = GlassTheme.colors.primary)
                 }
                 GSlider(
                     value = settings.topP,
@@ -455,7 +456,7 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val tokenSaved by viewModel.mcpTokenSaved.collectAsState()
+                    val tokenSaved by viewModel.mcpTokenSaved.collectAsStateWithLifecycle()
                     GText(
                         text = stringResource(
                             if (tokenSaved) R.string.settings_mcp_token_saved

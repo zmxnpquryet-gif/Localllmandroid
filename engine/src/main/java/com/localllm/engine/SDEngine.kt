@@ -200,70 +200,79 @@ class SDEngine : AutoCloseable {
 
     fun expertStats(): ExpertPager.Stats? = pager?.stats
 
-    fun openModel(file: File, residentCapBytes: Long = 1_500_000_000L): ModelInfo {
+    fun openModel(
+        file: File,
+        residentCapBytes: Long = 1_500_000_000L,
+        contextLimit: Int? = null
+    ): ModelInfo {
         warn("openModel")
         close()
         val r = GgufReader.open(file)
         reader = r
-        // No architecture allowlist, no model names: any GGUF whose hyperparams
-        // follow the {arch}.* convention and whose tensors use the llama-family
-        // layout is attempted. Missing keys fail loudly below with the key name.
-        val arch = r.architecture() ?: throw UnsupportedArchException("general.architecture missing")
-        // Fail fast with a clear message instead of a cryptic "Missing tensor":
-        // MLA/SSM/convolution hybrids need dedicated kernels (see DEFERRED).
-        // The app routes these to llama.cpp; a manual SDengine attempt lands here.
-        if (arch.lowercase() in DEFERRED_ARCHES) {
-            val reason = DEFERRED.entries.firstOrNull { (k, _) ->
-                k.contains(arch, ignoreCase = true) || arch.contains(k.substringBefore(" "), ignoreCase = true)
-            }?.value ?: "needs dedicated kernels (milestone)"
-            try { r.close() } catch (_: Exception) {}
-            reader = null
-            throw UnsupportedArchException("SDengine unsupported architecture '$arch': $reason (run with llama.cpp)")
-        }
-        val tok = BpeTokenizer.fromMetadata(r)
-            ?: throw GgufException("tokenizer.ggml.tokens missing")
-        tokenizer = tok
-
-        val dim = r.archU32("embedding_length")?.toInt()
-            ?: throw GgufException("embedding_length missing")
-        val nLayers = r.archU32("block_count")?.toInt()
-            ?: throw GgufException("block_count missing")
-        val ffnDim = r.archU32("feed_forward_length")?.toInt()
-            ?: throw GgufException("feed_forward_length missing")
-        val nHeads = r.archU32("attention.head_count")?.toInt()
-            ?: throw GgufException("attention.head_count missing")
-        val nKvHeads = r.archU32("attention.head_count_kv")?.toInt() ?: nHeads
-        val headDim = r.archU32("attention.key_length")?.toInt() ?: (dim / nHeads)
-        val nExperts = r.archU32("expert_count")?.toInt() ?: 0
-        val moeTopK = r.archU32("expert_used_count")?.toInt() ?: minOf(2, nExperts)
-        val eps = r.archF32("attention.layer_norm_rms_epsilon") ?: 1e-5f
-        val theta = r.archF32("rope.freq_base") ?: 10000f
-        val ctxLen = r.archU32("context_length")?.toInt() ?: 2048
-
-        val hp = ModelHyperParams(
-            nLayers = nLayers, dim = dim, nHeads = nHeads, nKvHeads = nKvHeads,
-            headDim = headDim, ffnDim = ffnDim, vocab = tok.vocabSize,
-            rmsNormEps = eps, ropeTheta = theta,
-            ropeInterleavedPairs = ropeInterleaved(arch),
-            nExperts = nExperts, moeTopK = moeTopK,
-            maxSeq = ctxLen.coerceIn(256, 8192)
-        )
-        val byName = r.tensors.associateBy { it.name }
-        val loader = ResidentLoader(r, byName, residentCapBytes)
-        loaderRef = loader
-        val weights = GgufTransformerWeights(r, hp, byName, loader, file) { key, info ->
-            registerTile(key, info)
-        }
-        transformer = Transformer(weights)
-        return ModelInfo(
-            arch = arch, vocabSize = tok.vocabSize, nLayers = nLayers, nExperts = nExperts,
-            tensorCount = r.tensors.size, fileBytes = file.length(),
-            tensorBytes = r.tensors.sumOf { it.byteSize },
-            denseResidentBytes = loader.usedBytes,
-            expertBytes = r.tensors.sumOf {
-                if (nExperts > 0 && isExpertTensor(it.name)) it.byteSize else 0L
+        try {
+            // No architecture allowlist, no model names: any GGUF whose hyperparams
+            // follow the {arch}.* convention and whose tensors use the llama-family
+            // layout is attempted. Missing keys fail loudly below with the key name.
+            val arch = r.architecture() ?: throw UnsupportedArchException("general.architecture missing")
+            // Fail fast with a clear message instead of a cryptic "Missing tensor":
+            // MLA/SSM/convolution hybrids need dedicated kernels (see DEFERRED).
+            // The app routes these to llama.cpp; a manual SDengine attempt lands here.
+            if (arch.lowercase() in DEFERRED_ARCHES) {
+                val reason = DEFERRED.entries.firstOrNull { (k, _) ->
+                    k.contains(arch, ignoreCase = true) || arch.contains(k.substringBefore(" "), ignoreCase = true)
+                }?.value ?: "needs dedicated kernels (milestone)"
+                throw UnsupportedArchException("SDengine unsupported architecture '$arch': $reason (run with llama.cpp)")
             }
-        )
+            val tok = BpeTokenizer.fromMetadata(r)
+                ?: throw GgufException("tokenizer.ggml.tokens missing")
+            tokenizer = tok
+
+            val dim = r.archU32("embedding_length")?.toInt()
+                ?: throw GgufException("embedding_length missing")
+            val nLayers = r.archU32("block_count")?.toInt()
+                ?: throw GgufException("block_count missing")
+            val ffnDim = r.archU32("feed_forward_length")?.toInt()
+                ?: throw GgufException("feed_forward_length missing")
+            val nHeads = r.archU32("attention.head_count")?.toInt()
+                ?: throw GgufException("attention.head_count missing")
+            val nKvHeads = r.archU32("attention.head_count_kv")?.toInt() ?: nHeads
+            val headDim = r.archU32("attention.key_length")?.toInt() ?: (dim / nHeads)
+            val nExperts = r.archU32("expert_count")?.toInt() ?: 0
+            val moeTopK = r.archU32("expert_used_count")?.toInt() ?: minOf(2, nExperts)
+            val eps = r.archF32("attention.layer_norm_rms_epsilon") ?: 1e-5f
+            val theta = r.archF32("rope.freq_base") ?: 10000f
+            val ctxLen = r.archU32("context_length")?.toInt() ?: 2048
+
+            val hp = ModelHyperParams(
+                nLayers = nLayers, dim = dim, nHeads = nHeads, nKvHeads = nKvHeads,
+                headDim = headDim, ffnDim = ffnDim, vocab = tok.vocabSize,
+                rmsNormEps = eps, ropeTheta = theta,
+                ropeInterleavedPairs = ropeInterleaved(arch),
+                nExperts = nExperts, moeTopK = moeTopK,
+                // The caller's effective context is the real memory budget; the
+                // model's training context is only an upper bound.
+                maxSeq = minOf(ctxLen, contextLimit ?: ctxLen).coerceIn(256, 8192)
+            )
+            val byName = r.tensors.associateBy { it.name }
+            val loader = ResidentLoader(r, byName, residentCapBytes)
+            loaderRef = loader
+            val weights = GgufTransformerWeights(r, hp, byName, loader, file) { key, info ->
+                registerTile(key, info)
+            }
+            transformer = Transformer(weights)
+            return ModelInfo(
+                arch = arch, vocabSize = tok.vocabSize, nLayers = nLayers, nExperts = nExperts,
+                tensorCount = r.tensors.size, fileBytes = file.length(),
+                tensorBytes = r.tensors.sumOf { it.byteSize },
+                denseResidentBytes = loader.usedBytes,
+                expertBytes = r.tensors.sumOf {
+                    if (nExperts > 0 && isExpertTensor(it.name)) it.byteSize else 0L
+                }
+            )
+        } catch (t: Throwable) {
+            close()
+            throw t
+        }
     }
 
     private fun isExpertTensor(name: String): Boolean {

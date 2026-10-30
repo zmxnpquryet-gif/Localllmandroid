@@ -2,10 +2,10 @@
 package com.localllm.engine
 
 import java.io.File
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
-import java.nio.file.StandardOpenOption
 
 /**
  * GGUF container reader over a [FileChannel].
@@ -21,7 +21,10 @@ interface SeekableSource : AutoCloseable {
 }
 
 class FileSeekableSource(file: File) : SeekableSource {
-    private val channel: FileChannel = FileChannel.open(file.toPath(), StandardOpenOption.READ)
+    // RandomAccessFile + FileChannel keeps this usable on API 24: java.nio.file
+    // (File.toPath / FileChannel.open / StandardOpenOption) is API 26+.
+    private val randomAccess = RandomAccessFile(file, "r")
+    private val channel: FileChannel = randomAccess.channel
     override val size: Long = channel.size()
 
     override fun readFully(dst: ByteArray, off: Int, len: Int, position: Long) {
@@ -40,6 +43,10 @@ class FileSeekableSource(file: File) : SeekableSource {
     override fun close() {
         try {
             channel.close()
+        } catch (_: Exception) {
+        }
+        try {
+            randomAccess.close()
         } catch (_: Exception) {
         }
     }

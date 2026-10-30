@@ -96,6 +96,8 @@
 | **Qwen 2.5** | 1.5B | Q4_K_M | ~1.0 GB | 3 GB | llama.cpp | 우수한 품질/크기 비율, 다국어 강점 |
 | **Qwen 2.5** | 3B | Q4_K_M | ~2.0 GB | 4 GB | llama.cpp | 대부분의 8 GB 폰에 맞는 스위트 스팟 |
 | **Qwen 2.5** | 7B | Q4_K_M | ~4.7 GB | 6 GB | llama.cpp | 인앱 최고 품질, 플래그십 또는 12 GB 기기 필요 |
+| **LFM3** | 1.7B | Q4_K_M | ~1.0 GB | 3 GB | llama.cpp | Liquid AI, 262K 컨텍스트 하이브리드 추론 |
+| **LFM3-VL** | 2B | Q4_K_M + mmproj Q8_0 | ~1.3 GB | 3 GB | llama.cpp | Liquid AI 비전 모델, `mmproj` 이미지 입력 |
 | **DeepSeek-R1-Distill** | 1.5B | Q4_K_M | ~1.1 GB | 3 GB | llama.cpp | 추론 모델 — `<​think>` 파싱 내장 |
 | **DeepSeek-R1-Distill** | 7B | Q4_K_M | ~4.7 GB | 6 GB | llama.cpp | 기기 위에서의 사고 연쇄(Chain-of-thought) |
 | **Llama 3.2** | 1B | Q4_K_M | ~0.8 GB | 2.5 GB | llama.cpp | 빠른 초안 작성, 도구 호출 |
@@ -113,7 +115,7 @@
 
 ## 🏛️ 아키텍처
 
-Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Google LiteRT-LM** 두 런타임을 모두 통합 추론 추상화 뒤에 둡니다.
+Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Google LiteRT-LM** 두 런타임을 모두 통합 추론 추상화 뒤에 둡니다. 업스트림 llama.cpp 엔진은 v0.8.0(b11960)에 고정된 Git 서브모듈로 포함되어, GGUF 런타임·LFM3 아키텍처·mtmd 비전 지원이 앱과 함께 소스에서 빌드됩니다.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -139,13 +141,13 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 │ • GGUF 양자화     │   │ • Google 모바일      │   │ • MoE 전용 코어     │
 │   (Q4_K_M, Q8_0,  │   │   바이너리           │   │ • 페이징 전문가     │
 │   K-quants)       │   │ • Gemma-2,           │   │   스트리밍          │
-│ • Qwen, DeepSeek- │   │   FunctionGemma      │   │ • Kotlin/JVM +      │
-│   R1, Llama 3     │   │ • 지원 기기에서      │   │   C++ JNI 레퍼런스  │
+│ • Qwen, DeepSeek, │   │   FunctionGemma      │   │ • Kotlin/JVM +      │
+│   Llama 3, LFM3   │   │ • 지원 기기에서      │   │   C++ JNI 레퍼런스  │
 │ • CPU 멀티스레딩  │   │   GPU/NPU 델리게이트 │   │ • GGUF 리더, BPE,   │
 │   & GPU 레이어    │   │   (자동 CPU 폴백)    │   │   K-quants, RoPE    │
 │   오프로딩        │   │ • 저전력 모바일      │   │                     │
 │ • mmproj 비전     │   │   추론               │   │                     │
-│   (멀티모달)      │   │                      │   │                     │
+│   (Qwen2/LFM3-VL) │   │                      │   │                     │
 └─────────┬─────────┘   └──────────┬───────────┘   └──────────┬──────────┘
           ▼                        ▼                          ▼
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -265,7 +267,7 @@ curl -X POST http://<기기_IP>:11434/api/generate \
 <details>
 <summary><b>MCP (Model Context Protocol) 클라이언트 (<code>McpClient</code>)</b></summary>
 
-- Streamable HTTP 우선, 레거시 SSE 차선의 JSON-RPC 클라이언트입니다(양쪽 경로 모두 세션 ID 유지 + `notifications/initialized` 전송; 레거시 경로는 POST 응답으로 돌아오는 응답을 소비하며, 응답을 SSE 채널로만 스트리밍하는 서버는 지원하지 않습니다). 응답은 요청 ID로 매칭됩니다(오래되었거나 요청되지 않은 프레임은 무시). 응답 본문과 스트림 라인에 크기 상한이 있고, 도구 이름은 프롬프트에 들어가기 전에 정화(sanitize)됩니다. Bearer 토큰은 선택 사항이며 요청마다 재확인합니다. https 어디에나, 평문 http는 loopback/사설 LAN에만 전송하고(mDNS `.local` 제외 — 브로드캐스트로 풀리므로 https 필요), 한 서버용으로 저장된 토큰은 주소가 바뀌면 재입력 없이 재전송하지 않으며, 리다이렉트로 https가 http로 떨어지지 않습니다. 레거시 SSE의 타 오리진 endpoint는 거부하며 `Mcp-Session-Id`를 연결별로 추적합니다.
+- Streamable HTTP 우선, 레거시 SSE 차선의 JSON-RPC 클라이언트입니다(양쪽 경로 모두 세션 ID 유지 + `notifications/initialized` 전송; 레거시 SSE 스트림은 세션 내내 열린 상태로 유지되며, SSE로만 응답하는 서버를 포함해 그 채널로 전달된 응답을 요청 ID로 해당 POST에 매칭합니다). 응답은 요청 ID로 매칭됩니다(오래되었거나 요청되지 않은 프레임은 무시). 응답 본문과 스트림 라인에 크기 상한이 있고, 도구 이름은 프롬프트에 들어가기 전에 정화(sanitize)됩니다. Bearer 토큰은 선택 사항이며 요청마다 재확인합니다. https 어디에나, 평문 http는 loopback/사설 LAN에만 전송하고(mDNS `.local` 제외 — 브로드캐스트로 풀리므로 https 필요), 한 서버용으로 저장된 토큰은 주소가 바뀌면 재입력 없이 재전송하지 않으며, 리다이렉트로 https가 http로 떨어지지 않습니다. 레거시 SSE의 타 오리진 endpoint는 거부하며 `Mcp-Session-Id`를 연결별로 추적합니다.
 - 도구는 프롬프트에 제시되고, 턴마다 하나의 `<​tool_call>{"name": ..., "arguments": {...}}<​/tool_call>` 블록으로 호출합니다(연결된 서버가 광고한 이름만, 턴당 첫 호출만, 코드펜스 안 예시·닫히지 않은 블록은 호출 아님). 모든 호출은 승인 대화상자를 거치며(항상 허용 없음, 60초 무응답 자동 거부), 거절하면 도구 사용을 끝내고 연속 2회 문법 오류에도 끝냅니다. 메시지당 최대 3라운드, 요청은 비동기·취소 가능이라 중지 버튼이 서버에 고아 요청을 남기지 않습니다. 결과는 신뢰할 수 없는 `<tool_result>` 데이터로 감싸(모든 태그 변형 무력화) 호출 기록과 함께 도구 카드로 표시되고, 외부 데이터로 명시되어 다음 턴에 전달됩니다. 작은 로컬 모델이 도구를 잘 쓰는지는 모델에 따라 다릅니다.
 
 </details>
@@ -342,7 +344,8 @@ curl -X POST http://<기기_IP>:11434/api/generate \
 - Android Studio Ladybug (2024.2.1+) 이상
 - JDK 17
 - Android SDK 36 (Min SDK 24)
-- Android NDK 27.2 + CMake 3.22 이상 (`:engine` 모듈 빌드에 필요)
+- Android NDK 27.2 + CMake 3.22 이상 (`:engine` 모듈과 업스트림 llama.cpp 빌드에 필요)
+- Git 서브모듈: `--recurse-submodules`로 클론하거나 `git submodule update --init --recursive`를 실행하세요. `app/src/main/cpp/llama.cpp`는 LFM3를 지원하는 업스트림 v0.8.0(b11960)에 고정되어 있습니다.
 - 64비트 ARM 아키텍처(`arm64-v8a`) 또는 `x86_64` 대상 기기
 - 네이티브 의존성 수동 설치 불필요: sherpa-onnx STT AAR(약 50MB)은 저장소에 커밋하지 않고, 빌드 전 Gradle `fetchSherpaAar` 태스크가 버전·SHA-256 고정값으로 자동 다운로드합니다.
 

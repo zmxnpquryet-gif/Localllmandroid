@@ -1,4 +1,4 @@
-package com.localllm.android
+﻿package com.localllm.android
 
 import android.content.res.Configuration
 import android.os.Bundle
@@ -12,7 +12,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.SideEffect
@@ -39,8 +39,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            val settings by viewModel.settings.collectAsState()
-            val currentScreen by viewModel.currentScreen.collectAsState()
+            val settings by viewModel.settings.collectAsStateWithLifecycle()
+            val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
 
             BackHandler(enabled = currentScreen != AppScreen.CHAT) {
                 viewModel.navigateTo(AppScreen.CHAT)

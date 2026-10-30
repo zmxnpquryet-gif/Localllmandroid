@@ -16,7 +16,6 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.io.DataInputStream
 import java.io.EOFException
 import java.io.InputStream
 import java.io.OutputStream
@@ -54,6 +53,13 @@ class OllamaApiServer(
         private const val TAG = "OllamaApiServer"
         private const val MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024
         private const val MAX_HEADER_COUNT = 100
+        /**
+         * Wall-clock budget for the header and body phases. `socket.soTimeout`
+         * alone only bounds a single read, so a client sending one byte just
+         * before each timeout could otherwise keep a pre-auth slot forever.
+         */
+        private const val MAX_HEADER_PHASE_MS = 20_000L
+        private const val MAX_BODY_PHASE_MS = 60_000L
         /**
          * Exactly one: the engine serializes inference behind a single mutex, so a
          * second slot would only pass admission and then die mid-stream with
@@ -96,9 +102,15 @@ class OllamaApiServer(
             }
         }
 
-        internal fun readHttpLine(input: InputStream): String? {
+        internal fun readHttpLine(
+            input: InputStream,
+            deadlineNanos: Long = Long.MAX_VALUE
+        ): String? {
             val bytes = ByteArrayOutputStream()
             while (true) {
+                if (System.nanoTime() > deadlineNanos) {
+                    throw java.net.SocketTimeoutException("HTTP header phase timed out")
+                }
                 val next = input.read()
                 if (next == -1) {
                     if (bytes.size() == 0) return null
@@ -112,10 +124,22 @@ class OllamaApiServer(
             }
         }
 
-        internal fun readHttpBody(input: InputStream, contentLength: Int): String {
+        internal fun readHttpBody(
+            input: InputStream,
+            contentLength: Int,
+            deadlineNanos: Long = Long.MAX_VALUE
+        ): String {
             require(contentLength in 0..MAX_REQUEST_BODY_BYTES) { "Invalid body length" }
             val bytes = ByteArray(contentLength)
-            DataInputStream(input).readFully(bytes)
+            var offset = 0
+            while (offset < contentLength) {
+                if (System.nanoTime() > deadlineNanos) {
+                    throw java.net.SocketTimeoutException("HTTP body phase timed out")
+                }
+                val read = input.read(bytes, offset, minOf(contentLength - offset, 64 * 1024))
+                if (read < 0) throw EOFException("Incomplete HTTP body")
+                offset += read
+            }
             return String(bytes, StandardCharsets.UTF_8)
         }
 
@@ -268,17 +292,18 @@ class OllamaApiServer(
             }
             return
         }
-        var authed = false
+        var preAuthReleased = false
         try {
-            // 30s, not 120s: this timeout only guards request reads (headers +
-            // up to 16MB body). Generation streams for minutes but that is server
-            // compute + writes, never a pending read — so a short read timeout
-            // cannot cut a legitimate slow inference, it only bounds slowloris.
+            // The per-read timeout plus the wall-clock deadlines below bound
+            // slowloris: a client cannot hold a socket by sending a byte just
+            // before every timeout. Generation streams are not affected because
+            // they happen after the request has been fully read.
             socket.soTimeout = 30000
             val input = socket.getInputStream().buffered()
             val output = socket.getOutputStream()
+            val headerDeadline = System.nanoTime() + MAX_HEADER_PHASE_MS * 1_000_000L
 
-            val requestLine = readHttpLine(input) ?: return
+            val requestLine = readHttpLine(input, headerDeadline) ?: return
             val parts = requestLine.split(" ")
             if (parts.size < 2) return
 
@@ -292,7 +317,7 @@ class OllamaApiServer(
             val headers = mutableMapOf<String, String>()
             var line: String?
             var headerCount = 0
-            while (readHttpLine(input).also { line = it } != null) {
+            while (readHttpLine(input, headerDeadline).also { line = it } != null) {
                 if (line.isNullOrEmpty()) break
                 headerCount++
                 if (headerCount > MAX_HEADER_COUNT) {
@@ -357,9 +382,9 @@ class OllamaApiServer(
                     return
                 }
             }
-            authed = true
-            preAuthSlots.release()
-
+            // Keep the pre-auth slot through the body read: otherwise a client
+            // that authenticated (or runs with auth disabled) can open many
+            // sockets and dribble a declared body to exhaust the connection cap.
             // UI statistics update only for authenticated traffic: scanners hitting
             // the port must not pollute the request count / last-client display.
             lastClientIp = socket.inetAddress?.hostAddress
@@ -371,7 +396,10 @@ class OllamaApiServer(
                 sendResponse(output, 413, "Content Too Large", "application/json", "{\"error\":\"Request body too large\"}", clientOrigin)
                 return
             }
-            val body = readHttpBody(input, contentLength)
+            val bodyDeadline = System.nanoTime() + MAX_BODY_PHASE_MS * 1_000_000L
+            val body = readHttpBody(input, contentLength, bodyDeadline)
+            preAuthSlots.release()
+            preAuthReleased = true
 
             // Routing
             when {
@@ -429,7 +457,7 @@ class OllamaApiServer(
             if (e is CancellationException) throw e
             Log.e(TAG, "Error handling client request", e)
         } finally {
-            if (!authed) preAuthSlots.release()
+            if (!preAuthReleased) preAuthSlots.release()
             try {
                 socket.close()
             } catch (_: Exception) {}
@@ -1003,6 +1031,10 @@ class OllamaApiServer(
             val idx = historyList.indexOfLast { it.first == "user" && it.second.isNotBlank() }
             if (idx >= 0) {
                 lastUserPrompt = historyList[idx].second
+                // The prompt must not also stay in history: the engine would
+                // receive the same user turn twice and the model would answer a
+                // duplicated conversation.
+                historyList.removeAt(idx)
             }
         }
 

@@ -30,6 +30,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
@@ -160,8 +161,9 @@ class ModelDownloader(client: OkHttpClient? = null) {
             val isHfInfra = host == "huggingface.co" ||
                     host.endsWith(".huggingface.co") ||
                     host == "hf.co" ||
-                    host.endsWith(".hf.co") ||
-                    host == HfSource.MIRROR_HOST
+                    host.endsWith(".hf.co")
+            // The hf-mirror.com mirror is operated by a third party: never send the
+            // user's Hugging Face token there. Mirror downloads work unauthenticated.
             if (!isHfInfra) return false
             // Redirect targets / CDN endpoints embed their own pre-signed auth.
             // Never forward the user's token there.
@@ -830,7 +832,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
                         val bytesDelta = (currentDownloaded - lastProgressBytes).coerceAtLeast(0L)
 
                         val speedMbps = (bytesDelta.toDouble() / timeDeltaSec) / (1024.0 * 1024.0)
-                        val speedText = String.format("%.2f MB/s", speedMbps)
+                        val speedText = String.format(Locale.US, "%.2f MB/s", speedMbps)
                         val remainingBytes = (totalSize - currentDownloaded).coerceAtLeast(0L)
                         val bytesPerSec = (speedMbps * 1024.0 * 1024.0).toLong()
                         val etaSec = if (bytesPerSec > 0) (remainingBytes / bytesPerSec).toInt() else 0
@@ -990,9 +992,13 @@ class ModelDownloader(client: OkHttpClient? = null) {
         }
 
         if (targetFile.exists() && !targetFile.delete()) {
+            tempMerged.delete()
             throw IOException("Could not replace previous file ${targetFile.name}")
         }
-        if (!tempMerged.renameTo(targetFile)) throw IOException("Failed to publish merged download")
+        if (!tempMerged.renameTo(targetFile)) {
+            tempMerged.delete()
+            throw IOException("Failed to publish merged download")
+        }
         partFiles.forEach { it.delete() }
     }
 
@@ -1007,6 +1013,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
         onError: suspend (String) -> Unit
     ): Boolean {
         val tempFile = File(modelsDir, "${targetFile.name}.downloading")
+        var published = false
         try {
             val req = withHfAuth(
                 Request.Builder()
@@ -1037,6 +1044,9 @@ class ModelDownloader(client: OkHttpClient? = null) {
                         val buf = ByteArray(BUFFER_SIZE)
                         var readLen = 0
                         while (input.read(buf).also { readLen = it } != -1) {
+                            // A blocking socket read does not observe coroutine
+                            // cancellation; check between chunks so Stop is prompt.
+                            currentCoroutineContext().ensureActive()
                             output.write(buf, 0, readLen)
                             downloaded += readLen
 
@@ -1044,7 +1054,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
                             if (now - lastTime >= 200L) {
                                 val timeDelta = max((now - lastTime) / 1000.0, 0.001)
                                 val speedMbps = ((downloaded - lastBytes).toDouble() / timeDelta) / (1024.0 * 1024.0)
-                                val speedText = String.format("%.2f MB/s", speedMbps)
+                                val speedText = String.format(Locale.US, "%.2f MB/s", speedMbps)
                                 val bytesPerSec = (speedMbps * 1024.0 * 1024.0).toLong()
                                 val remaining = (actualLength - downloaded).coerceAtLeast(0L)
                                 val etaSec = if (bytesPerSec > 0) (remaining / bytesPerSec).toInt() else 0
@@ -1075,14 +1085,19 @@ class ModelDownloader(client: OkHttpClient? = null) {
                     onError("다운로드 파일 이동에 실패했습니다.")
                     return false
                 }
+                published = true
                 Log.i(tag, "[$taskTitle] Single stream download completed: ${targetFile.name} (${targetFile.length()} bytes)")
                 true
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             val err = AppStrings.get(R.string.dl_fail_generic, e.localizedMessage ?: e.message)
             Log.e(tag, "[$taskTitle] Single stream download failed", e)
             onError(err)
             return false
+        } finally {
+            if (!published) tempFile.delete()
         }
     }
 

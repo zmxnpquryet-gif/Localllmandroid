@@ -176,11 +176,19 @@ class ApiServerService : Service() {
         server = svc
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                // specialUse exists only on API 34+. Older versions still require a
+                // declared type, so use dataSync there (the manifest declares both).
+                val serviceType =
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                    } else {
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                    }
                 androidx.core.app.ServiceCompat.startForeground(
                     this,
                     NOTIF_ID,
                     buildNotification(host),
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                    serviceType
                 )
             } else {
                 startForeground(NOTIF_ID, buildNotification(host))
@@ -249,6 +257,8 @@ class ApiServerService : Service() {
     }
 
     private fun createChannel() {
+        // Notification channels exist from API 26; older releases need none.
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java) ?: return
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             manager.createNotificationChannel(

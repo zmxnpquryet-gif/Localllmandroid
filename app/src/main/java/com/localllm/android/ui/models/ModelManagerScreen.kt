@@ -33,7 +33,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -73,6 +73,7 @@ import com.localllm.android.ui.glass.GTextField
 import com.localllm.android.ui.glass.GTopBar
 import com.localllm.android.ui.glass.GlassTheme
 import com.localllm.android.ui.glass.LiquidBackground
+import java.util.Locale
 
 @Composable
 fun ModelManagerScreen(
@@ -80,10 +81,10 @@ fun ModelManagerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val models by viewModel.models.collectAsState()
-    val activeModel by viewModel.activeModel.collectAsState()
-    val activeDownloadStatus by viewModel.activeDownloadStatus.collectAsState()
-    val settings by viewModel.settings.collectAsState()
+    val models by viewModel.models.collectAsStateWithLifecycle()
+    val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
+    val activeDownloadStatus by viewModel.activeDownloadStatus.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
 
     var showFdmDialog by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf("ALL") } // "ALL", "DOWNLOADED", "LLAMA_CPP", "LITE_RT"
@@ -243,12 +244,12 @@ fun ModelManagerScreen(
 
             val storageUsedFormatted = remember(actualStorageUsedBytes) {
                 val gb = actualStorageUsedBytes / (1024.0 * 1024.0 * 1024.0)
-                if (gb >= 1.0) String.format("%.2f GB", gb)
-                else String.format("%.1f MB", actualStorageUsedBytes / (1024.0 * 1024.0))
+                if (gb >= 1.0) String.format(Locale.US, "%.2f GB", gb)
+                else String.format(Locale.US, "%.1f MB", actualStorageUsedBytes / (1024.0 * 1024.0))
             }
             val availableStorageFormatted = remember(availableDeviceStorageBytes) {
                 val gb = availableDeviceStorageBytes / (1024.0 * 1024.0 * 1024.0)
-                String.format("%.1f GB", gb)
+                String.format(Locale.US, "%.1f GB", gb)
             }
 
             Row(
@@ -441,7 +442,7 @@ private fun FdmActiveDownloadCard(
             )
             val safeProgress = if (status.progress.isNaN() || status.progress < 0f) 0f else status.progress.coerceIn(0f, 1f)
             GText(
-                text = String.format("%.0f%%", safeProgress * 100f),
+                text = String.format(Locale.US, "%.0f%%", safeProgress * 100f),
                 style = GlassTheme.type.titleSmall,
                 color = GlassTheme.colors.onSurface
             )
@@ -570,7 +571,7 @@ private fun ComponentProgressRow(title: String, progress: Float) {
             )
             Spacer(modifier = Modifier.width(6.dp))
             GText(
-                text = String.format("%.0f%%", safeProgress * 100f),
+                text = String.format(Locale.US, "%.0f%%", safeProgress * 100f),
                 style = GlassTheme.type.labelSmall,
                 color = if (safeProgress >= 1f) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant
             )
@@ -876,8 +877,8 @@ private fun ModelBundleCardItem(
                     }
                     val actualDiskFormatted = remember(localBytes) {
                         val gb = localBytes / (1024.0 * 1024.0 * 1024.0)
-                        if (gb >= 1.0) String.format("%.2f GB", gb)
-                        else String.format("%.1f MB", localBytes / (1024.0 * 1024.0))
+                        if (gb >= 1.0) String.format(Locale.US, "%.2f GB", gb)
+                        else String.format(Locale.US, "%.1f MB", localBytes / (1024.0 * 1024.0))
                     }
                     GText(
                         text = stringResource(R.string.model_manager_disk_usage, actualDiskFormatted),

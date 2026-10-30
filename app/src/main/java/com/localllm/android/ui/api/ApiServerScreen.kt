@@ -37,7 +37,7 @@ import com.localllm.android.ui.glass.GTopBar
 import com.localllm.android.ui.glass.GlassTheme
 import com.localllm.android.ui.glass.LiquidBackground
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,14 +60,14 @@ fun ApiServerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val settings by viewModel.settings.collectAsState()
-    val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsState()
-    val apiServerStatusMessage by viewModel.apiServerStatusMessage.collectAsState()
-    val apiPort by viewModel.apiServerPort.collectAsState()
-    val localIpAddress by viewModel.localIpAddress.collectAsState()
-    val activeModel by viewModel.activeModel.collectAsState()
-    val requestCount by viewModel.apiRequestCount.collectAsState()
-    val apiKey by viewModel.apiServerApiKey.collectAsState()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsStateWithLifecycle()
+    val apiServerStatusMessage by viewModel.apiServerStatusMessage.collectAsStateWithLifecycle()
+    val apiPort by viewModel.apiServerPort.collectAsStateWithLifecycle()
+    val localIpAddress by viewModel.localIpAddress.collectAsStateWithLifecycle()
+    val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
+    val requestCount by viewModel.apiRequestCount.collectAsStateWithLifecycle()
+    val apiKey by viewModel.apiServerApiKey.collectAsStateWithLifecycle()
     var apiKeyRevealed by remember { mutableStateOf(false) }
 
     val baseUrl = "http://$localIpAddress:$apiPort"

@@ -31,7 +31,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +67,7 @@ import com.localllm.android.ui.glass.GTextButton
 import com.localllm.android.ui.glass.GlassTheme
 import com.localllm.android.ui.glass.LiquidBackground
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @Composable
 fun ChatScreen(
@@ -78,22 +79,22 @@ fun ChatScreen(
     var drawerOpen by remember { mutableStateOf(false) }
     BackHandler(enabled = drawerOpen) { drawerOpen = false }
 
-    val conversations by viewModel.conversations.collectAsState()
-    val currentConvId by viewModel.currentConversationId.collectAsState()
-    val messages by viewModel.messages.collectAsState()
-    val settings by viewModel.settings.collectAsState()
-    val activeModel by viewModel.activeModel.collectAsState()
-    val allModels by viewModel.models.collectAsState()
-    val isGenerating by viewModel.isGenerating.collectAsState()
-    val streamingMessage by viewModel.streamingMessage.collectAsState()
-    val pendingAttachment by viewModel.pendingAttachment.collectAsState()
-    val voiceState by viewModel.voiceManager.voiceState.collectAsState()
-    val engineStatus by viewModel.engineStatusMessage.collectAsState()
-    val isModelLoading by viewModel.isModelLoading.collectAsState()
-    val modelLoadingProgress by viewModel.modelLoadingProgress.collectAsState()
-    val modelLoadingStage by viewModel.modelLoadingStage.collectAsState()
-    val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsState()
-    val apiPort by viewModel.apiServerPort.collectAsState()
+    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+    val currentConvId by viewModel.currentConversationId.collectAsStateWithLifecycle()
+    val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
+    val allModels by viewModel.models.collectAsStateWithLifecycle()
+    val isGenerating by viewModel.isGenerating.collectAsStateWithLifecycle()
+    val streamingMessage by viewModel.streamingMessage.collectAsStateWithLifecycle()
+    val pendingAttachment by viewModel.pendingAttachment.collectAsStateWithLifecycle()
+    val voiceState by viewModel.voiceManager.voiceState.collectAsStateWithLifecycle()
+    val engineStatus by viewModel.engineStatusMessage.collectAsStateWithLifecycle()
+    val isModelLoading by viewModel.isModelLoading.collectAsStateWithLifecycle()
+    val modelLoadingProgress by viewModel.modelLoadingProgress.collectAsStateWithLifecycle()
+    val modelLoadingStage by viewModel.modelLoadingStage.collectAsStateWithLifecycle()
+    val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsStateWithLifecycle()
+    val apiPort by viewModel.apiServerPort.collectAsStateWithLifecycle()
 
     var inputText by remember { mutableStateOf("") }
     var showStatusDetailDialog by remember { mutableStateOf(false) }
@@ -330,7 +331,7 @@ fun ChatScreen(
                                             )
                                         }
                                         GText(
-                                            text = if (modelLoadingProgress > 0f) String.format("%.0f%%", modelLoadingProgress * 100f) else "",
+                                            text = if (modelLoadingProgress > 0f) String.format(Locale.US, "%.0f%%", modelLoadingProgress * 100f) else "",
                                             style = GlassTheme.type.labelSmall,
                                             color = GlassTheme.colors.primary
                                         )
@@ -506,7 +507,7 @@ fun ChatScreen(
                     }
 
                     // MCP tool approval: every tool call waits for an explicit decision.
-                    val pendingTool by viewModel.pendingToolApproval.collectAsState()
+                    val pendingTool by viewModel.pendingToolApproval.collectAsStateWithLifecycle()
                     pendingTool?.let { call ->
                         GDialog(
                             onDismissRequest = { viewModel.resolveToolApproval(false) },

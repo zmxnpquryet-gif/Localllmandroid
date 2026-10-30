@@ -97,12 +97,13 @@ tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(fetchSherpaAa
 android {
   namespace = "com.localllm.android"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
+  ndkVersion = "27.2.12479018"
   defaultConfig {
     applicationId = "com.localllm.android"
     minSdk = 24
     targetSdk = 36
-    versionCode = 20
-    versionName = "1.5.4"
+    versionCode = 21
+    versionName = "1.6.0"
     ndk { abiFilters.addAll(listOf("arm64-v8a", "x86_64")) }
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -139,6 +140,21 @@ android {
     compose = true
     buildConfig = true
   }
+  bundle {
+    language {
+      // The app switches language at runtime, so every language resource must
+      // ship in the base APK instead of being Play-delivered per device locale.
+      enableSplit = false
+    }
+  }
+  externalNativeBuild {
+    cmake {
+      // Builds the vendored upstream llama.cpp submodule plus the JNI bridge
+      // into a single libllama_jni.so per ABI.
+      path = file("src/main/cpp/CMakeLists.txt")
+      version = "3.22.1"
+    }
+  }
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
@@ -154,7 +170,6 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
-  implementation(libs.llamacpp)
   implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.0") {
     exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
@@ -188,10 +203,8 @@ configurations.all {
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-  // REQUIRED, not a shortcut: bundled AARs ship newer Kotlin metadata than this
-  // module's compiler — llamacpp-kotlin mv=2.3.0, litertlm mv=2.4.0 vs KGP 2.2.10
-  // (verified via javap @Metadata on both AARs). Without this flag the compiler
-  // rejects those classes outright. Remove only after migrating KGP to >= 2.4,
-  // which additionally needs compose-BOM/KSP/Room re-validation.
+  // REQUIRED, not a shortcut: bundled AARs can ship newer Kotlin metadata than
+  // this module's compiler — litertlm is compiled with Kotlin 2.4 metadata.
+  // Without this flag the compiler rejects those classes outright.
   compilerOptions.freeCompilerArgs.add("-Xskip-metadata-version-check")
 }

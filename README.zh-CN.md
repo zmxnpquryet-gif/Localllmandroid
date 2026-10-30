@@ -51,9 +51,9 @@ Local LLM Android 不绑定单一引擎，而是在统一的推理抽象之下�
                 ▼                                            ▼
       [ llama.cpp 运行时 ]                          [ Google LiteRT-LM 运行时 ]
    • 通用 GGUF 格式支持                             • Google 移动端优化二进制
-   • Qwen、DeepSeek-R1、Llama 3 等                  • Gemma-2、FunctionGemma 移动模型
+   • Qwen、DeepSeek-R1、Llama 3、LFM3 等            • Gemma-2、FunctionGemma 移动模型
    • CPU 多线程与 GPU 层卸载                        • 硬件 GPU（OpenCL/Vulkan）与 NPU 委托
-   • mmproj 视觉塔支持（多模态）                    • 超低功耗移动端推理
+   • mmproj 视觉塔（Qwen2-VL、LFM3-VL 等）          • 超低功耗移动端推理
 
         （+ SDengine — :engine 下的实验性自研 MoE 引擎，见下文）
 ```
@@ -157,7 +157,8 @@ Local LLM Android 不绑定单一引擎，而是在统一的推理抽象之下�
 - Android Studio Ladybug（2024.2.1+）或更新版本
 - JDK 17
 - Android SDK 36（最低 SDK 24）
-- Android NDK 27.2 + CMake 3.22+（`:engine` 模块必需）
+- Android NDK 27.2 + CMake 3.22+（`:engine` 模块和上游 llama.cpp 构建需要）
+- Git 子模块：使用 `--recurse-submodules` 克隆，或运行 `git submodule update --init --recursive`。`app/src/main/cpp/llama.cpp` 固定在上游 v0.8.0（b11960），这是首个支持 LFM3 的版本
 - 目标设备需为 64 位 ARM 架构（`arm64-v8a`）或 `x86_64`
 - 无需手动准备原生依赖：sherpa-onnx STT AAR（约 50 MB）不入库 —— Gradle 会在每次构建前通过 `fetchSherpaAar` 任务自动获取（固定版本 + SHA-256 校验）
 

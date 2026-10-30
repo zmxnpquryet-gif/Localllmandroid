@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Generate debug keystore
         run: |
@@ -93,7 +95,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
+      - name: Generate debug keystore
+        run: |
+          keytool -genkeypair -v -keystore debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      # /usr/local/lib/android must survive: the runner's preinstalled Android
+      # SDK is what AGP resolves via ANDROID_HOME, and this job runs Gradle.
       - name: Free disk space for the 17 GiB model
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \

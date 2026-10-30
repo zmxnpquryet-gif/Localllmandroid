@@ -26,7 +26,6 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.MyApplication">
             <intent-filter>
@@ -45,12 +44,14 @@
           specialUse is the honest type here: a LAN HTTP inference server fits none
           of the declared types, and targetSdk 36 on Android 14+ throws
           MissingForegroundServiceTypeException for a typeless startForeground.
-          The subtype property documents the use for reviewers and Play policy.
+          dataSync is the fallback the service uses on API 29-33, where specialUse
+          is not defined. The subtype property documents the use for reviewers and
+          Play policy.
         -->
         <service
             android:name=".server.ApiServerService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="dataSync|specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="On-device LLM inference server (Ollama/OpenAI-compatible HTTP on port 11434) kept alive after the UI closes." />

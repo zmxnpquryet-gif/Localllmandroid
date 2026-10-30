@@ -67,6 +67,24 @@ class PromptFormatterTest {
     }
 
     @Test
+    fun `LFM3 formatting adds thinking blocks to assistant turns`() {
+        val prompt = PromptFormatter.formatPrompt(
+            templateType = PromptTemplateType.LFM3,
+            templateJsonPath = null,
+            systemPrompt = "You are a helpful assistant.",
+            history = listOf("user" to "Hi", "assistant" to "Hello!"),
+            userPrompt = "What is 2+2?",
+            toolsContext = null,
+            supportsReasoning = false
+        )
+
+        assertTrue(prompt.startsWith("<|im_start|>system\n"))
+        assertTrue(prompt.contains("<|im_start|>assistant\n<think></think>Hello!<|im_end|>"))
+        assertTrue(prompt.contains("<|im_start|>user\nWhat is 2+2?<|im_end|>"))
+        assertTrue(prompt.endsWith("<|im_start|>assistant\n<think>"))
+    }
+
+    @Test
     fun `history cut mid-turn still opens with a user turn`() {
         // 7 turns: takeLast(6) would start on an assistant turn without normalization.
         val history = (0 until 7).map { i ->

@@ -1,5 +1,7 @@
 ﻿package com.localllm.android.model
 
+import java.util.Locale
+
 enum class ModelRuntimeType(val label: String, val badge: String) {
     LLAMA_CPP("llama.cpp", "GGUF"),
     LITE_RT("LiteRT LM", "LiteRT"),
@@ -12,6 +14,7 @@ enum class PromptTemplateType(val id: String, val displayName: String) {
     GEMMA("gemma", "Gemma 2 (<start_of_turn>)"),
     PHI("phi", "Phi-4 (<|user|>)"),
     LLAMA3("llama3", "Llama 3 (<|start_header_id|>)"),
+    LFM3("lfm3", "LFM3 (<|im_start|>, <think>)"),
     CUSTOM("custom", "Custom / JSON")
 }
 
@@ -68,8 +71,8 @@ data class LlmModel(
             if (hasMmproj && visionTowerUrl.isNotBlank()) total += 380_000_000L
             if (supportsMtp && mtpDrafterUrl.isNotBlank()) total += 420_000_000L
             val gb = total / (1024.0 * 1024.0 * 1024.0)
-            return if (gb >= 1.0) String.format("%.2f GB", gb)
-            else String.format("%.0f MB", total / (1024.0 * 1024.0))
+            return if (gb >= 1.0) String.format(Locale.US, "%.2f GB", gb)
+            else String.format(Locale.US, "%.0f MB", total / (1024.0 * 1024.0))
         }
 
     val runtimeBadge: String
@@ -222,6 +225,42 @@ object ModelCatalog {
             isBundledModel = true,
             isDownloaded = false,
             description = "Official Qwen2-VL multimodal vision model with image input and analysis support.",
+            quantization = "Q4_K_M"
+        ),
+        LlmModel(
+            id = "lfm3-1.7b-gguf",
+            name = "LFM3 1.7B",
+            repoId = "LiquidAI/LFM3-1.7B-GGUF",
+            fileName = "LFM3-1.7B-Q4_K_M.gguf",
+            runtimeType = ModelRuntimeType.LLAMA_CPP,
+            promptTemplateType = PromptTemplateType.LFM3,
+            sizeBytes = 1_099_627_808L,
+            supportsMtp = false,
+            supportsReasoning = false,
+            hasMmproj = false,
+            mainModelUrl = "https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/resolve/main/LFM3-1.7B-Q4_K_M.gguf",
+            isBundledModel = false,
+            isDownloaded = false,
+            description = "Liquid AI LFM3 1.7B GGUF. Fast, multilingual on-device assistant with native llama.cpp support.",
+            quantization = "Q4_K_M"
+        ),
+        LlmModel(
+            id = "lfm3-vl-2b-gguf",
+            name = "LFM3-VL 2B",
+            repoId = "LiquidAI/LFM3-VL-2B-GGUF",
+            fileName = "LFM3-VL-2B-Q4_K_M.gguf",
+            runtimeType = ModelRuntimeType.LLAMA_CPP,
+            promptTemplateType = PromptTemplateType.LFM3,
+            sizeBytes = 1_099_627_808L,
+            supportsMtp = false,
+            supportsReasoning = false,
+            hasMmproj = true,
+            mmprojFileName = "mmproj-LFM3-VL-2B-Q8_0.gguf",
+            mainModelUrl = "https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF/resolve/main/LFM3-VL-2B-Q4_K_M.gguf",
+            visionTowerUrl = "https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF/resolve/main/mmproj-LFM3-VL-2B-Q8_0.gguf",
+            isBundledModel = false,
+            isDownloaded = false,
+            description = "Liquid AI LFM3-VL 2B multimodal model with image understanding and a compact Q8 vision projector.",
             quantization = "Q4_K_M"
         ),
         LlmModel(

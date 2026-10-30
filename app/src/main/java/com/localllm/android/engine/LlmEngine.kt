@@ -1,4 +1,4 @@
-﻿package com.localllm.android.engine
+package com.localllm.android.engine
 
 import com.localllm.android.R
 import com.localllm.android.i18n.AppStrings
@@ -6,8 +6,9 @@ import com.localllm.android.i18n.SdEngineText
 
 import android.content.Context
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.localllm.android.engine.llama.LlamaContext
+import com.localllm.android.engine.llama.LlamaRuntime
 import com.localllm.android.memory.MemoryEstimator
 import com.localllm.android.memory.MemoryGuard
 import com.localllm.android.memory.MemoryGuardStore
@@ -27,9 +28,12 @@ import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.localllm.engine.SDEngine
 import com.localllm.engine.SampleConfig
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -41,11 +45,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.nehuatl.llamacpp.LlamaAndroid
-import org.nehuatl.llamacpp.LlamaContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.FileInputStream
-import java.util.Random
 
 data class GenerationChunk(
     val token: String,
@@ -75,14 +77,14 @@ class LlmEngine(private val context: Context) {
 
         /** Grace window for a cancelled generation to release the inference lock. */
         private const val INFERENCE_UNWIND_GRACE_MS = 5_000L
+        /** Must match `mtmd_default_marker()` in the upstream mtmd library. */
+        private const val MEDIA_MARKER = "<__media__>"
     }
 
     private val tag = "LlmEngine"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    private var llamaAndroid: LlamaAndroid? = null
     private var currentLlamaContext: LlamaContext? = null
-    private var onTokenGenerated: ((String) -> Unit)? = null
 
     private var litertEngine: Engine? = null
     private var litertConversation: Conversation? = null
@@ -132,21 +134,10 @@ class LlmEngine(private val context: Context) {
 
     init {
         try {
-            llamaAndroid = LlamaAndroid(context.contentResolver).apply {
-                try { setContextLimit(16) } catch (_: Throwable) {}
-            }
+            LlamaRuntime.ensureLoaded()
         } catch (e: Throwable) {
-            Log.e(tag, "Failed to initialize LlamaAndroid runtime wrapper", e)
+            Log.e(tag, "Failed to load llama.cpp runtime", e)
         }
-    }
-
-    private fun openPfd(file: File): ParcelFileDescriptor {
-        return try {
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        } catch (e: Throwable) {
-            Log.d(tag, "ParcelFileDescriptor.open direct failed (${e.message}), trying ContentResolver...")
-            context.contentResolver.openFileDescriptor(Uri.fromFile(file), "r")
-        } ?: throw IllegalStateException(AppStrings.get(R.string.eng_no_fd, file.path))
     }
 
     private val settingsPrefs by lazy {
@@ -168,6 +159,41 @@ class LlmEngine(private val context: Context) {
     }
 
     private fun memorySnapshot(): MemorySnapshot = MemorySnapshot.read(context)
+
+    /**
+     * mtmd reads images from filesystem paths, while the attachment may be a
+     * `content://` URI from the system photo picker. Materialize those into the
+     * cache directory for the duration of one request.
+     */
+    private fun materializeImageForNative(attachment: ChatAttachment?): Pair<String?, File?> {
+        if (attachment?.isImage != true) return null to null
+        val raw = attachment.uriString
+        val uri = try {
+            Uri.parse(raw)
+        } catch (_: Throwable) {
+            return null to null
+        }
+        return when (uri.scheme) {
+            "content" -> try {
+                val temp = File(context.cacheDir, "llama_vision_${System.currentTimeMillis()}.jpg")
+                val opened = context.contentResolver.openInputStream(uri)
+                if (opened == null) {
+                    null to null
+                } else {
+                    opened.use { input -> temp.outputStream().use { output -> input.copyTo(output) } }
+                    temp.absolutePath to temp
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Failed to cache content URI for llama.cpp vision: ${e.message}")
+                null to null
+            }
+            "file" -> uri.path?.takeIf { File(it).isFile } to null
+            else -> {
+                val file = File(raw)
+                file.absolutePath.takeIf { file.isFile } to null
+            }
+        }
+    }
 
     /**
      * Loads a model into memory from local disk (LiteRT, llama.cpp GGUF or SDengine).
@@ -313,7 +339,11 @@ class LlmEngine(private val context: Context) {
         if (sdEstimate != null && decision?.estimate != null) {
             sdCapBytes = decision.estimate.copy(
                 kvBytes = MemoryEstimator.kvBytes(
-                    sdEstimate.nLayers, sdEstimate.kvHeads, sdEstimate.headDim, effectiveContext
+                    sdEstimate.nLayers,
+                    sdEstimate.kvHeads,
+                    sdEstimate.headDim,
+                    effectiveContext,
+                    decision.estimate.kvBytesPerElement
                 ),
                 contextWindow = effectiveContext
             ).totalBytes
@@ -422,6 +452,7 @@ class LlmEngine(private val context: Context) {
                     usedBackendName = backendName
                     break
                 } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
                     val reason = (t.localizedMessage ?: t.message ?: t.javaClass.simpleName).take(160)
                     failures.add(backendName to reason)
                     Log.w(tag, "LiteRT init failed with $backendName: $reason", t)
@@ -510,9 +541,6 @@ class LlmEngine(private val context: Context) {
             unloadCurrentModel()
             onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_sd_bind), 0.30f)
             val guard = MemoryGuard.get()
-            // Approved envelope from the SD-aware gate (dense + KV + overhead).
-            // Only when metadata was unreadable (generic gate fallback) use the
-            // old conservative fraction.
             val residentCap = if (sdCapBytes > 0) {
                 minOf(sdCapBytes, 3L * 1024L * 1024L * 1024L)
             } else {
@@ -521,7 +549,11 @@ class LlmEngine(private val context: Context) {
             }
             try {
                 val engine = SDEngine()
-                val info = engine.openModel(modelFile, residentCapBytes = residentCap)
+                val info = engine.openModel(
+                    modelFile,
+                    residentCapBytes = residentCap,
+                    contextLimit = effectiveSettings.contextWindow
+                )
                 sdEngine = engine
                 activeModel = model
                 isModelLoaded = true
@@ -531,6 +563,7 @@ class LlmEngine(private val context: Context) {
                 onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_loaded), 1.0f)
                 return@withContext resultMsg
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 unloadCurrentModel()
                 val reason = (t.localizedMessage ?: t.message ?: t.javaClass.simpleName).take(200)
                 Log.e(tag, "SDengine 로드 실패: $reason", t)
@@ -571,10 +604,6 @@ class LlmEngine(private val context: Context) {
         val contextWindow = effectiveSettings.contextWindow.coerceIn(512, 16384)
         val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
         val targetGpuLayers = if (effectiveSettings.enableGpuAcceleration) effectiveSettings.gpuLayers.coerceIn(0, 99) else 0
-
-        val tokenCallback: (String) -> Unit = { token ->
-            onTokenGenerated?.invoke(token)
-        }
 
         data class GgufInitCandidate(
             val desc: String,
@@ -618,89 +647,43 @@ class LlmEngine(private val context: Context) {
             onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_try, cand.desc), progressFraction)
             Log.d(tag, "GGUF 로드 시도 (${idx + 1}/${candidates.size}): ${cand.desc}")
 
-            var modelPfd: ParcelFileDescriptor? = null
-            var mmprojPfd: ParcelFileDescriptor? = null
-            // Raw fds handed to native code. detachFd() strips the ParcelFileDescriptor
-            // of ownership, so its close() below is a no-op for them: on failure they
-            // must be closed explicitly or every failed candidate leaks an fd.
-            var modelFd = -1
-            var mmprojFd = -1
+            val candidateMmprojPath = if (cand.useMmproj) mmprojPath else null
 
             try {
-                modelPfd = openPfd(modelFile)
-                modelFd = modelPfd.detachFd()
-
-                val modelUriString = Uri.fromFile(modelFile).toString()
                 val params = mutableMapOf<String, Any>(
-                    "model" to modelUriString,
-                    "model_fd" to modelFd,
+                    // Upstream llama.cpp takes filesystem paths; the engine already
+                    // owns the model file, so no detached-fd hand-off is needed.
+                    "model_path" to modelFile.absolutePath,
                     "use_mmap" to cand.useMmap,
                     "use_mlock" to false,
                     "n_ctx" to cand.ctxLength,
-                    "embedding" to false,
                     "n_batch" to 512,
                     "n_threads" to threadCount,
                     "n_gpu_layers" to cand.gpuLayers,
-                    "vocab_only" to false,
-                    "lora" to "",
-                    "lora_scaled" to 1.0,
-                    "rope_freq_base" to 0.0,
-                    "rope_freq_scale" to 0.0
+                    "vocab_only" to false
                 )
 
-                if (cand.useMmproj && mmprojPath != null) {
-                    try {
-                        mmprojPfd = openPfd(File(mmprojPath))
-                        mmprojFd = mmprojPfd.detachFd()
-                        params["mmproj_fd"] = mmprojFd
-                    } catch (me: Throwable) {
-                        Log.w(tag, "mmproj 파일 디스크립터 생성 실패 (${me.message}), 텍스트 단독 모드로 진행")
-                    }
+                if (candidateMmprojPath != null) {
+                    params["mmproj_path"] = candidateMmprojPath
                 }
 
-                // Generate random positive context ID
-                val newContextId = abs(Random().nextInt()).coerceAtLeast(1)
-
-                // Instantiate LlamaContext directly - no reflection on private fields!
-                val createdContext = LlamaContext(newContextId, params)
+                val createdContext = LlamaContext(params)
                 if (createdContext.context == 0L) {
                     throw IllegalStateException(AppStrings.get(R.string.eng_ctx_handle_fail))
                 }
-
-                createdContext.setTokenCallback(tokenCallback)
 
                 if (cand.ctxLength < contextWindow) {
                     Log.w(tag, "[주의] 메모리/환경 제약으로 인해 컨텍스트 길이가 ${contextWindow}에서 ${cand.ctxLength}로 축소되어 로드되었습니다.")
                 }
 
                 newLlamaContext = createdContext
-                loadedWithMmproj = cand.useMmproj && params.containsKey("mmproj_fd")
+                loadedWithMmproj = candidateMmprojPath != null
                 successfulDesc = cand.desc
-                // Success: the native context owns both fds from here on.
-                modelFd = -1
-                mmprojFd = -1
-                Log.i(tag, "GGUF 로드 성공: contextId=$newContextId, 옵션=${cand.desc}")
+                Log.i(tag, "GGUF 로드 성공: 옵션=${cand.desc}")
                 break
             } catch (e: Throwable) {
                 Log.w(tag, "GGUF 로드 시도 실패 (${cand.desc}): ${e.localizedMessage ?: e.message}")
                 lastError = e
-            } finally {
-                if (modelFd >= 0) {
-                    try {
-                        ParcelFileDescriptor.adoptFd(modelFd).close()
-                    } catch (_: Throwable) {
-                    }
-                    modelFd = -1
-                }
-                if (mmprojFd >= 0) {
-                    try {
-                        ParcelFileDescriptor.adoptFd(mmprojFd).close()
-                    } catch (_: Throwable) {
-                    }
-                    mmprojFd = -1
-                }
-                try { modelPfd?.close() } catch (_: Throwable) {}
-                try { mmprojPfd?.close() } catch (_: Throwable) {}
             }
         }
 
@@ -724,8 +707,6 @@ class LlmEngine(private val context: Context) {
         return@withContext resultMsg
     }
 
-    private fun abs(value: Int): Int = if (value < 0) -value else value
-
     private fun unloadCurrentModel() {
         try {
             currentLlamaContext?.release()
@@ -733,7 +714,6 @@ class LlmEngine(private val context: Context) {
             Log.w(tag, "Error releasing currentLlamaContext: ${e.message}")
         }
         currentLlamaContext = null
-        onTokenGenerated = null
 
         try {
             litertEngine?.close()
@@ -760,8 +740,21 @@ class LlmEngine(private val context: Context) {
 
     fun isModelReady(): Boolean = isModelLoaded && activeModel != null
 
-    fun getActiveModel(): LlmModel? = activeModel
-    fun isVisionLoaded(): Boolean = isVisionTowerLoaded
+    /**
+     * llama.cpp decode is blocking, so a stopped predecessor can still own the
+     * native context after its collector has returned. Wait for it to leave the
+     * decode loop before starting another generation.
+     */
+    private suspend fun awaitLlamaIdle(ctx: LlamaContext, timeoutMs: Long): Boolean {
+        if (!ctx.isPredicting()) return true
+        ctx.stopCompletion()
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (!ctx.isPredicting()) return true
+            delay(20)
+        }
+        return !ctx.isPredicting()
+    }
 
     /**
      * A cancelled predecessor can still be unwinding (its `finally` has not yet
@@ -824,28 +817,37 @@ class LlmEngine(private val context: Context) {
             }
         } finally {
             clearActiveInferenceState()
-            // A release() that arrived mid-inference asked for the unload instead of
-            // tearing a context out from under the native loop; honor it now that the
-            // mutex is ours again, before unlocking.
-            val unload = pendingUnload
-            pendingUnload = false
-            if (unload) {
-                try {
-                    unloadCurrentModel()
-                } catch (t: Throwable) {
-                    Log.w(tag, "Deferred unload after inference failed: ${t.message}")
-                }
-            }
             inferenceMutex.unlock()
         }
     }.flowOn(Dispatchers.Default)
 
-    private fun clearActiveInferenceState() {
-        onTokenGenerated = null
-        try {
-            activeCompletionJob?.cancel()
-        } catch (_: Throwable) {}
+    /**
+     * Stops any native work that outlives the collector and waits a bounded time
+     * for it to actually finish. Blocking JNI calls ignore coroutine
+     * cancellation, so `cancel()` alone would let a previous decode race the
+     * next load or generation.
+     */
+    private suspend fun clearActiveInferenceState() {
+        val completion = activeCompletionJob
         activeCompletionJob = null
+        if (completion != null) {
+            currentLlamaContext?.stopCompletion()
+            withContext(NonCancellable) {
+                withTimeoutOrNull(INFERENCE_UNWIND_GRACE_MS) { completion.join() }
+            }
+            completion.cancel()
+        }
+
+        val sdJob = activeSdJob
+        activeSdJob = null
+        sdStopRequested = true
+        if (sdJob != null) {
+            sdJob.cancel()
+            withContext(NonCancellable) {
+                withTimeoutOrNull(INFERENCE_UNWIND_GRACE_MS) { sdJob.join() }
+            }
+        }
+
         val conv = activeLitertConversation
         activeLitertConversation = null
         if (conv != null) {
@@ -879,12 +881,21 @@ class LlmEngine(private val context: Context) {
         // Construct standard prompt formatted for on-device instruction-tuned model
         // (no user system prompt: the setting was removed; tools/reasoning blocks
         // are still composed by PromptFormatter itself).
+        // mtmd needs its marker *inside* the user turn. Insert it before the
+        // ChatML/template wrapping; the native bridge only falls back to
+        // prepending it when a caller did not do this.
+        val usesLlamaVision = settings.runtime != ModelRuntimeType.LITE_RT &&
+            attachment?.isImage == true &&
+            isVisionTowerLoaded &&
+            !(settings.runtime == ModelRuntimeType.SD_ENGINE && sdEngine != null)
+        val promptForFormatting =
+            if (usesLlamaVision) MEDIA_MARKER + "\n" + prompt else prompt
         val formattedPrompt = PromptFormatter.formatPrompt(
             templateType = model.promptTemplateType,
             templateJsonPath = model.localTemplatePath,
             systemPrompt = "",
             history = history,
-            userPrompt = prompt,
+            userPrompt = promptForFormatting,
             toolsContext = mcpToolsContext,
             supportsReasoning = model.supportsReasoning
         )
@@ -901,7 +912,9 @@ class LlmEngine(private val context: Context) {
             val maxNewTokens = numPredictOverride?.coerceIn(1, 16384) ?: 256
             sdStopRequested = false
             val tokenChannel = Channel<String>(Channel.UNLIMITED)
+            val workerFailure = CompletableDeferred<Throwable?>()
             val worker = scope.launch(Dispatchers.IO) {
+                var failure: Throwable? = null
                 try {
                     val stats = engine.generate(
                         prompt = formattedPrompt,
@@ -921,19 +934,24 @@ class LlmEngine(private val context: Context) {
                                 "(stopped=${stats.stopped}, expertHits=${stats.expertHits}, " +
                                 "streamed=${stats.expertBytesStreamed / (1024 * 1024)}MB)"
                     )
+                } catch (t: CancellationException) {
+                    failure = t
+                    throw t
                 } catch (t: Throwable) {
+                    failure = t
                     Log.e(tag, "SDengine 추론 오류", t)
                 } finally {
+                    workerFailure.complete(failure)
                     tokenChannel.close()
                 }
             }
             activeSdJob = worker
             try {
                 for (rawWord in tokenChannel) {
-                    if (firstTokenTime == null) firstTokenTime = System.currentTimeMillis()
-                    totalTokens++
                     val now = System.currentTimeMillis()
-                    val elapsedSec = ((now - (firstTokenTime ?: now)) / 1000f).coerceAtLeast(0.001f)
+                    val firstAt = firstTokenTime ?: now.also { firstTokenTime = it }
+                    totalTokens++
+                    val elapsedSec = ((now - firstAt) / 1000f).coerceAtLeast(0.001f)
                     reasoningParser.processChunk(rawWord)
                     emit(
                         GenerationChunk(
@@ -948,6 +966,7 @@ class LlmEngine(private val context: Context) {
                         )
                     )
                 }
+                workerFailure.await()?.let { throw it }
                 reasoningParser.finish()
                 val finalElapsedSec =
                     ((System.currentTimeMillis() - (firstTokenTime ?: startTime)) / 1000f).coerceAtLeast(0.001f)
@@ -974,10 +993,6 @@ class LlmEngine(private val context: Context) {
         }
 
         if (model.runtimeType == ModelRuntimeType.LITE_RT) {
-            // Fresh conversation per request: the app always passes the full formatted
-            // history inside the prompt, so reusing one stateful runtime conversation
-            // would duplicate context and leak one chat's state into another.
-            // Per-request sampler also honors temperature/topP/topK without a reload.
             val engine = litertEngine
                 ?: throw IllegalStateException(AppStrings.get(R.string.eng_litert_not_ready))
             val conv = try {
@@ -1103,6 +1118,7 @@ class LlmEngine(private val context: Context) {
                     )
                 )
             } catch (e: Throwable) {
+                if (e is CancellationException) throw e
                 val reason = e.localizedMessage ?: e.message
                 Log.e(tag, "LiteRT inference error", e)
                 if (totalTokens == 0 &&
@@ -1128,11 +1144,8 @@ class LlmEngine(private val context: Context) {
         val llamaCtx = currentLlamaContext
             ?: throw IllegalStateException(AppStrings.get(R.string.eng_not_init))
 
-        val imagePath = if (attachment?.isImage == true && isVisionTowerLoaded) {
-            val raw = attachment.uriString
-            if (raw.startsWith("content://") || raw.startsWith("file://")) raw
-            else Uri.fromFile(File(raw)).toString()
-        } else null
+        val (imagePath, visionTempFile) =
+            if (isVisionTowerLoaded) materializeImageForNative(attachment) else (null to null)
         val hasImage = imagePath != null
 
         Log.d(tag, "Starting real GGUF inference with prompt length: ${formattedPrompt.length}, isImage: $hasImage")
@@ -1145,12 +1158,16 @@ class LlmEngine(private val context: Context) {
             maxOf(1, formattedPrompt.length / 3)
         }
 
+        if (!awaitLlamaIdle(llamaCtx, INFERENCE_UNWIND_GRACE_MS)) {
+            throw IllegalStateException("BUSY_INFERENCE: " + AppStrings.get(R.string.eng_busy))
+        }
+
         val completionParams = mutableMapOf<String, Any>(
             "prompt" to formattedPrompt,
-            "emit_partial_completion" to true,
             "temperature" to settings.temperature.toDouble().coerceAtLeast(0.01),
             "top_k" to settings.topK.coerceAtLeast(1),
             "top_p" to settings.topP.toDouble().coerceIn(0.01, 1.0),
+            "repetition_penalty" to settings.repetitionPenalty.toDouble().coerceAtLeast(0.1),
             "n_predict" to (numPredictOverride?.coerceIn(1, 16384) ?: -1)
         )
         if (imagePath != null) {
@@ -1158,26 +1175,23 @@ class LlmEngine(private val context: Context) {
         }
 
         val tokenChannel = Channel<String>(Channel.UNLIMITED)
-        // Belt and braces with inferenceMutex: if a cancelled run's native loop is
-        // still winding down, ask it to stop before starting a new decode.
-        // (llamacpp-kotlin 0.4.0 exposes no KV/session reset API — verified via
-        // javap — so prompts stay fully self-contained: the whole history is
-        // formatted into every request and LiteRT uses a fresh session per call.)
-        try {
-            if (llamaCtx.isPredicting()) llamaCtx.stopCompletion()
-        } catch (e: Throwable) {
-            Log.w(tag, "Pre-generation stop request failed: ${e.message}")
-        }
-        onTokenGenerated = { token ->
-            tokenChannel.trySend(token)
-        }
-
+        val completionFailure = CompletableDeferred<Throwable?>()
+        // Each completion clears the upstream KV cache first, so prompts stay
+        // fully self-contained: the whole history is formatted into every request.
         val completionJob = scope.launch(Dispatchers.IO) {
+            var failure: Throwable? = null
             try {
-                llamaCtx.completion(completionParams)
+                llamaCtx.completion(completionParams) { token ->
+                    tokenChannel.trySend(token)
+                }
+            } catch (ce: CancellationException) {
+                failure = ce
+                throw ce
             } catch (ce: Throwable) {
-                Log.e(tag, "Error during launchCompletion: ${ce.message}", ce)
+                failure = ce
+                Log.e(tag, "llama.cpp completion failed: ${ce.message}", ce)
             } finally {
+                completionFailure.complete(failure)
                 tokenChannel.close()
             }
         }
@@ -1185,16 +1199,14 @@ class LlmEngine(private val context: Context) {
 
         try {
             for (rawWord in tokenChannel) {
-                if (firstTokenTime == null) {
-                    firstTokenTime = System.currentTimeMillis()
-                }
+                val now = System.currentTimeMillis()
+                val firstAt = firstTokenTime ?: now.also { firstTokenTime = it }
                 totalTokens++
 
-                val currentTime = System.currentTimeMillis()
-                val elapsedSinceFirstTokenSec = ((currentTime - (firstTokenTime ?: currentTime)) / 1000f).coerceAtLeast(0.001f)
+                val elapsedSinceFirstTokenSec =
+                    ((now - firstAt) / 1000f).coerceAtLeast(0.001f)
                 val currentTps = totalTokens / elapsedSinceFirstTokenSec
-
-                val promptEvalTimeSec = ((firstTokenTime!! - startTime) / 1000f).coerceAtLeast(0.001f)
+                val promptEvalTimeSec = ((firstAt - startTime) / 1000f).coerceAtLeast(0.001f)
                 val promptSpeed = realPromptTokens.toFloat() / promptEvalTimeSec
 
                 reasoningParser.processChunk(rawWord)
@@ -1213,11 +1225,14 @@ class LlmEngine(private val context: Context) {
                 )
             }
 
+            completionFailure.await()?.let { throw it }
             reasoningParser.finish()
 
-            val finalElapsedSec = ((System.currentTimeMillis() - (firstTokenTime ?: startTime)) / 1000f).coerceAtLeast(0.001f)
+            val finalElapsedSec =
+                ((System.currentTimeMillis() - (firstTokenTime ?: startTime)) / 1000f).coerceAtLeast(0.001f)
             val finalTps = if (totalTokens > 0) totalTokens / finalElapsedSec else 0f
-            val promptEvalTimeSec = (((firstTokenTime ?: System.currentTimeMillis()) - startTime) / 1000f).coerceAtLeast(0.001f)
+            val promptEvalTimeSec =
+                (((firstTokenTime ?: System.currentTimeMillis()) - startTime) / 1000f).coerceAtLeast(0.001f)
             val promptSpeed = realPromptTokens.toFloat() / promptEvalTimeSec
 
             emit(
@@ -1233,9 +1248,10 @@ class LlmEngine(private val context: Context) {
                 )
             )
         } finally {
-            onTokenGenerated = null
             if (activeCompletionJob === completionJob) activeCompletionJob = null
+            llamaCtx.stopCompletion()
             completionJob.cancel()
+            visionTempFile?.delete()
         }
     }.flowOn(Dispatchers.Default)
 
@@ -1263,24 +1279,4 @@ class LlmEngine(private val context: Context) {
         }
     }
 
-    @Volatile
-    private var pendingUnload = false
-
-    fun release() {
-        if (inferenceMutex.tryLock()) {
-            try {
-                pendingUnload = false
-                unloadCurrentModel()
-            } finally {
-                inferenceMutex.unlock()
-            }
-        } else {
-            // An inference owns the mutex: ask the native loop to stop and mark the
-            // unload for the finally block, instead of releasing a context it is
-            // actively using — or dropping the unload on the floor.
-            pendingUnload = true
-            stopGeneration()
-            Log.w(tag, "release() deferred until the running inference finishes")
-        }
-    }
 }
