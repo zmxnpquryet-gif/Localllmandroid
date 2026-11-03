@@ -56,3 +56,9 @@
 - WSA's host proxy now listens on `localhost:58526`; ADB discovers it but reports `unauthorized`. The Windows Computer Use safety rules forbid automating the Android USB-debugging authorization prompt, so installation and instrumented execution remain the only unverified runtime step until the user accepts that prompt.
 - Desktop backend processes and external servers were not available for end-to-end generation; only transport, tool request schema, image decoding, build, and distribution were verified. No Android native Omni model family is available, so only capability/session/platform-I/O behavior is implemented and the Voice UI says so explicitly.
 - User requested a single local commit with no further implementation work or remote push. README branding and the Gradle root project name are already OffconAI; the GitHub remote/repository name is intentionally left unchanged in this commit.
+
+## 2026-11-04 — commit and push handoff
+
+- Recorded the completed OffconAI overhaul in local commit `6aac19c` (`feat: rebrand OffconAI and overhaul local AI platform`) on `main`. The commit contained 108 files and left the working tree clean after verification.
+- The README branding and Gradle root project name were committed as OffconAI. The existing GitHub remote URL and repository name were not changed, because the user asked for a local commit only and no push.
+- User direction for the later push: rename the GitHub repository from `Localllmandroid` to `OffconAI` at push time, then update or replace the `origin` URL to the renamed repository before pushing. This entry documents the planned handoff; no remote action has been taken yet.
