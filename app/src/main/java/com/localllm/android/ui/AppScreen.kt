@@ -1,7 +1,7 @@
 ﻿package com.localllm.android.ui
 
 /**
- * Type-safe navigation destinations for LocalLLM Android.
+ * Type-safe navigation destinations for OffconAI.
  * Prevents silent routing errors caused by raw string typos.
  */
 enum class AppScreen(val route: String) {

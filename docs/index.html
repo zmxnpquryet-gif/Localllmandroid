@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Local LLM Android - Offline on-device AI chat</title>
-<meta name="description" content="Privacy-first, fully offline on-device LLM chat and server for Android. Powered by llama.cpp (GGUF) and Google LiteRT-LM. No cloud, no telemetry.">
+<title>OffconAI - Offline on-device AI chat</title>
+<meta name="description" content="OffconAI is a privacy-first local AI platform for Android, with llama.cpp, LiteRT-LM, and a planned desktop runtime.">
 <style>
   :root{
     --bg:#0b0b14; --bg2:#12121f; --card:#161626; --border:#262640;
@@ -58,7 +58,7 @@
 <body>
 <div class="container">
   <nav>
-    <div class="logo">Local LLM Android</div>
+    <div class="logo">OffconAI</div>
     <div class="links">
       <a href="#features">Features</a>
       <a href="#build">Build</a>
@@ -69,7 +69,7 @@
   <div class="hero">
     <h1>Your AI. <span>On your phone.</span> Offline.</h1>
     <p>A privacy-first, fully offline on-device LLM chat and server for Android.
-       Run state-of-the-art models directly on your CPU, GPU and NPU - no cloud, no API keys, no telemetry. Custom glass UI, instant English/Korean switching, tool use via a native MCP client, and an experimental first-party MoE engine built in the open.</p>
+       Run open-weight models on device, with CPU execution and supported LiteRT GPU or NPU backends. OffconAI includes a custom glass UI, English/Korean/Chinese localization, MCP tool use, and a local Ollama/OpenAI-compatible server.</p>
     <div class="badges">
       <span class="badge">llama.cpp + LiteRT-LM</span>
       <span class="badge">GGUF compatible</span>
@@ -97,14 +97,14 @@
 
   <section id="features">
     <h2>Why it's different</h2>
-    <p class="sub">Most "local LLM" apps give you one engine. Local LLM Android runs two, behind one interface.</p>
+    <p class="sub">Run capable language models on your own hardware. Android and a Java desktop shell build from the same repository, with independent llama.cpp, vLLM, and Strata adapters.</p>
     <div class="engines">
       <div class="engine">
         <h3>llama.cpp runtime</h3>
         <ul>
           <li>Any GGUF model from Hugging Face (Q4_K_M, Q8_0...)</li>
           <li>Qwen, Llama 3, DeepSeek-R1 and more</li>
-          <li>CPU multi-threading + GPU layer offload</li>
+          <li>CPU multi-threading; GPU offload only when the packaged runtime reports it</li>
           <li>Reasoning (think tags) and multimodal support</li>
         </ul>
       </div>
@@ -127,12 +127,9 @@
       <div class="card"><div class="icon">🔌</div><h3>MCP client</h3><p>Native Model Context Protocol client with per-session isolation guards, bringing tool use into on-device chats.</p></div>
       <div class="card"><div class="icon">🧊</div><h3>First-party glass UI</h3><p>Material3 stripped out. A custom glass design system covers every screen, with instant English/Korean switching built in.</p></div>
       <div class="card"><div class="icon">🛡️</div><h3>OOM protection</h3><p>Footprint estimate (weights + KV cache) before load, an in-flight marker so a kill mid-inference is detected on the next start, automatic setting reduction after an abnormal exit, and a live memory watchdog that stops generation before Android kills the app.</p></div>
+      <div class="card"><div class="icon">🖥️</div><h3>Desktop editions</h3><p>LLM Edition for chat and runtime management; All-in-One Edition adds modular image generation. Backend-specific configuration keeps llama.cpp, vLLM, and Strata behavior explicit.</p></div>
+      <div class="card"><div class="icon">📝</div><h3>Streaming Markdown</h3><p>Offline headings, lists, tables, quotes, links, syntax-highlighted code, and readable math stay stable while tokens arrive.</p></div>
     </div>
-  </section>
-
-  <section id="lab">
-    <h2>In the lab: SDengine</h2>
-    <p class="sub">A first-party MoE-only inference core, built in the open as the <code>:engine</code> module. GGUF reader, BPE tokenizer, paged expert streaming, portable C++ JNI reference (real math is JVM scalar kernels; NEON pending). Numerical validation against real MoE weights runs manually/nightly via range streaming, plus end-to-end generation over gated-expert GGUFs. Imported models default to llama.cpp; SDengine is strictly opt-in per model, advisories stay visible, and a failed load falls back to llama.cpp. <b>Experimental - runs, but not for production yet.</b> Dense engines (llama.cpp / LiteRT-LM) remain the production path.</p>
   </section>
 
   <section id="build">
@@ -150,7 +147,7 @@
   </section>
 
   <footer>
-    <div>Local LLM Android - Apache-2.0 - built for people who want AI that stays on their device.</div>
+    <div>OffconAI - Apache-2.0 - built for people who want AI that stays on their device.</div>
     <div style="margin-top:8px"><a href="https://github.com/zmxnpquryet-gif/Localllmandroid">GitHub</a> · <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/releases">Releases</a> · <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/issues">Issues</a></div>
   </footer>
 </div>

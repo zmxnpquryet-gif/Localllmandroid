@@ -178,10 +178,47 @@ object LlamaRuntime {
     @Volatile
     private var loaded = false
 
+    /** Capabilities of the native library actually packaged in this APK. */
+    data class Capabilities(
+        val gpuOffload: Boolean,
+        val systemInfo: String,
+        val loadError: String? = null
+    )
+
+    @Volatile
+    private var cachedCapabilities: Capabilities? = null
+
     @Synchronized
     fun ensureLoaded() {
         if (loaded) return
         System.loadLibrary("llama_jni")
         loaded = true
     }
+
+    /**
+     * Reports what the linked ggml build can do. Never infer GPU support from the
+     * device model or from a non-zero layer setting: upstream returns the truth for
+     * the compiled backend set (the Android build may intentionally contain CPU only).
+     */
+    fun capabilities(): Capabilities {
+        cachedCapabilities?.let { return it }
+        return synchronized(this) {
+            cachedCapabilities ?: try {
+                ensureLoaded()
+                Capabilities(
+                    gpuOffload = nativeGpuOffloadAvailable(),
+                    systemInfo = nativeSystemInfo().trim()
+                ).also { cachedCapabilities = it }
+            } catch (e: Throwable) {
+                Capabilities(
+                    gpuOffload = false,
+                    systemInfo = "native runtime unavailable",
+                    loadError = e.localizedMessage ?: e.message ?: e.javaClass.simpleName
+                ).also { cachedCapabilities = it }
+            }
+        }
+    }
+
+    private external fun nativeGpuOffloadAvailable(): Boolean
+    private external fun nativeSystemInfo(): String
 }

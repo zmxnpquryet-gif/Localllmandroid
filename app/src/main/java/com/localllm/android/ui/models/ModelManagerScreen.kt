@@ -656,24 +656,6 @@ private fun ModelBundleCardItem(
             color = GlassTheme.colors.onSurfaceVariant
         )
 
-        // Runtime override for imported GGUFs: an auto-detected MoE model can always be
-        // sent back to llama.cpp (and a dense model forced onto SDengine) by hand.
-        if (model.id.startsWith("custom-") && model.runtimeType != ModelRuntimeType.LITE_RT) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                RuntimeChoiceChip(
-                    label = "llama.cpp",
-                    selected = model.runtimeType == ModelRuntimeType.LLAMA_CPP,
-                    onClick = { onRuntimeChange(ModelRuntimeType.LLAMA_CPP) }
-                )
-                RuntimeChoiceChip(
-                    label = "SDengine (TEST)",
-                    selected = model.runtimeType == ModelRuntimeType.SD_ENGINE,
-                    onClick = { onRuntimeChange(ModelRuntimeType.SD_ENGINE) }
-                )
-            }
-        }
-
         Spacer(modifier = Modifier.height(10.dp))
 
         // 3-in-1 Unified Bundle Components Badges

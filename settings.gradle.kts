@@ -22,7 +22,7 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Local LLM"
+rootProject.name = "OffconAI"
 
 include(":app")
-include(":engine")
+include(":desktop")

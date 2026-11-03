@@ -1,7 +1,7 @@
 package com.localllm.android.memory
 
 import android.util.Log
-import com.localllm.engine.GgufReader
+import com.localllm.android.engine.gguf.GgufReader
 import java.io.File
 
 /**
@@ -14,7 +14,6 @@ object MemoryEstimator {
 
     private const val OVERHEAD_BYTES = 96L * 1024L * 1024L
     private const val KV_BYTES_PER_ELEMENT = 2L
-    private const val SD_KV_BYTES_PER_ELEMENT = 4L
     private val CONTEXT_STEPS = intArrayOf(512, 1024, 2048, 4096, 8192)
 
     data class Estimate(
@@ -81,28 +80,6 @@ object MemoryEstimator {
     ): Long {
         return 2L * nLayers * kvHeads * headDim * contextWindow * bytesPerElement
     }
-
-    /**
-     * SDengine estimate: experts stream from SSD, so the resident base is the
-     * dense (non-expert) tensor bytes — not the file size. Same 80/95 policy via
-     * [decide]; this is what lets MoE models larger than RAM attempt a load.
-     */
-    fun sdResidentEstimate(
-        denseBytes: Long,
-        nLayers: Int,
-        kvHeads: Int,
-        headDim: Int,
-        contextWindow: Int
-    ): Estimate = Estimate(
-        fileBytes = denseBytes,
-        kvBytes = kvBytes(nLayers, kvHeads, headDim, contextWindow, SD_KV_BYTES_PER_ELEMENT),
-        overheadBytes = OVERHEAD_BYTES,
-        contextWindow = contextWindow,
-        nLayers = nLayers,
-        kvHeads = kvHeads,
-        headDim = headDim,
-        kvBytesPerElement = SD_KV_BYTES_PER_ELEMENT
-    )
 
     /**
      * Compares the footprint with the memory the device reports as available.

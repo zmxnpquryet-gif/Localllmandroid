@@ -171,7 +171,7 @@ class McpClient(client: OkHttpClient? = null) {
             JSONObject()
                 .put("protocolVersion", "2024-11-05")
                 .put("capabilities", JSONObject())
-                .put("clientInfo", JSONObject().put("name", "LocalLLM-Android").put("version", BuildConfig.VERSION_NAME))
+                .put("clientInfo", JSONObject().put("name", "OffconAI-Android").put("version", BuildConfig.VERSION_NAME))
         )
 
         // 1) Streamable HTTP: initialize directly on the URL.

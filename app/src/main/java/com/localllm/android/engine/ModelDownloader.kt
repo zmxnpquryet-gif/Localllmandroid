@@ -98,7 +98,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
     private val tag = "ModelDownloader"
 
     companion object {
-        private val USER_AGENT = "Mozilla/5.0 (Android; Mobile) LocalLLM/${com.localllm.android.BuildConfig.VERSION_NAME} FDM"
+        private val USER_AGENT = "Mozilla/5.0 (Android; Mobile) OffconAI/${com.localllm.android.BuildConfig.VERSION_NAME} FDM"
         private const val DEFAULT_SEGMENTS = 4
         private const val MIN_SEGMENT_SIZE = 5 * 1024 * 1024L // 5MB minimum for segmented
         private const val BUFFER_SIZE = 256 * 1024 // 256KB buffer for max I/O throughput

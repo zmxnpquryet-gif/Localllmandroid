@@ -37,6 +37,7 @@ import com.localllm.android.ui.glass.GIconButton
 import com.localllm.android.ui.glass.GIcons
 import com.localllm.android.ui.glass.GText
 import com.localllm.android.ui.glass.GlassTheme
+import com.localllm.android.ui.markdown.MarkdownText
 
 @Composable
 fun ChatMessageItem(
@@ -149,8 +150,8 @@ fun ChatMessageItem(
                 }
 
                 if (message.content.isNotBlank()) {
-                    GText(
-                        text = message.content,
+                    MarkdownText(
+                        markdown = message.content,
                         style = GlassTheme.type.bodyLarge,
                         color = GlassTheme.colors.onPrimaryContainer
                     )
@@ -194,12 +195,14 @@ fun ChatMessageItem(
 
                     // Main Text Content
                     if (message.content.isNotBlank()) {
-                        GText(
-                            text = message.content,
+                        MarkdownText(
+                            markdown = message.content,
                             style = GlassTheme.type.bodyLarge.copy(
                                 lineHeight = 24.sp,
                                 color = GlassTheme.colors.onBackground
-                            )
+                            ),
+                            color = GlassTheme.colors.onBackground,
+                            isStreaming = message.isStreaming && !message.isReasoningStreaming
                         )
                     } else if (message.isStreaming && !message.isReasoningStreaming) {
                         // Pulsing cursor

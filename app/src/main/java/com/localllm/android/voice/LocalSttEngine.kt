@@ -98,7 +98,7 @@ class LocalSttEngine(private val context: Context) {
                 }
                 val tmp = File(dir, entry.key + ".downloading")
                 val request = Request.Builder().url(entry.value)
-                    .header("User-Agent", "LocalLLM-Android-STT/1.0").build()
+                    .header("User-Agent", "OffconAI-Android-STT/1.0").build()
                 http.newCall(request).execute().use { resp ->
                     if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
                     val body = resp.body ?: throw IllegalStateException("Empty body")

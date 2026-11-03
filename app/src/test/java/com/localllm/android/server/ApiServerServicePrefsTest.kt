@@ -81,17 +81,17 @@ class ApiServerServicePrefsTest {
     }
 
     @Test
-    fun `serving settings mirror persisted viewmodel values`() {
+    fun `removed runtime setting safely falls back to llama cpp`() {
         val prefs = prefs()
         prefs.edit()
-            .putString("runtime", ModelRuntimeType.SD_ENGINE.name)
+            .putString("runtime", "SD_ENGINE")
             .putString("api_server_bind_address", "0.0.0.0")
             .putBoolean("api_server_require_auth", false)
             .putInt("context_window", 2048)
             .putFloat("temperature", 0.5f)
             .apply()
         val s = ApiServerService.readServingSettings(prefs)
-        assertEquals(ModelRuntimeType.SD_ENGINE, s.runtime)
+        assertEquals(ModelRuntimeType.LLAMA_CPP, s.runtime)
         assertEquals("0.0.0.0", s.apiServerBindAddress)
         assertEquals(false, s.apiServerRequireAuth)
         assertEquals(2048, s.contextWindow)

@@ -1,7 +1,7 @@
 <resources>
     <!-- General & App -->
-    <string name="app_name">Local LLM</string>
-    <string name="app_tagline">Offline Execution • Stored On-Device</string>
+    <string name="app_name">OffconAI</string>
+    <string name="app_tagline">Private AI • Running On-Device</string>
     <string name="confirm">Confirm</string>
     <string name="cancel">Cancel</string>
     <string name="close">Close</string>
@@ -201,11 +201,10 @@
     <string name="chat_voice_mic_permission_required">Microphone permission is required for voice input.</string>
     <string name="chat_api_banner_active">API mode running (port %1$d) • Tap for API info</string>
     <string name="chat_api_banner_details">Details ></string>
-    <string name="chat_sdengine_banner_prefix">"⚠ SDengine (TEST) — experimental in-house engine (MoE only, very slow). "</string>
     <string name="chat_status_details_short">[Details]</string>
     <string name="chat_jump_latest_desc">Jump to latest answer</string>
     <string name="chat_jump_latest">Follow answer</string>
-    <string name="chat_empty_no_model_title">Local LLM download required</string>
+    <string name="chat_empty_no_model_title">Download an OffconAI model</string>
     <string name="chat_empty_no_model_desc">No base model. Download one from the Model Hub to run it right on this device.</string>
     <string name="chat_empty_download_model">Download Model</string>
     <string name="chat_empty_features">GGUF / LiteRT support • Vision and acceleration</string>
@@ -217,7 +216,6 @@
     <string name="chat_attach_text_only">Text-only model</string>
     <string name="chat_attach_document">Attach Documents &amp; Text Files</string>
     <string name="chat_attach_document_hint">Inject TXT, PDF and code file context</string>
-    <string name="chat_sdengine_unavailable">Experimental in-house engine • MoE only, very slow</string>
     <string name="chat_model_download_required">Model download required</string>
     <string name="chat_model_manage">Download &amp; manage models</string>
     <string name="chat_local_models">Local models</string>
@@ -261,7 +259,6 @@
     <string name="api_curl_example_prompt">Hello</string>
 
     <!-- Settings screen -->
-    <string name="settings_sdengine_label">⚠ SDengine (TEST) — experimental in-house engine</string>
     <string name="settings_context_window_value">%1$d tokens</string>
     <string name="settings_top_p_sampling">Top-P Sampling</string>
     <string name="settings_reset">Reset</string>
@@ -378,6 +375,7 @@
     <string name="voice_tts_preview_text">Hello. This is the local Korean neural voice.</string>
     <string name="voice_stt_delete">Delete</string>
     <string name="voice_mic_desc">Microphone</string>
+    <string name="voice_native_audio_unavailable">This build uses on-device STT → LLM → TTS. Native duplex Omni audio model adapters are not included yet.</string>
     <string name="voice_dialogue_start">Start Conversation</string>
     <string name="voice_stt_ondevice">On-device STT (Whisper tiny • multilingual)</string>
     <string name="voice_stt_last_local">Last recognition: on-device (offline)</string>
@@ -393,10 +391,11 @@
     <string name="vm_status_memory_stop">Memory critically low — generation stopped. The next run starts with reduced settings (level %1$d)</string>
     <string name="vm_status_tts_installed">Local Korean TTS voice installed and selected</string>
     <string name="vm_status_runtime_override">Runtime for %1$s set to %2$s</string>
-    <string name="vm_desc_imported_moe_sdengine"> • MoE detected → llama.cpp default (switch to SDengine in Model Manager to try the TEST engine)</string>
 
     <string name="settings_gpu_title">GPU acceleration</string>
-    <string name="settings_gpu_desc">LiteRT GPU (OpenCL) and llama.cpp GPU offload. Skipped automatically when the device has no working OpenCL driver.</string>
+    <string name="settings_gpu_desc">Uses LiteRT GPU when the model supports it. llama.cpp GPU offload is enabled only when the packaged native runtime reports support; otherwise it stays on CPU.</string>
+    <string name="settings_llama_gpu_available">llama.cpp: GPU offload backend available</string>
+    <string name="settings_llama_gpu_unavailable">llama.cpp: CPU-only build</string>
     <string name="settings_memory_title">Memory protection</string>
     <string name="settings_memory_desc">Detects abnormal ends, records them, and lowers memory-heavy settings on the next run</string>
     <string name="settings_memory_auto">Automatic reduction</string>
@@ -413,8 +412,8 @@
     <string name="settings_memory_reset">Reset</string>
     <string name="settings_memory_close">Close</string>
 
-    <string name="api_server_notif_channel">Local LLM API server</string>
-    <string name="api_server_notif_title">Local LLM API server running</string>
+    <string name="api_server_notif_channel">OffconAI API server</string>
+    <string name="api_server_notif_title">OffconAI API server running</string>
     <string name="api_server_notif_text">Serving on %1$s:%2$d — stays up after the app is closed</string>
     <string name="api_server_notif_stop">Stop</string>
     <string name="eng_no_fd">Cannot open model file descriptor: %1$s</string>
@@ -422,7 +421,6 @@
     <string name="eng_no_path">Model file path not found.</string>
     <string name="eng_no_file">Model file is missing on disk or empty: %1$s</string>
     <string name="eng_stage_nomem">Not enough free memory</string>
-    <string name="eng_sd_nomem">Not enough memory even for SDengine: dense %1$sMB + KV must fit in RAM, but only %2$sMB is free (the %3$sMB of experts stream from SSD and do not use RAM). If lowering the context to 512 does not help, this device cannot run it.</string>
     <string name="eng_no_mem_model">Not enough free memory: loading %1$s needs about %2$sMB, but only %3$sMB RAM is free. Close background apps or pick a smaller quantization.</string>
     <string name="eng_mem_guard">Memory guard: context %1$s → %2$s auto-reduced (%3$s)</string>
     <string name="eng_stage_verify">Verifying model integrity…</string>
@@ -436,6 +434,7 @@
     <string name="eng_stage_jni">Verifying LiteRT JNI native library…</string>
     <string name="eng_stage_gpu_prev">Previous GPU init failure recorded → starting on CPU</string>
     <string name="eng_stage_no_opencl">No OpenCL driver → skipping GPU</string>
+    <string name="eng_stage_llama_cpu_only">This llama.cpp build has no GPU backend → running on CPU</string>
     <string name="eng_stage_litert_init">Initializing LiteRT %1$s…</string>
     <string name="eng_stage_litert_map">Mapping LiteRT weights and initializing model…</string>
     <string name="eng_stage_litert_fail">LiteRT initialization failed</string>
@@ -451,10 +450,6 @@
     <string name="eng_err_magic">File header does not match the GGUF magic number (\'GGUF\'). The file is corrupted or invalid.</string>
     <string name="eng_stage_integrity">Integrity check failed</string>
     <string name="eng_fmt_err">Model file format error: %1$s</string>
-    <string name="eng_stage_sd_bind">Binding SDengine(TEST) weights…</string>
-    <string name="eng_sd_loaded">[SDengine][TEST] %1$s loaded (layers=%2$s, experts=%3$s, resident dense=%4$sMB, experts %5$sMB SSD streaming, tensors=%6$s)</string>
-    <string name="eng_stage_sd_fallback">SDengine load failed → falling back to llama.cpp</string>
-    <string name="eng_sd_fallback_msg">SDengine load failed (%1$s) — running on llama.cpp instead. %2$s</string>
     <string name="eng_stage_llama_ctx">Creating llama.cpp native context…</string>
     <string name="eng_cand1">GPU offload (%1$sL) + mmproj vision tower</string>
     <string name="eng_cand2">GPU offload (%1$sL, %2$s ctx)</string>
@@ -475,7 +470,6 @@
     <string name="eng_sampler_cpu">The LiteRT GPU (OpenCL) sampler was unavailable, so a CPU backend is used. GPU will be skipped on the next run (re-enable GPU acceleration in Settings to retry).</string>
     <string name="eng_no_selected">No local model selected. Load a model from the Model Manager first.</string>
     <string name="eng_not_loaded">Model %1$s is not loaded yet. Please load it first.</string>
-    <string name="eng_sd_not_ready">SDengine is not ready.</string>
     <string name="eng_litert_not_ready">LiteRT engine is not ready.</string>
     <string name="eng_session_fail">Failed to prepare LiteRT chat session: %1$s</string>
     <string name="eng_litert_infer_err">LiteRT inference error: %1$s</string>
@@ -573,7 +567,7 @@
     <string name="aps_stopped">API server has stopped.</string>
     <string name="aps_stop_err">Error while stopping server: %1$s</string>
     <string name="det_litert_all">LiteRT all-in-one unified model</string>
-    <string name="det_moe">%1$s MoE experts (can switch to SDengine manually)</string>
+    <string name="det_moe">%1$s MoE experts detected</string>
     <string name="det_vision_integrated">Integrated vision tower (Vision Encoder)</string>
     <string name="det_drafter_integrated">Integrated speculative decoding drafter</string>
     <string name="pol_gpu_vision">GPU acceleration (vision linked)</string>
@@ -599,10 +593,6 @@
     <string name="det_vision_detected">Vision tower detected</string>
     <string name="det_drafter_detected">Drafter (MTP) detected</string>
     <string name="mcp_sb_tail">" provided tools (live):</string>
-    <string name="sd_adv_1">TEST build: SDengine is an experimental in-house engine. It runs, but do not trust its output quality.</string>
-    <string name="sd_adv_2">Optimized kernels (fused quantized matvec, RoPE cache, scratch reuse, top-k heap) are applied. Performance is unmeasured and K-quant bit-exact validation is pending, so it is slower than llama.cpp and may have numeric drift.</string>
-    <string name="sd_adv_3">SDengine is MoE-only. Dense-only models and non-MoE hybrids are out of scope; a failed load falls back to llama.cpp.</string>
-    <string name="sd_adv_4">Dense weights stay resident in quantized form while expert tiles stream from SSD. Only dense+KV needs to fit in RAM (not the whole file), so MoEs larger than memory can load; a load is refused when dense+KV exceeds available RAM.</string>
     <string name="stt_no_model">No local STT model.</string>
     <string name="settings_hf_source_title">Model download source</string>
     <string name="settings_hf_source_desc">Switch between the Hugging Face official site and the hf-mirror.com mirror (useful when huggingface.co is unreachable).</string>

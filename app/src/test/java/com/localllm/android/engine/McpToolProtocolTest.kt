@@ -130,9 +130,61 @@ class McpToolProtocolTest {
         assertNotNull(prompt)
         assertTrue(prompt!!.contains("<tool_call>"))
         assertTrue(prompt.contains("get_weather"))
-        assertTrue(prompt.contains("at most one tool per reply"))
+        assertTrue(prompt.contains("at most 4 tools per reply"))
         assertTrue(prompt.contains("not instructions"))
         assertNull(McpToolProtocol.buildToolsPrompt("S", emptyList()))
+    }
+
+    @Test
+    fun `batch parser returns multiple calls and removes every block from prose`() {
+        val text = "Plan\n" +
+            "<tool_call>{\"name\":\"add\",\"arguments\":{}}</tool_call>\n" +
+            "<tool_call>{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Seoul\"}}</tool_call>\n" +
+            "Done"
+        val batch = McpToolProtocol.parseBatch(text, tools)
+        assertEquals(listOf("add", "get_weather"), batch.calls.map { it.name })
+        assertEquals("Plan\n\nDone", batch.prose)
+        assertTrue(batch.errors.isEmpty())
+        assertFalse(batch.incomplete)
+    }
+
+    @Test
+    fun `batch parser accepts namespaced XML parameters but stops an unclosed call`() {
+        val xml = "<tool_call><function=get_weather><parameter=city>Seoul</parameter></function></tool_call>"
+        val parsed = McpToolProtocol.parseBatch(xml, tools)
+        assertEquals("Seoul", JSONObject(parsed.calls.single().argumentsJson).getString("city"))
+
+        val partial = "$xml<tool_call>{\"name\":\"add\""
+        val incomplete = McpToolProtocol.parseBatch(partial, tools)
+        assertTrue(incomplete.incomplete)
+        assertTrue(incomplete.calls.isEmpty())
+        assertEquals("", incomplete.prose)
+    }
+
+    @Test
+    fun `openai function wrapper and string arguments are normalized`() {
+        val text = """<tool_call>{"type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Paris\"}"}}</tool_call>"""
+        val call = McpToolProtocol.parseBatch(text, tools).calls.single()
+        assertEquals("get_weather", call.name)
+        assertEquals("Paris", JSONObject(call.argumentsJson).getString("city"))
+    }
+
+    @Test
+    fun `tool execution is sequential and a decline stops later calls`() = runBlocking {
+        val calls = listOf(McpToolCall("add", "{}"), McpToolCall("get_weather", "{}"))
+        val invoked = mutableListOf<String>()
+        val executions = McpToolProtocol.executeBatch(
+            calls,
+            approval = ToolApprovalPolicy { it.name == "add" },
+            invoker = ToolInvoker {
+                invoked += it.name
+                McpToolCallResult(true, "ok", "")
+            }
+        )
+        assertEquals(listOf("add"), invoked)
+        assertTrue(executions.first().approved)
+        assertTrue(executions.last().declined)
+        assertEquals(2, executions.size)
     }
 
     @Test

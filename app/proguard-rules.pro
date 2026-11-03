@@ -1,4 +1,4 @@
-# ProGuard / R8 rules for LocalLLM Android
+# ProGuard / R8 rules for OffconAI Android
 
 # Keep JNI native methods across all classes
 -keepclasseswithmembernames class * {

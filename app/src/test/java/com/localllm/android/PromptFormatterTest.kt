@@ -2,6 +2,10 @@
 
 import com.localllm.android.engine.JinjaTemplateEvaluator
 import com.localllm.android.engine.PromptFormatter
+import com.localllm.android.engine.TemplateContent
+import com.localllm.android.engine.TemplateConversation
+import com.localllm.android.engine.TemplateMessage
+import com.localllm.android.engine.TemplateRole
 import com.localllm.android.model.PromptTemplateType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -155,5 +159,42 @@ class PromptFormatterTest {
             supportsReasoning = false
         )!!
         assertTrue(out.contains("a+b"))
+    }
+
+    @Test
+    fun `structured conversation preserves reasoning channel and tool roles`() {
+        val messages = listOf(
+            TemplateConversation.text(TemplateRole.USER, "first"),
+            TemplateMessage(
+                role = TemplateRole.ASSISTANT,
+                parts = listOf(TemplateContent.Text("previous")),
+                reasoning = "checked",
+                channel = "analysis"
+            ),
+            TemplateMessage(
+                role = TemplateRole.TOOL,
+                parts = listOf(TemplateContent.Text("<tool_result>ok</tool_result>")),
+                name = "lookup",
+                toolCallId = "call-1"
+            ),
+            TemplateConversation.text(TemplateRole.USER, "next")
+        )
+        val prompt = PromptFormatter.formatConversation(
+            PromptTemplateType.CHATML, null, messages, null, supportsReasoning = false
+        )
+        assertTrue(prompt.contains("<channel>analysis</channel>"))
+        assertTrue(prompt.contains("<reasoning>\nchecked\n</reasoning>"))
+        assertTrue(prompt.contains("tool:lookup"))
+        assertTrue(prompt.contains("next"))
+    }
+
+    @Test
+    fun `structured media never leaks a host path into text templates`() {
+        val message = TemplateConversation.user("describe", imagePath = "/home/private/image.png")
+        val prompt = PromptFormatter.formatConversation(
+            PromptTemplateType.CHATML, null, listOf(message), null, supportsReasoning = false
+        )
+        assertTrue(prompt.contains("[image attachment]"))
+        assertFalse(prompt.contains("/home/private/image.png"))
     }
 }

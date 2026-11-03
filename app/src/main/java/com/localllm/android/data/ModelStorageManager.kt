@@ -122,11 +122,8 @@ class ModelStorageManager(private val context: Context) {
         val effectiveHasMmproj = model.hasMmproj || (detected?.hasVisionTower == true)
         val effectiveSupportsMtp = model.supportsMtp || (detected?.hasDrafter == true)
 
-        // Imported models always default to llama.cpp, even gated-expert MoE:
-        // SDengine is strictly opt-in via the per-model runtime override in
-        // Model Manager (or the global runtime switch). Auto-detection never
-        // flips a model to SDengine on its own, so nobody gets locked into
-        // the experimental engine by surprise.
+        // Imported models are assigned by detected file format. Old unknown
+        // runtime values (including removed experimental runtimes) fall back to llama.cpp.
         val effectiveRuntime = resolveDefaultRuntime(
             detected = detected,
             isCustom = model.id.startsWith("custom-"),

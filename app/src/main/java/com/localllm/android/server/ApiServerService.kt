@@ -12,7 +12,7 @@ import android.os.Binder
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.localllm.android.LocalLlmApp
+import com.localllm.android.OffconAIApplication
 import com.localllm.android.MainActivity
 import com.localllm.android.R
 import com.localllm.android.data.ModelStorageManager
@@ -29,7 +29,7 @@ import com.localllm.android.model.ModelRuntimeType
  * visible notification (with a Stop action) after the UI is gone.
  *
  * Ownership: the single [com.localllm.android.engine.LlmEngine] lives in
- * [LocalLlmApp] and is borrowed here — never duplicated (two engines would mean
+ * [OffconAIApplication] and is borrowed here — never duplicated (two engines would mean
  * two native contexts in RAM). Models/settings/key are re-read from
  * ModelStorageManager + SharedPreferences on every START, so restarting the
  * service picks up model downloads and setting changes without the UI.
@@ -159,7 +159,7 @@ class ApiServerService : Service() {
         // them per request.
         val key = loadOrCreateApiKey(prefs)
 
-        val engine = (application as LocalLlmApp).llmEngine
+        val engine = (application as OffconAIApplication).llmEngine
         // Live reads, never snapshots: the service outlives any UI state, and a model
         // switch, download, or settings edit made while it runs must take effect on
         // the next request instead of serving the start-time fossil forever.

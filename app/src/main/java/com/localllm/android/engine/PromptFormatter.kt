@@ -50,6 +50,54 @@ object PromptFormatter {
     }
 
     /**
+     * Renders structured roles and metadata through the same model-specific token
+     * templates as the legacy text API. This keeps tool/reasoning metadata available
+     * without forcing every runtime into one JSON schema.
+     */
+    fun formatConversation(
+        templateType: PromptTemplateType,
+        templateJsonPath: String?,
+        messages: List<TemplateMessage>,
+        toolsContext: String?,
+        supportsReasoning: Boolean
+    ): String {
+        if (messages.isEmpty()) return ""
+        val system = messages.filter { it.role == TemplateRole.SYSTEM }
+            .joinToString("\n\n") { it.plainText() }
+            .ifBlank { "" }
+        val body = messages.filter { it.role != TemplateRole.SYSTEM }
+        val lastUser = body.indexOfLast { it.role == TemplateRole.USER }
+        if (lastUser < 0) {
+            return formatPrompt(templateType, templateJsonPath, system, emptyList(), body.lastOrNull()?.plainText().orEmpty(), toolsContext, supportsReasoning)
+        }
+        fun asHistory(message: TemplateMessage): Pair<String, String> {
+            val role = when (message.role) {
+                TemplateRole.ASSISTANT -> "assistant"
+                TemplateRole.TOOL -> "user"
+                else -> "user"
+            }
+            val text = if (message.role == TemplateRole.TOOL) {
+                buildString {
+                    if (!message.name.isNullOrBlank()) append("tool:").append(message.name).append('\n')
+                    append(message.plainText())
+                }
+            } else message.plainText()
+            return role to text
+        }
+        val history = body.take(lastUser).map(::asHistory)
+        val current = body[lastUser].plainText()
+        return formatPrompt(
+            templateType = templateType,
+            templateJsonPath = templateJsonPath,
+            systemPrompt = system,
+            history = history,
+            userPrompt = current,
+            toolsContext = toolsContext,
+            supportsReasoning = supportsReasoning
+        )
+    }
+
+    /**
      * History as the model must see it: at most 6 turns, roles folded to
      * user/assistant, and opening with a user turn. A raw takeLast(6) cut can start
      * on an assistant turn (or a stray system/tool row), which makes some models

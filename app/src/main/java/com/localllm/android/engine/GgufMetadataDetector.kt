@@ -5,19 +5,9 @@ import com.localllm.android.i18n.AppStrings
 
 import android.util.Log
 import com.localllm.android.model.ModelRuntimeType
-import com.localllm.engine.GgufReader
+import com.localllm.android.engine.gguf.GgufReader
 import java.io.File
 import java.io.FileInputStream
-
-/**
- * Architectures the first-party SDengine refuses (mirrors `SDEngine.DEFERRED`:
- * MLA/compressed-KV attention, SSM mixers, short-convolution hybrids). A MoE GGUF
- * with one of these architectures stays on llama.cpp instead of being routed to
- * an engine that cannot load it.
- */
-private val SD_DEFERRED_ARCHITECTURES = setOf(
-    "deepseek2", "deepseek3", "qwen4_exp", "mamba", "mamba2", "lfm2", "jamba", "granitehybrid"
-)
 
 data class GgufFeatureDetection(
     val hasVisionTower: Boolean,
@@ -32,9 +22,6 @@ data class GgufFeatureDetection(
 
     val isMoe: Boolean get() = expertCount > 1
 
-    /** Gated-expert GGUF that the first-party SDengine can attempt to run. */
-    val isSdEngineCandidate: Boolean
-        get() = isMoe && architecture != null && architecture !in SD_DEFERRED_ARCHITECTURES
 }
 
 /**
@@ -142,9 +129,7 @@ object GgufMetadataDetector {
             val nameHasVision = isVisionModel(fileNameLower)
             val nameHasDrafter = isDrafterModel(fileNameLower)
 
-            // MoE routing needs the real metadata (expert_count), not a byte scan: the
-            // container type decides the runtime, the expert count decides SDengine.
-            // Vision/drafter evidence comes from the same structured source — metadata
+            // Vision/drafter evidence comes from structured metadata and tensor names —
             // KEYS and tensor NAMES. Scanning the raw 256 KB (which includes the vocab
             // token table) false-positives on any text model whose vocabulary happens
             // to contain words like "siglip" or "vision".

@@ -367,6 +367,19 @@ extern "C" JNIEXPORT void JNICALL JNI_OnUnload(JavaVM * /* vm */, void * /* rese
     llama_backend_free();
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_localllm_android_engine_llama_LlamaRuntime_nativeGpuOffloadAvailable(
+        JNIEnv * /* env */, jobject /* thiz */) {
+    return llama_supports_gpu_offload() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_localllm_android_engine_llama_LlamaRuntime_nativeSystemInfo(
+        JNIEnv * env, jobject /* thiz */) {
+    const char * info = llama_print_system_info();
+    return env->NewStringUTF(info != nullptr ? info : "unknown");
+}
+
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_localllm_android_engine_llama_LlamaContext_nativeCreate(
         JNIEnv * env, jobject /* thiz */,

@@ -1,7 +1,7 @@
-# Local LLM Android（中文）
+# OffconAI（中文）
 
 <p align="center">
-  <img src="docs/screenshots/chat_screen.png" alt="Local LLM Android" width="45%" />
+  <img src="docs/screenshots/chat_screen.png" alt="OffconAI" width="45%" />
   <img src="docs/screenshots/model_manager.png" alt="模型管理" width="45%" />
 </p>
 
@@ -20,7 +20,9 @@
   <img src="https://img.shields.io/badge/UI-EN%20%2F%20KO%20%2F%20ZH%20Switcher-ff69b4.svg" alt="Multilingual" />
 </p>
 
-**Local LLM Android** 是一款隐私优先、完全离线的安卓端侧大语言模型（LLM）应用与服务器。它采用 **llama.cpp** 与 **Google LiteRT-LM** 结合的**混合双运行时架构**，无需联网或云端服务器，即可直接利用设备的 CPU、GPU 与 NPU 执行最先进的 AI 模型。界面基于自研**玻璃质感设计系统**，支持**英/韩/中即时切换**；聊天可通过原生 **MCP 客户端**调用工具；自研 MoE 研究引擎（**SDengine**）正以 `:engine` 模块的形式公开开发。
+**OffconAI** 是同时面向 Android 和桌面的本地优先 AI 平台。Android 使用 **llama.cpp** 与 **Google LiteRT-LM**；桌面模块提供独立的 llama.cpp、vLLM、Strata 适配器以及 LLM / All-in-One 版本。模型加载与生成在本地硬件完成；网络仅用于用户主动发起的下载、远程模型服务器或可选局域网 API 服务。
+
+Android 还提供离线 Compose Markdown 渲染、多工具调用批次执行，以及明确的原生双向音频能力边界。桌面版构建与限制见 [Desktop](docs/desktop.md)。
 
 ---
 
@@ -36,7 +38,7 @@
 
 ## 🏛️ 双运行时混合架构
 
-Local LLM Android 不绑定单一引擎，而是在统一的推理抽象之下同时集成 **llama.cpp** 与 **Google LiteRT-LM**。
+OffconAI Android 当前通过现有 `LlmEngine` 抽象集成 **llama.cpp** 与 **Google LiteRT-LM**。
 
 ```
                   ┌────────────────────────────────────────┐
@@ -55,7 +57,6 @@ Local LLM Android 不绑定单一引擎，而是在统一的推理抽象之下�
    • CPU 多线程与 GPU 层卸载                        • 硬件 GPU（OpenCL/Vulkan）与 NPU 委托
    • mmproj 视觉塔（Qwen2-VL、LFM3-VL 等）          • 超低功耗移动端推理
 
-        （+ SDengine — :engine 下的实验性自研 MoE 引擎，见下文）
 ```
 
 ### 为什么需要双运行时？
@@ -130,34 +131,12 @@ Local LLM Android 不绑定单一引擎，而是在统一的推理抽象之下�
 - **可靠的移动端下载器**：
   - 后台前台服务下载，支持暂停/续传与完整性校验。
 
----
-
-## 🧪 SDengine — 实验性自研引擎（`:engine`）
-
-一个仅面向 MoE 的自研推理核心，正作为独立的安卓库模块公开开发。
-
-**范围（刻意限定）：** Android 上的门控专家混合模型（Kotlin/JVM 核心 + C++ JNI 桩；NEON/GPU 内核待实现）。纯稠密模型与非 MoE 混合模型不在范围内。
-
-**当前包含：**
-- GGUF 格式读取器 + 元数据检测、BPE 分词器、采样器、KV 缓存（`GgufReader`、`BpeTokenizer`、`Sampler`、`KvCache`）
-- 分页专家流式加载：稠密权重在上限内常驻解码，专家分片留在存储上并通过 `ExpertPager` 流式读取
-- 经 NDK 27 + CMake 的 C++ JNI 核心（`arm64-v8a`、`x86_64`）
-- 基于真实 MoE 权重的数值验证（经 HTTP range 流式加载实测 Qwen3-30B-A3B）
-- 门控专家 GGUF 的端到端生成，由 `SDEngineEndToEndTest` 覆盖（合成 MoE 模型：加载、流式出词、取消、常驻上限强制）
-
-**状态：测试构建 / 实验性 — 能跑，但请勿用于生产。**
-- 参考标量内核验证了数学正确性；NEON/GPU 内核是下一步，因此真实 MoE 模型在设备上仅有个位数词元/秒的解码速度。
-- 应用会把自动检测到的 MoE GGUF（导入的模型）路由到 SDengine，并保持引擎提示（`SDEngine.ADVISORIES`）可见；SDengine 加载失败会在 llama.cpp 上重试一次，而不是让模型无处可用。每个模型的运行时都可在模型管理中手动覆盖。
-
----
-
 ## 🛠️ 构建与安装
 
 ### 环境要求
 - Android Studio Ladybug（2024.2.1+）或更新版本
 - JDK 17
 - Android SDK 36（最低 SDK 24）
-- Android NDK 27.2 + CMake 3.22+（`:engine` 模块和上游 llama.cpp 构建需要）
 - Git 子模块：使用 `--recurse-submodules` 克隆，或运行 `git submodule update --init --recursive`。`app/src/main/cpp/llama.cpp` 固定在上游 v0.8.0（b11960），这是首个支持 LFM3 的版本
 - 目标设备需为 64 位 ARM 架构（`arm64-v8a`）或 `x86_64`
 - 无需手动准备原生依赖：sherpa-onnx STT AAR（约 50 MB）不入库 —— Gradle 会在每次构建前通过 `fetchSherpaAar` 任务自动获取（固定版本 + SHA-256 校验）

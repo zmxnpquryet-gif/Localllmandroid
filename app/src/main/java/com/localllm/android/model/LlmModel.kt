@@ -4,9 +4,7 @@ import java.util.Locale
 
 enum class ModelRuntimeType(val label: String, val badge: String) {
     LLAMA_CPP("llama.cpp", "GGUF"),
-    LITE_RT("LiteRT LM", "LiteRT"),
-    /** SDengine: first-party experimental engine (TEST — refuses on-device inference). */
-    SD_ENGINE("SDengine (TEST)", "SDengine (TEST)")
+    LITE_RT("LiteRT LM", "LiteRT")
 }
 
 enum class PromptTemplateType(val id: String, val displayName: String) {
@@ -59,10 +57,7 @@ data class LlmModel(
     val templateDownloadProgress: Float = 0f,
     val downloadEtaSeconds: Int = 0,
     val hfToken: String? = null,
-    /**
-     * Set when the user picked the runtime by hand. Auto-detection (MoE GGUF → SDengine)
-     * never overwrites an explicit choice, so nobody gets locked into a runtime.
-     */
+    /** Preserves an explicit per-model choice when metadata is reconciled. */
     val runtimeTypeOverrideByUser: Boolean = false
 ) {
     val displaySize: String
@@ -79,7 +74,6 @@ data class LlmModel(
         get() = when (runtimeType) {
             ModelRuntimeType.LLAMA_CPP -> "llama.cpp (GGUF)"
             ModelRuntimeType.LITE_RT -> "LiteRT"
-            ModelRuntimeType.SD_ENGINE -> "SDengine (TEST)"
         }
 }
 

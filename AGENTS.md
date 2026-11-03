@@ -1,0 +1,1 @@
+Be sure to read `agentswork.md` before you begin. Whenever you take an action, document it in `agentswork.md`: explain why you did it, what you changed, and what you created. If you modify someone else’s work, use parentheses to note why you made the change, as well as what you changed and how you went about it.

@@ -106,7 +106,7 @@ class LocalTtsEngine(private val context: Context) {
                 }
                 val tmp = File(dir, entry.key + ".downloading")
                 val request = Request.Builder().url(entry.value)
-                    .header("User-Agent", "LocalLLM-Android-TTS/1.0").build()
+                    .header("User-Agent", "OffconAI-Android-TTS/1.0").build()
                 http.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code}")
                     val body = response.body ?: throw IllegalStateException("Empty body")

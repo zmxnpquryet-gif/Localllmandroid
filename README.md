@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ Local LLM Android
+# ⚡ OffconAI
 
 ### Run State-of-the-Art LLMs 100% Offline in Your Pocket
 
@@ -11,7 +11,7 @@
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/chat_screen.png" alt="Local LLM Android" width="45%" />
+  <img src="docs/screenshots/chat_screen.png" alt="OffconAI" width="45%" />
   <img src="docs/screenshots/model_manager.png" alt="Model Manager" width="45%" />
 </p>
 
@@ -22,7 +22,7 @@
 <p align="center">
   <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/releases/latest"><img src="https://img.shields.io/github/v/release/zmxnpquryet-gif/Localllmandroid?label=Release%20APK&color=success&logo=android" alt="Release APK" /></a>
   <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/actions/workflows/android.yml"><img src="https://github.com/zmxnpquryet-gif/Localllmandroid/actions/workflows/android.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/Runtime-llama.cpp%20%2B%20LiteRT--LM%20%2B%20SDengine-orange.svg" alt="Dual Engine" />
+  <img src="https://img.shields.io/badge/Runtime-llama.cpp%20%2B%20LiteRT--LM-orange.svg" alt="Android runtimes" />
   <img src="https://img.shields.io/badge/Platform-Android%2024%2B-green.svg" alt="Platform" />
   <img src="https://img.shields.io/badge/Kotlin-2.2-purple.svg" alt="Kotlin" />
   <img src="https://img.shields.io/badge/API-Ollama%20%7C%20OpenAI%20Port%2011434-blueviolet.svg" alt="API" />
@@ -33,7 +33,7 @@
   <img src="https://img.shields.io/badge/UI-EN%20%2F%20KO%20%2F%20ZH%20Switcher-ff69b4.svg" alt="Multilingual" />
 </p>
 
-**Local LLM Android** is a privacy-first, fully offline on-device Large Language Model (LLM) application and server for Android. Powered by a **hybrid dual-runtime architecture** combining **llama.cpp** and **Google LiteRT-LM**, it runs state-of-the-art AI models entirely on-device — CPU by default, with GPU/NPU acceleration where the device and runtime support it (automatic CPU fallback) — and no internet or cloud dependency. The UI runs on a first-party **glass design system** with instant **English/Korean/Chinese switching**, chats can call tools through a native **MCP client**, and a first-party MoE research engine (**SDengine**) is being built in the open under the `:engine` module.
+**OffconAI** is a local-first AI platform. The Android edition runs **llama.cpp** for GGUF models and **Google LiteRT-LM** for supported bundles; the new desktop module provides typed llama.cpp, vLLM, and Strata adapters plus LLM and All-in-One editions. Model loading and generation remain on local hardware. Network access is used only for user-requested downloads, remote model servers, or the optional LAN API server.
 
 ---
 
@@ -55,7 +55,6 @@ Two production inference engines behind one abstraction — pick the right tool 
 
 - **llama.cpp (GGUF)** — tens of thousands of community quants (Q4_K_M, Q8_0, K-quants…), reasoning models, chat templates, and `mmproj` vision towers, all from Hugging Face.
 - **Google LiteRT-LM** — Google's mobile-optimized runtime with GPU/NPU delegates where supported (automatic CPU fallback), tuned for Snapdragon / MediaTek / Tensor / Exynos SoCs.
-- **SDengine** — an experimental first-party MoE engine under `:engine`, developed in the open. See [🧪 SDengine](#-sdengine--experimental-first-party-engine-engine).
 
 ### 🌐 On-Device Ollama / OpenAI Server (Port 11434)
 
@@ -65,9 +64,21 @@ Turn your phone into a **local AI server**: Ollama- and OpenAI-compatible HTTP e
 
 Chats can call **real tools** — a hardened Streamable-HTTP-first JSON-RPC client with legacy SSE fallback, per-request bearer re-checks, size-capped bodies, and an explicit approval dialog before every call. Every tool result is framed as untrusted external data. Deep dive in [⚡ Engineering Highlights](#-engineering-highlights).
 
+Tool turns now parse multiple Hermes JSON and namespaced XML calls, validate the complete batch before execution, require approval per call, run calls sequentially, and return every result to the model. Partial streaming blocks stay hidden and are never executed.
+
+### 📝 Streaming Markdown workspace
+
+Assistant and user content use an offline Compose Markdown renderer for headings, paragraphs, nested lists, tables, blockquotes, links, emphasis, fenced code with lexical highlighting, and a readable TeX subset. Incomplete code fences, math blocks, and tables remain stable while tokens stream. Raw HTML is not executed, and external links are limited to `http`, `https`, and `mailto`.
+
+### 🖥️ Desktop editions and independent backends
+
+The desktop module builds a Java 17 application with an **LLM Edition** and an **All-in-One Edition**. llama.cpp owns a GGUF process lifecycle, vLLM has managed or external server configuration, and Strata uses an explicit OpenAI-compatible gateway adapter because its APIs vary by deployment. See [Desktop](docs/desktop.md) for setup and current limitations.
+
 ### 🎙️ Zero-Cloud Voice Mode
 
 A hands-free conversational loop, entirely on-device: **local Whisper STT** → on-device LLM generation → **supertonic Korean neural TTS** (downloaded once; device TTS as fallback), visualized with an animated reactive **Voice Orb**. Your voice never leaves the phone.
+
+Native duplex Omni audio has a separate session/capability layer with PCM streaming, turn ids, ordered text/audio events, interruption, bounded input, and idempotent cleanup. No native Omni model adapter ships in this build, so Voice Mode remains the conventional and clearly labeled STT → LLM → TTS path.
 
 ### 🛡️ Keystore AES-256-GCM & Zero Telemetry
 
@@ -115,7 +126,7 @@ Estimates the real footprint (weights + KV cache + compute buffers) before mappi
 
 ## 🏛️ Architecture
 
-Rather than being tied to a single engine, Local LLM Android integrates both **llama.cpp** and **Google LiteRT-LM** behind a unified inference abstraction. The upstream llama.cpp engine is vendored as a pinned git submodule (v0.8.0 / b11960), so the GGUF runtime, LFM3 architecture, and mtmd vision support build from source with the app.
+OffconAI Android currently integrates **llama.cpp** and **Google LiteRT-LM** behind the existing `LlmEngine` facade. The upstream llama.cpp engine is vendored as a pinned git submodule and builds from source with the app.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -135,24 +146,23 @@ Rather than being tied to a single engine, Local LLM Android integrates both **l
 └───────┬───────────────────────────┬──────────────────────────┬───────┘
         ▼                           ▼                          ▼
 ┌───────────────────┐   ┌──────────────────────┐   ┌─────────────────────┐
-│  llama.cpp        │   │  Google LiteRT-LM    │   │  SDengine (exp.)    │
-│  Runtime          │   │  Runtime             │   │  :engine module     │
 ├───────────────────┤   ├──────────────────────┤   ├─────────────────────┤
-│ • GGUF quants     │   │ • Google mobile      │   │ • MoE-only core     │
-│   (Q4_K_M, Q8_0,  │   │   binaries           │   │ • paged expert      │
-│   K-quants)       │   │ • Gemma-2,           │   │   streaming         │
-│ • Qwen, DeepSeek, │   │   FunctionGemma      │   │ • Kotlin/JVM +      │
-│   Llama 3, LFM3   │   │ • GPU/NPU delegates  │   │   C++ JNI reference │
-│ • CPU multi-      │   │   where supported    │   │ • GGUF reader, BPE, │
-│   threading & GPU │   │   (automatic CPU     │   │   K-quants, RoPE    │
-│   layer offload   │   │   fallback)          │   │                     │
+│ • GGUF quants     │   │ • Google mobile      │   │ • GGUF metadata     │
+│   (Q4_K_M, Q8_0,  │   │   binaries           │   │ • descriptor        │
+│   K-quants)       │   │ • Gemma-2,           │   │   inspection        │
+│ • Qwen, DeepSeek, │   │   FunctionGemma      │   │ • tensor layout     │
+│   Llama 3, LFM3   │   │ • GPU/NPU delegates  │   │   without payload   │
+│ • CPU threads;    │   │   where supported    │   │   allocation        │
+│   GPU only when   │   │   (automatic CPU     │   │ • feature and       │
+│   native backend  │   │   fallback)          │   │   schema validation │
+│   reports support │   │                      │   │                     │
 │ • mmproj vision   │   │ • low-power mobile   │   │                     │
 │   (Qwen2/LFM3-VL) │   │   inference          │   │                     │
 └─────────┬─────────┘   └──────────┬───────────┘   └──────────┬──────────┘
           ▼                        ▼                          ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │                            Hardware (SoC)                            │
-│           CPU (multi-thread) · GPU delegate · NPU delegate           │
+│   llama.cpp CPU (multi-thread) · LiteRT GPU/NPU where supported      │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -210,7 +220,7 @@ Install the [Continue](https://marketplace.visualstudio.com/items?itemName=Conti
 {
   "models": [
     {
-      "title": "Phone LLM (Local LLM Android)",
+      "title": "OffconAI Android",
       "provider": "ollama",
       "model": "qwen2.5-3b",
       "apiBase": "http://<YOUR_DEVICE_IP>:11434",
@@ -299,32 +309,6 @@ The model id is the filename of the GGUF installed on the phone (without the `.g
 
 ---
 
-## 🧪 SDengine — Experimental First-Party Engine (`:engine`)
-
-<details>
-<summary><b>Scope, internals, and current status</b></summary>
-
-A first-party MoE-only inference core is being built in the open as a separate Android library module.
-
-**Scope (deliberate):** gated-expert Mixture-of-Experts on Android (Kotlin/JVM core plus a portable C++ JNI reference; NEON/GPU kernels pending). Dense-only models and non-MoE hybrids are out of scope.
-
-**What's inside today:**
-- GGUF format reader + metadata detection, BPE tokenizer, sampler, KV cache (`GgufReader`, `BpeTokenizer`, `Sampler`, `KvCache`)
-- Quantized weight dequantizers: Q4_0/Q4_1/Q5_0/Q5_1/Q8_0/Q8_1 plus the K-quants Q4_K/Q5_K/Q6_K, pinned by spec vectors against the ggml reference layout (`Quant`, `QuantTest`)
-- Paged expert streaming: dense weights decode resident under a cap while expert tiles stay on storage and stream through `ExpertPager`, so MoE models larger than RAM can decode
-- Architecture-matched RoPE (NeoX half-split vs NORM interleaved, per llama.cpp's per-architecture table), selected from the GGUF architecture at load
-- Portable C++ JNI reference via NDK 27 + CMake (`arm64-v8a`, `x86_64`): a `dot()` parity check only, no NEON yet — the real math is JVM scalar kernels
-- Numerical validation against real MoE weights via HTTP range streaming (manual/nightly `RealMoETest` with `LOCALENGINE_MOE_URL`; never runs in normal CI)
-- Nightly golden harness: greedy continuation must match llama.cpp token-for-token on a real MoE GGUF (`GoldenLogitTest` + `nightly-real-model.yml`; scheduled/nightly only, not in normal CI)
-- End-to-end generation over a gated-expert GGUF, covered by `SDEngineEndToEndTest` (synthetic MoE model: load, stream tokens, cancel, resident-cap enforcement)
-
-**Status: TEST BUILD / EXPERIMENTAL — runs, but not for production.**
-- Reference scalar kernels prove the math; NEON/GPU kernels are next, so real MoE models decode at single-digit tokens per second on device.
-- Imported models default to llama.cpp; SDengine is strictly opt-in per model (Model Manager runtime override). A failed SDengine load retries once on llama.cpp instead of leaving no model, and the engine advisories (`SDEngine.ADVISORIES`) stay visible.
-
-</details>
-
----
 
 ## 🚀 Getting Started
 
@@ -344,7 +328,6 @@ Grab the signed APK from the [**latest release**](https://github.com/zmxnpquryet
 - Android Studio Ladybug (2024.2.1+) or newer
 - JDK 17
 - Android SDK 36 (Min SDK 24)
-- Android NDK 27.2 + CMake 3.22+ (required by the `:engine` module and the upstream llama.cpp build)
 - Git submodule checkout: clone with `--recurse-submodules` or run `git submodule update --init --recursive`. `app/src/main/cpp/llama.cpp` is pinned to upstream v0.8.0 (b11960), the first release with LFM3 support
 - Target device with 64-bit ARM architecture (`arm64-v8a`) or `x86_64`
 - No manual native dependencies: the sherpa-onnx STT AAR (~50 MB) is not committed — Gradle fetches it automatically via the `fetchSherpaAar` task (pinned version + SHA-256) before every build

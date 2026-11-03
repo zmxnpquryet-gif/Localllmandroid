@@ -13,13 +13,14 @@ import com.localllm.android.engine.GgufMetadataDetector
 import com.localllm.android.engine.GenerationChunk
 import com.localllm.android.engine.HfSource
 import com.localllm.android.i18n.AppStrings
-import com.localllm.android.i18n.SdEngineText
 import com.localllm.android.engine.LlmEngine
 import com.localllm.android.data.crypto.SecretPrefs
 import com.localllm.android.engine.McpClient
 import com.localllm.android.engine.McpToolCall
 import com.localllm.android.engine.McpToolProtocol
-import com.localllm.android.engine.ToolCallParse
+import com.localllm.android.engine.ToolApprovalPolicy
+import com.localllm.android.engine.ToolCallBatch
+import com.localllm.android.engine.ToolInvoker
 import com.localllm.android.engine.ModelDownloader
 import com.localllm.android.model.ChatAttachment
 import com.localllm.android.model.ChatMessage
@@ -30,7 +31,7 @@ import com.localllm.android.model.MessageRole
 import com.localllm.android.model.ModelCatalog
 import com.localllm.android.model.ModelRuntimeType
 import com.localllm.android.R
-import com.localllm.android.LocalLlmApp
+import com.localllm.android.OffconAIApplication
 import com.localllm.android.memory.MemoryGuard
 import com.localllm.android.memory.MemoryGuardStore
 import com.localllm.android.memory.MemorySnapshot
@@ -63,7 +64,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val database = ChatDatabase.getInstance(application)
     private val repository = ChatRepository(database.chatDao())
     private val modelStorageManager = ModelStorageManager(application)
-    val llmEngine = getApplication<LocalLlmApp>().llmEngine
+    val llmEngine = getApplication<OffconAIApplication>().llmEngine
+
+    fun isLlamaGpuOffloadAvailable(): Boolean = llmEngine.isLlamaGpuOffloadAvailable()
     val voiceManager = VoiceManager(application)
     private val mcpClient = McpClient()
 
@@ -222,25 +225,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var messageCollectionJob: Job? = null
 
     init {
-        // One-time stale-prefs migration (P1-1): versions with MoE auto-assign
-        // persisted runtime=SD_ENGINE into prefs via selectModel. After the
-        // default-to-llama.cpp change that stale value would silently route every
-        // GGUF through the TEST engine. Runs once against the RAW stored value
-        // (before active-model restoration overwrites _settings) and never touches
-        // an intentional global choice again (adversarial review finding).
-        if (!settingsPrefs.getBoolean("migrated_sd_engine_prefs_v1", false)) {
-            if (settingsPrefs.getString("runtime", null) == ModelRuntimeType.SD_ENGINE.name) {
-                val explicitSd = _models.value.any {
-                    it.isDownloaded && it.runtimeType == ModelRuntimeType.SD_ENGINE && it.runtimeTypeOverrideByUser
-                }
-                if (!explicitSd) {
-                    settingsPrefs.edit().putString("runtime", ModelRuntimeType.LLAMA_CPP.name).apply()
-                    if (_settings.value.runtime == ModelRuntimeType.SD_ENGINE) {
-                        _settings.value = _settings.value.copy(runtime = ModelRuntimeType.LLAMA_CPP)
-                    }
-                }
-            }
-            settingsPrefs.edit().putBoolean("migrated_sd_engine_prefs_v1", true).apply()
+        // Migrate persisted settings from a removed runtime.
+        if (settingsPrefs.getString("runtime", null) == "SD_ENGINE") {
+            settingsPrefs.edit().putString("runtime", ModelRuntimeType.LLAMA_CPP.name).apply()
+            _settings.value = _settings.value.copy(runtime = ModelRuntimeType.LLAMA_CPP)
         }
 
         val savedActiveId = modelStorageManager.getActiveModelId()
@@ -265,7 +253,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (guard.isEnabled() && guard.level() > 0) {
                 _settings.value = guard.applyLevel(_settings.value)
             }
-            val report = LocalLlmApp.consumeStartupReport()
+            val report = OffconAIApplication.consumeStartupReport()
             if (report != null && report.abnormalPreviousRun) {
                 _engineStatusMessage.value = localizedString(R.string.vm_status_memory_reduced, guard.level())
             }
@@ -490,15 +478,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _modelLoadingProgress.value = 0.05f
             _modelLoadingStage.value = localizedString(R.string.vm_stage_preparing_load)
 
-            // Sync runtime type and auto-apply MTP if model supports it. A user-chosen
-            // runtime wins: picking an SDengine model must not silently fall back to
-            // llama.cpp, and vice versa.
-            val isGguf = model.runtimeType != ModelRuntimeType.LITE_RT
-            val runtimeToApply = when {
-                model.runtimeTypeOverrideByUser -> model.runtimeType
-                _settings.value.runtime == ModelRuntimeType.SD_ENGINE && isGguf -> ModelRuntimeType.SD_ENGINE
-                else -> model.runtimeType
-            }
+            // Select the runtime detected for this model and synchronize MTP.
+            val runtimeToApply = model.runtimeType
             _settings.value = _settings.value.copy(
                 runtime = runtimeToApply,
                 enableMtp = if (model.supportsMtp) true else _settings.value.enableMtp
@@ -555,14 +536,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun switchRuntime(runtime: ModelRuntimeType) {
         _settings.value = _settings.value.copy(runtime = runtime)
         settingsPrefs.edit().putString("runtime", runtime.name).apply()
-        // SDengine runs GGUF containers, so any downloaded GGUF is a candidate; the
-        // other runtimes match on their own model type.
-        val downloadedMatch = when (runtime) {
-            ModelRuntimeType.SD_ENGINE -> _models.value.firstOrNull {
-                it.isDownloaded && it.runtimeType != ModelRuntimeType.LITE_RT
-            }
-            else -> _models.value.firstOrNull { it.runtimeType == runtime && it.isDownloaded }
-        }
+        val downloadedMatch = _models.value.firstOrNull { it.runtimeType == runtime && it.isDownloaded }
         if (downloadedMatch != null) {
             selectModel(downloadedMatch)
         } else {
@@ -574,11 +548,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     android.util.Log.w("MainViewModel", "Model unload error", t)
                 }
             }
-            _engineStatusMessage.value = when (runtime) {
-                ModelRuntimeType.LLAMA_CPP -> localizedString(R.string.vm_status_no_llamacpp_model)
-                ModelRuntimeType.LITE_RT -> localizedString(R.string.vm_status_no_litert_model)
-                ModelRuntimeType.SD_ENGINE -> SdEngineText.advisoryText()
-            }
+            _engineStatusMessage.value = if (runtime == ModelRuntimeType.LLAMA_CPP) {
+                localizedString(R.string.vm_status_no_llamacpp_model)
+            } else localizedString(R.string.vm_status_no_litert_model)
         }
     }
 
@@ -1272,7 +1244,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             turnText = chunk.currentContentText
                             turnReasoning = chunk.currentReasoningText.ifBlank { null }
                             // While a tool block is streaming, show only the prose before it.
-                            val shown = if (toolsActive) McpToolProtocol.visibleText(turnText) else turnText
+                            val shown = if (toolsActive) McpToolProtocol.visibleTextAll(turnText) else turnText
                             _streamingMessage.value = turnPlaceholder.copy(
                                 content = shown,
                                 reasoning = turnReasoning,
@@ -1284,113 +1256,93 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
 
-                        val parsed = if (toolsActive && round < McpToolProtocol.MAX_TOOL_ROUNDS) {
-                            McpToolProtocol.parse(turnText, mcpClient.currentTools())
+                        val batch = if (toolsActive && round < McpToolProtocol.MAX_TOOL_ROUNDS) {
+                            McpToolProtocol.parseBatch(turnText, mcpClient.currentTools())
                         } else {
-                            ToolCallParse.None
+                            ToolCallBatch(emptyList(), turnText)
                         }
 
                         // Persist this assistant turn (prose only when it carried a tool block).
-                        val savedContent = if (parsed is ToolCallParse.None && toolsActive) {
-                            McpToolProtocol.visibleText(turnText).ifBlank { turnText }
-                        } else if (parsed is ToolCallParse.None) {
-                            turnText
-                        } else {
-                            McpToolProtocol.visibleText(turnText)
-                        }
+                        val savedContent = McpToolProtocol.visibleTextAll(turnText)
+                            .ifBlank { if (batch.hasWork) "" else turnText }
                         val savedAssistant = (_streamingMessage.value ?: turnPlaceholder).copy(
                             content = savedContent,
                             isStreaming = false
                         )
                         // A turn that is only a tool call has no prose; keep it out of the chat.
-                        if (savedAssistant.content.isNotBlank() || parsed is ToolCallParse.None) {
+                        if (savedAssistant.content.isNotBlank() || !batch.hasWork) {
                             repository.saveMessage(savedAssistant)
                         }
                         _streamingMessage.value = null
 
-                        if (parsed is ToolCallParse.None) {
+                        if (!batch.hasWork) {
                             _isGenerating.value = false
                             llmEngine.consumeBackendNote()?.let { note -> _engineStatusMessage.value = note }
                             break
                         }
 
-                        // ---- a tool call: ask the user, run it, feed the result back ----
+                        // ---- tool calls: validate all, approve each, run sequentially ----
                         round++
-                        val toolText: String
-                        // What is persisted for the user to audit later (call + result).
-                        // The model is only fed toolText: the call echo is already in its
-                        // history, and the record here must not be editable by the server.
-                        var persistedToolText: String? = null
-                        var declineBreak = false
-                        when (parsed) {
-                            is ToolCallParse.Invalid -> {
-                                consecutiveInvalid++
-                                toolText = McpToolProtocol.formatInvalid(parsed.reason)
-                                if (consecutiveInvalid >= 2) {
-                                    // One correction round is enough: a model that mangles
-                                    // the syntax twice would burn two more full inferences
-                                    // without the user ever agreeing to anything.
-                                    val toolMsg = ChatMessage(
+                        val validationError = buildList {
+                            if (batch.incomplete) add("The final tool-call block was not closed.")
+                            addAll(batch.errors)
+                        }.joinToString("\n")
+                        if (validationError.isNotBlank()) {
+                            consecutiveInvalid++
+                            val toolText = McpToolProtocol.formatInvalid(validationError)
+                            repository.saveMessage(
+                                ChatMessage(conversationId = convId, role = MessageRole.TOOL, content = toolText)
+                            )
+                            if (consecutiveInvalid >= 2) {
+                                _isGenerating.value = false
+                                llmEngine.consumeBackendNote()?.let { note -> _engineStatusMessage.value = note }
+                                break
+                            }
+                            turnHistory = (turnHistory + (MessageRole.USER.name to turnPrompt) +
+                                (MessageRole.ASSISTANT.name to turnText)).takeLast(8)
+                            turnPrompt = toolText
+                        } else {
+                            consecutiveInvalid = 0
+                            val executions = McpToolProtocol.executeBatch(
+                                calls = batch.calls,
+                                approval = ToolApprovalPolicy { call -> requestToolApproval(call) },
+                                invoker = ToolInvoker { call ->
+                                    _engineStatusMessage.value = localizedString(R.string.vm_mcp_tool_running, call.name)
+                                    mcpClient.callTool(call.name, call.argumentsJson)
+                                }
+                            )
+                            executions.forEach { execution ->
+                                val resultText = if (execution.declined) {
+                                    McpToolProtocol.formatResult(execution.call.name, false, "The user declined to run this tool.")
+                                } else {
+                                    val result = execution.result
+                                    val output = if (result == null) "" else result.text.ifBlank { result.message }
+                                    McpToolProtocol.formatResult(
+                                        execution.call.name,
+                                        result?.isSuccess == true,
+                                        output
+                                    )
+                                }
+                                repository.saveMessage(
+                                    ChatMessage(
                                         conversationId = convId,
                                         role = MessageRole.TOOL,
-                                        content = toolText
+                                        content = "Tool \"${execution.call.name}\" called with arguments:\n" +
+                                            "${execution.call.argumentsJson}\n\n$resultText"
                                     )
-                                    repository.saveMessage(toolMsg)
-                                    _isGenerating.value = false
-                                    llmEngine.consumeBackendNote()?.let { note ->
-                                        _engineStatusMessage.value = note
-                                    }
-                                    break
-                                }
+                                )
                             }
-                            is ToolCallParse.Call -> {
-                                consecutiveInvalid = 0
-                                val approved = requestToolApproval(parsed.call)
-                                toolText = if (!approved) {
-                                    // A decline ends the tool use: re-asking up to
-                                    // MAX_TOOL_ROUNDS would nag the user for a no.
-                                    declineBreak = true
-                                    McpToolProtocol.formatResult(
-                                        parsed.call.name, false,
-                                        "The user declined to run this tool."
-                                    )
-                                } else {
-                                    _engineStatusMessage.value = localizedString(R.string.vm_mcp_tool_running, parsed.call.name)
-                                    val outcome = mcpClient.callTool(parsed.call.name, parsed.call.argumentsJson)
-                                    McpToolProtocol.formatResult(
-                                        parsed.call.name,
-                                        outcome.isSuccess,
-                                        outcome.text.ifBlank { outcome.message }
-                                    )
-                                }
-                                persistedToolText =
-                                    "Tool \"${parsed.call.name}\" called with arguments:\n" +
-                                        "${parsed.call.argumentsJson}\n\n$toolText"
+                            val toolText = McpToolProtocol.formatExecutions(executions)
+                            val callEcho = batch.calls.joinToString("\n", transform = McpToolProtocol::encodeCall)
+                            turnHistory = (turnHistory + (MessageRole.USER.name to turnPrompt) +
+                                (MessageRole.ASSISTANT.name to callEcho)).takeLast(8)
+                            turnPrompt = toolText
+                            if (executions.any { it.declined }) {
+                                _isGenerating.value = false
+                                llmEngine.consumeBackendNote()?.let { note -> _engineStatusMessage.value = note }
+                                break
                             }
-                            else -> break
                         }
-                        val toolMsg = ChatMessage(
-                            conversationId = convId,
-                            role = MessageRole.TOOL,
-                            content = persistedToolText ?: toolText
-                        )
-                        repository.saveMessage(toolMsg)
-                        if (declineBreak) {
-                            _isGenerating.value = false
-                            llmEngine.consumeBackendNote()?.let { note ->
-                                _engineStatusMessage.value = note
-                            }
-                            break
-                        }
-
-                        // Next turn: the model continues from the tool result. The call that
-                        // produced it is kept in the history so the model sees its own request.
-                        val callEcho = (parsed as? ToolCallParse.Call)?.let {
-                            "${McpToolProtocol.OPEN}{\"name\":\"${it.call.name}\",\"arguments\":${it.call.argumentsJson}}${McpToolProtocol.CLOSE}"
-                        } ?: turnText
-                        turnHistory = (turnHistory + (MessageRole.USER.name to turnPrompt) +
-                            (MessageRole.ASSISTANT.name to callEcho)).takeLast(8)
-                        turnPrompt = toolText
                         turnAttachment = null
                         turnPlaceholder = ChatMessage(
                             id = UUID.randomUUID().toString(),
@@ -1564,7 +1516,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Voice Mode hands-free conversational loop:
-     * User speaks -> Local LLM generates response -> TTS speaks back
+     * User speaks -> OffconAI generates a response -> TTS speaks back
      */
     fun startInteractiveVoiceSession() {
         if (_activeModel.value == null || !_activeModel.value!!.isDownloaded) {
@@ -1700,7 +1652,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // First-party engine peek (additive only): verify the container with the
                 // new GGUF reader. Never overrides the shipping detector on failure.
                 val engineNote = try {
-                    com.localllm.engine.GgufReader.open(destFile).use { reader ->
+                    com.localllm.android.engine.gguf.GgufReader.open(destFile).use { reader ->
                         localizedString(R.string.vm_desc_engine_note, reader.tensors.size)
                     }
                 } catch (_: Throwable) {
@@ -1716,14 +1668,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .replace("-", " ")
                     .replace("_", " ")
 
-                val sdEngineCandidate = !isLiteRt && detected.isSdEngineCandidate
                 val customModel = LlmModel(
                     id = "custom-${UUID.randomUUID()}",
                     name = cleanName,
                     repoId = if (isLiteRt) "local/litert-imported" else "local/imported",
                     fileName = targetFileName,
-                    // Default is always llama.cpp for GGUF (even MoE): SDengine
-                    // is opt-in via Model Manager's per-model runtime override.
                     runtimeType = detected.detectedRuntime,
                     sizeBytes = destFile.length(),
                     isDownloaded = true,
@@ -1739,7 +1688,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             append(localizedString(R.string.vm_desc_imported_gguf))
                             if (hasVision) append(localizedString(R.string.vm_desc_imported_gguf_vision))
                             if (hasDrafter) append(localizedString(R.string.vm_desc_imported_gguf_drafter))
-                            if (sdEngineCandidate) append(localizedString(R.string.vm_desc_imported_moe_sdengine))
                         }
                         if (engineNote != null) append(" • $engineNote")
                     },

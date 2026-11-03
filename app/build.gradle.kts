@@ -102,8 +102,8 @@ android {
     applicationId = "com.localllm.android"
     minSdk = 24
     targetSdk = 36
-    versionCode = 21
-    versionName = "1.6.0"
+    versionCode = 22
+    versionName = "2.0.0"
     ndk { abiFilters.addAll(listOf("arm64-v8a", "x86_64")) }
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -178,7 +178,6 @@ dependencies {
   }
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
-  implementation(project(":engine"))
   // On-device speech recognition (sherpa-onnx, official AAR — no Maven artifact exists)
   implementation(files("libs/sherpa-onnx.aar"))
   implementation(libs.okhttp)

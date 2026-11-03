@@ -7,9 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Pins the default-to-llama.cpp routing rule (P2-7): auto-detection never
- * assigns SDengine on its own, even for gated-expert MoE. SDengine is strictly
- * opt-in via [com.localllm.android.model.LlmModel.runtimeTypeOverrideByUser].
+ * Pins format-based runtime detection and keeps existing explicit LiteRT choices.
  */
 class ModelStorageRoutingTest {
 
@@ -39,28 +37,27 @@ class ModelStorageRoutingTest {
     }
 
     @Test
-    fun `moe with prior sdengine stored but no override is reset to llama cpp`() {
-        // Pre-change metadata may carry SD_ENGINE from the auto-assign era.
+    fun `custom gguf with stale alternate runtime and no override resets to llama cpp`() {
         assertEquals(
             ModelRuntimeType.LLAMA_CPP,
             ModelStorageManager.resolveDefaultRuntime(
                 detected = detection(expertCount = 8),
                 isCustom = true,
                 userOverride = false,
-                current = ModelRuntimeType.SD_ENGINE
+                current = ModelRuntimeType.LITE_RT
             )
         )
     }
 
     @Test
-    fun `explicit user override to sdengine is never clobbered`() {
+    fun `explicit user override is never clobbered`() {
         assertEquals(
-            ModelRuntimeType.SD_ENGINE,
+            ModelRuntimeType.LITE_RT,
             ModelStorageManager.resolveDefaultRuntime(
                 detected = detection(expertCount = 8),
                 isCustom = true,
                 userOverride = true,
-                current = ModelRuntimeType.SD_ENGINE
+                current = ModelRuntimeType.LITE_RT
             )
         )
     }

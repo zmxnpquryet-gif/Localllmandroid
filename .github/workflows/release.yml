@@ -1,4 +1,4 @@
-name: Release APK
+name: OffconAI Release APK
 
 on:
   release:
@@ -81,6 +81,13 @@ jobs:
           echo "=== APK Signature ==="
           $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs "$APK_FILE" || true
 
+      - name: Build desktop distribution
+        run: |
+          ./gradlew :desktop:installDist --stacktrace
+          cd desktop/build/install
+          zip -r "$GITHUB_WORKSPACE/OffconAI-desktop.zip" desktop
+          sha256sum "$GITHUB_WORKSPACE/OffconAI-desktop.zip"
+
       - name: Publish or Attach APK to Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -93,10 +100,10 @@ jobs:
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists. Uploading APK asset..."
-            gh release upload "$TAG" app/build/outputs/apk/release/*.apk --clobber
+            gh release upload "$TAG" app/build/outputs/apk/release/*.apk OffconAI-desktop.zip --clobber
           else
             echo "Release $TAG does not exist. Creating new release with APK..."
-            gh release create "$TAG" app/build/outputs/apk/release/*.apk \
+            gh release create "$TAG" app/build/outputs/apk/release/*.apk OffconAI-desktop.zip \
               --title "$TAG" \
               --generate-notes
           fi

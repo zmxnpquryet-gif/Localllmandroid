@@ -42,7 +42,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import com.localllm.android.R
-import com.localllm.android.i18n.SdEngineText
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -87,6 +86,7 @@ fun SettingsScreen(
     val apiPort by viewModel.apiServerPort.collectAsStateWithLifecycle()
     val localIpAddress by viewModel.localIpAddress.collectAsStateWithLifecycle()
     val memoryGuardState by viewModel.memoryGuardState.collectAsStateWithLifecycle()
+    val llamaGpuOffloadAvailable = remember { viewModel.isLlamaGpuOffloadAvailable() }
 
     var showClearDialog by remember { mutableStateOf(false) }
     var showMemoryLog by remember { mutableStateOf(false) }
@@ -155,20 +155,6 @@ fun SettingsScreen(
                     )
                 }
                 Spacer(modifier = Modifier.height(10.dp))
-                GFilterChip(
-                    selected = settings.runtime == ModelRuntimeType.SD_ENGINE,
-                    onClick = { viewModel.switchRuntime(ModelRuntimeType.SD_ENGINE) },
-                    label = { GText(stringResource(R.string.settings_sdengine_label)) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (settings.runtime == ModelRuntimeType.SD_ENGINE) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    GText(
-                        text = SdEngineText.advisoryText(),
-                        style = GlassTheme.type.bodySmall,
-                        color = GlassTheme.colors.error
-                    )
-                }
             }
 
             // 2. Hardware Acceleration & MTP Options
@@ -235,6 +221,15 @@ fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         GText(stringResource(R.string.settings_gpu_title), style = GlassTheme.type.bodyMedium)
                         GText(stringResource(R.string.settings_gpu_desc), fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
+                        GText(
+                            text = stringResource(
+                                if (llamaGpuOffloadAvailable) R.string.settings_llama_gpu_available
+                                else R.string.settings_llama_gpu_unavailable
+                            ),
+                            fontSize = 11.sp,
+                            color = if (llamaGpuOffloadAvailable) GlassTheme.colors.primary
+                            else GlassTheme.colors.onSurfaceVariant
+                        )
                     }
                     GSwitch(
                         checked = settings.enableGpuAcceleration,

@@ -1,4 +1,4 @@
-name: Android CI
+name: OffconAI Android CI
 
 on:
   push:
@@ -53,6 +53,12 @@ jobs:
 
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Test desktop backends and transports
+        run: ./gradlew :desktop:test --stacktrace
+
+      - name: Build desktop distribution
+        run: ./gradlew :desktop:installDist --stacktrace
 
       # Nothing executes the androidTest sources today (no emulator in CI), so at
       # least compile them: edited instrumented tests must not rot silently.

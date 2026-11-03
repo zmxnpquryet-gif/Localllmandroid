@@ -364,7 +364,7 @@ class ModelDownloadService : Service() {
     private fun acquireWakeLock() {
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LocalLLM::DownloadWakeLock").apply {
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OffconAI::DownloadWakeLock").apply {
                 setReferenceCounted(false)
                 acquire(4 * 60 * 60 * 1000L) // 4 hours maximum
             }

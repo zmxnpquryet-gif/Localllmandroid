@@ -216,6 +216,13 @@ fun VoiceModeScreen(
             Spacer(modifier = Modifier.width(36.dp))
         }
 
+        GText(
+            text = stringResource(R.string.voice_native_audio_unavailable),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.55f)
+        )
+
         // Center: Interactive Voice Orb (flexible area: it gives room to the controls)
         Box(
             modifier = Modifier
