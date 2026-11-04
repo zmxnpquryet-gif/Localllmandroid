@@ -69,6 +69,7 @@ fun GTopBar(
             .fillMaxWidth()
             .statusBarsPadding()
             .height(60.dp)
+            .background(GlassTheme.colors.background)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -90,8 +91,8 @@ fun GDialog(
     dismissButton: (@Composable () -> Unit)? = null
 ) {
     Dialog(onDismissRequest = onDismissRequest) {
-        GCard(modifier = modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-            Column(modifier = Modifier.padding(22.dp)) {
+        GCard(modifier = modifier.fillMaxWidth(), cornerRadius = 20.dp) {
+            Column(modifier = Modifier.padding(24.dp)) {
                 title?.let {
                     it()
                     Spacer(modifier = Modifier.height(12.dp))

@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -79,10 +80,10 @@ fun GSwitch(
                 .size(width = 52.dp, height = 30.dp)
                 .clip(RoundedCornerShape(15.dp))
                 .background(
-                    if (checked) activeColor.copy(alpha = 0.85f)
-                    else colors.surfaceVariant.copy(alpha = 0.7f)
+                    if (checked) activeColor
+                    else if (colors.background.luminance() < 0.5f) colors.surfaceVariant.copy(alpha = 0.7f) else Color(0xFFCBD5E1)
                 )
-                .border(1.dp, glassHighlight(0.2f), RoundedCornerShape(15.dp))
+                .border(1.dp, if (colors.background.luminance() < 0.5f) glassHighlight(0.2f) else Color(0xFFE2E8F0), RoundedCornerShape(15.dp))
                 .padding(3.dp),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -201,13 +202,11 @@ fun GFilterChip(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(
-                if (selected) colors.primaryContainer.copy(alpha = 0.75f)
-                else colors.surface.copy(alpha = 0.5f)
+                if (selected) (if (colors.background.luminance() < 0.5f) colors.primaryContainer.copy(alpha = 0.75f) else Color(0xFFE6EBFF))
+                else (if (colors.background.luminance() < 0.5f) colors.surface.copy(alpha = 0.5f) else Color.White)
             )
             .border(
-                1.dp,
-                if (selected) colors.primary.copy(alpha = 0.6f)
-                else colors.outline.copy(alpha = 0.25f),
+                1.dp, if (selected) Color(0xFF687CFF) else Color(0xFFE2E8F0),
                 RoundedCornerShape(12.dp)
             )
             .clickable(onClick = onClick)

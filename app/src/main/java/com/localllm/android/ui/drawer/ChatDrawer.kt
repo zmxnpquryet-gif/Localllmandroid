@@ -70,28 +70,66 @@ fun ChatDrawer(
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .width(310.dp)
-            .background(GlassTheme.colors.surface.copy(alpha = 0.82f))
+            .width(300.dp)
+            .background(GlassTheme.colors.surface)
             .statusBarsPadding()
             // The bottom items (Settings last) sat under the system taskbar / 3-button
             // nav bar, so tapping them did nothing and they looked cut off.
             .navigationBarsPadding()
-            .padding(vertical = 12.dp)
+            .padding(vertical = 16.dp)
     ) {
+        // Brand Header (03. Menu Drawer)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF0F172A)),
+                contentAlignment = Alignment.Center
+            ) {
+                GIcon(
+                    imageVector = GIcons.AutoAwesome,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                GText(
+                    text = "OffconAI",
+                    style = GlassTheme.type.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                    color = GlassTheme.colors.onBackground
+                )
+                GText(
+                    text = "v2.0.0",
+                    style = GlassTheme.type.labelSmall,
+                    color = Color(0xFF94A3B8)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // 1. New Chat Button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(GlassTheme.colors.surfaceVariant)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFFE6EBFF))
                 .border(
                     1.dp,
-                    GlassTheme.colors.primary.copy(alpha = 0.25f),
-                    RoundedCornerShape(12.dp)
+                    Color(0xFF687CFF).copy(alpha = 0.25f),
+                    RoundedCornerShape(14.dp)
                 )
                 .clickable { onNewChat() }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -99,13 +137,13 @@ fun ChatDrawer(
                 GIcon(
                     imageVector = GIcons.Add,
                     contentDescription = null,
-                    tint = GlassTheme.colors.primary,
+                    tint = Color(0xFF687CFF),
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 GText(
                     text = stringResource(R.string.new_chat),
-                    style = GlassTheme.type.titleSmall,
+                    style = GlassTheme.type.titleSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
                     color = GlassTheme.colors.onSurface
                 )
             }

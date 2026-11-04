@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,6 +53,7 @@ fun ChatTopBar(
     onSwitchRuntime: (ModelRuntimeType) -> Unit,
     onOpenModelManager: () -> Unit = {},
     onOpenApiMode: () -> Unit = {},
+    contextUsageTokens: Int = 0,
     modifier: Modifier = Modifier
 ) {
     var isModelMenuExpanded by remember { mutableStateOf(false) }
@@ -61,12 +63,12 @@ fun ChatTopBar(
         modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .height(56.dp)
-            .padding(horizontal = 8.dp),
+            .height(60.dp)
+            .background(GlassTheme.colors.background)
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Drawer Hamburger Menu
         GIconButton(onClick = onOpenDrawer) {
             GIcon(
                 imageVector = GIcons.Menu,
@@ -75,39 +77,44 @@ fun ChatTopBar(
             )
         }
 
-        // Center Model Selector Pill (liquid glass)
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(22.dp))
-                .background(GlassTheme.colors.surface.copy(alpha = 0.55f))
-                .border(1.dp, GlassTheme.colors.primary.copy(alpha = 0.35f), RoundedCornerShape(22.dp))
-                .clickable { isModelMenuExpanded = true }
-                .padding(horizontal = 14.dp, vertical = 6.dp),
+                .clip(RoundedCornerShape(18.dp))
+                .background(GlassTheme.colors.surface)
+                                .clickable { isModelMenuExpanded = true }
+                .padding(horizontal = 14.dp, vertical = 7.dp),
             contentAlignment = Alignment.Center
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (activeModel != null) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(Color(0xFF687CFF))
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
                             GText(
                                 text = activeModel.name,
-                                style = GlassTheme.type.titleSmall,
+                                style = GlassTheme.type.titleSmall.copy(fontWeight = FontWeight.Bold),
                                 color = GlassTheme.colors.onSurface
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             GIcon(
                                 imageVector = GIcons.ArrowDown,
                                 contentDescription = null,
-                                tint = GlassTheme.colors.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
+                                tint = Color(0xFF687CFF),
+                                modifier = Modifier.size(14.dp)
                             )
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             GText(
-                                text = activeModel.runtimeBadge,
+                                text = activeModel.runtimeBadge + " • " + activeModel.quantization,
                                 style = GlassTheme.type.labelSmall,
-                                color = GlassTheme.colors.primary,
+                                color = Color(0xFF64748B),
                                 fontSize = 10.sp
                             )
                             if (activeModel.isVisionDownloaded || activeModel.hasMmproj) {
@@ -126,6 +133,15 @@ fun ChatTopBar(
                                     fontSize = 10.sp
                                 )
                             }
+                            if (contextUsageTokens > 0) {
+                                GText(
+                                    text = " • " + contextUsageTokens + " ctx",
+                                    style = GlassTheme.type.labelSmall,
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 } else {
@@ -133,20 +149,20 @@ fun ChatTopBar(
                         GIcon(
                             imageVector = GIcons.CloudDownload,
                             contentDescription = null,
-                            tint = GlassTheme.colors.primary,
+                            tint = Color(0xFF687CFF),
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         GText(
                             text = stringResource(R.string.chat_model_download_required),
                             style = GlassTheme.type.titleSmall,
-                            color = GlassTheme.colors.primary
+                            color = GlassTheme.colors.onSurface
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         GIcon(
                             imageVector = GIcons.ArrowDown,
                             contentDescription = null,
-                            tint = GlassTheme.colors.primary,
+                            tint = Color(0xFF687CFF),
                             modifier = Modifier.size(16.dp)
                         )
                     }

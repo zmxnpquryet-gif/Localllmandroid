@@ -1,4 +1,4 @@
-﻿package com.localllm.android.ui.voice
+package com.localllm.android.ui.voice
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -128,16 +128,16 @@ fun VoiceModeScreen(
 
     val orbGradient = when (voiceState) {
         InteractiveVoiceState.LISTENING -> Brush.radialGradient(
-            listOf(Color(0xFF38BDF8), Color(0xFF0284C7), Color(0xFF0C4A6E))
+            listOf(Color(0xFF687CFF), Color(0xFF4F46E5), Color(0xFF1E1B4B))
         )
         InteractiveVoiceState.PROCESSING -> Brush.radialGradient(
-            listOf(Color(0xFFA855F7), Color(0xFF7E22CE), Color(0xFF3B0764))
+            listOf(Color(0xFFA855F7), Color(0xFF687CFF), Color(0xFF0F172A))
         )
         InteractiveVoiceState.SPEAKING -> Brush.radialGradient(
-            listOf(Color(0xFF10A37F), Color(0xFF059669), Color(0xFF064E3B))
+            listOf(Color(0xFF38BDF8), Color(0xFF687CFF), Color(0xFF1E1B4B))
         )
         InteractiveVoiceState.IDLE -> Brush.radialGradient(
-            listOf(Color(0xFF64748B), Color(0xFF334155), Color(0xFF0F172A))
+            listOf(Color(0xFF334155), Color(0xFF1E293B), Color(0xFF0F172A))
         )
     }
 
@@ -151,7 +151,7 @@ fun VoiceModeScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0B0F17))
+            .background(Color(0xFF0F172A))
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {

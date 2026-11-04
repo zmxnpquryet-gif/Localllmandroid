@@ -1,4 +1,4 @@
-﻿package com.localllm.android.ui.models
+package com.localllm.android.ui.models
 
 import android.content.ClipboardManager
 import android.content.Context
@@ -43,6 +43,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -135,8 +136,8 @@ fun ModelManagerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Color(0xFFFAFBFF))
         ) {
-            LiquidBackground()
             Column(modifier = Modifier.fillMaxSize()) {
             // Quick actions live here (not in the top bar) so the title never squeezes
             Row(

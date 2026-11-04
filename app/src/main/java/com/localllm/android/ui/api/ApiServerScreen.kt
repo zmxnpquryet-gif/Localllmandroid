@@ -108,9 +108,10 @@ fun ApiServerScreen(
         modifier = modifier
     ) {
         Box(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFFFAFBFF))
         ) {
-            LiquidBackground()
             Column(
                 modifier = Modifier
                     .fillMaxSize()

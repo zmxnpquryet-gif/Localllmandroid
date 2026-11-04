@@ -70,41 +70,54 @@ fun GText(
     )
 }
 
-/** Frosted card: translucent surface + hairline gradient border + top sheen. */
+/** OffconAI Card: clean white solid card on light, frosted liquid on dark. */
 @Composable
 fun GCard(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 20.dp,
+    cornerRadius: Dp = 16.dp,
     containerColor: Color? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
+    val isDark = GlassTheme.colors.background.luminance() < 0.5f
     val shape = RoundedCornerShape(cornerRadius)
-    val borderBrush = Brush.linearGradient(
-        colors = listOf(
-            glassHighlight(0.35f),
-            GlassTheme.colors.primary.copy(alpha = 0.25f),
-            glassHighlight(0.08f)
-        )
-    )
-    Box(
-        modifier = modifier
-            .clip(shape)
-            .background(containerColor ?: GlassTheme.colors.surface.copy(alpha = 0.55f))
-            .border(1.dp, borderBrush, shape),
-        content = {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(shape)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(glassHighlight(0.10f), Color.Transparent)
-                        )
-                    )
+    if (isDark) {
+        val borderBrush = Brush.linearGradient(
+            colors = listOf(
+                glassHighlight(0.35f),
+                GlassTheme.colors.primary.copy(alpha = 0.25f),
+                glassHighlight(0.08f)
             )
-            content()
-        }
-    )
+        )
+        Box(
+            modifier = modifier
+                .clip(shape)
+                .background(containerColor ?: GlassTheme.colors.surface.copy(alpha = 0.55f))
+                .border(1.dp, borderBrush, shape),
+            content = {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(shape)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(glassHighlight(0.10f), Color.Transparent)
+                            )
+                        )
+                )
+                content()
+            }
+        )
+    } else {
+        Box(
+            modifier = modifier
+                .clip(shape)
+                .background(containerColor ?: GlassTheme.colors.surface)
+                .border(1.dp, GlassTheme.colors.outline, shape),
+            content = {
+                content()
+            }
+        )
+    }
 }
 
 /** Full-screen aurora backdrop drawn under content. */

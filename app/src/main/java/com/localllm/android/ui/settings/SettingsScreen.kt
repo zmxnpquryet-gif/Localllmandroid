@@ -114,9 +114,10 @@ fun SettingsScreen(
         modifier = modifier.fillMaxSize()
     ) {
         Box(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .background(GlassTheme.colors.background)
         ) {
-            LiquidBackground()
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -832,22 +833,25 @@ private fun SettingsCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     content: @Composable () -> Unit
 ) {
-    GCard(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 18.dp
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(GlassTheme.colors.surface)
+                        .padding(16.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GIcon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = GlassTheme.colors.primary,
+                    tint = Color(0xFF687CFF),
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 GText(
                     text = title,
-                    style = GlassTheme.type.titleMedium,
+                    style = GlassTheme.type.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
                     color = GlassTheme.colors.onSurface
                 )
             }

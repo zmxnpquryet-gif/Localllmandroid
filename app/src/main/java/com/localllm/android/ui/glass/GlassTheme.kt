@@ -85,6 +85,16 @@ import com.localllm.android.ui.theme.ObsidianSurfaceDark
 import com.localllm.android.ui.theme.OpenAiGreen
 import com.localllm.android.ui.theme.OpenAiGreenDark
 import com.localllm.android.ui.theme.OpenAiGreenLight
+import com.localllm.android.ui.theme.OffconPrimary
+import com.localllm.android.ui.theme.OffconSecondary
+import com.localllm.android.ui.theme.OffconBackground
+import com.localllm.android.ui.theme.OffconSurface
+import com.localllm.android.ui.theme.OffconDark
+import com.localllm.android.ui.theme.OffconText
+import com.localllm.android.ui.theme.OffconMuted
+import com.localllm.android.ui.theme.OffconBorder
+import com.localllm.android.ui.theme.OffconError
+import com.localllm.android.ui.theme.OffconSuccess
 
 /**
  * First-party design tokens. Same palette values as before, zero Material types:
@@ -232,17 +242,55 @@ fun glassColors(themeName: String, dark: Boolean): GlassColors {
                 ChatGptLightBorder, baselineErrorLight, baselineErrorContainerLight, baselineOnErrorContainerLight, Color(0xFFFFD9E2), Color(0xFF633B48))
         }
         else -> if (dark) {
-            GlassColors(ArtisticBgDark, ArtisticTextDark, ArtisticSurfaceDark, ArtisticTextDark,
-                ArtisticSurfaceVariantDark, ArtisticTextMutedDark, ArtisticPrimaryDark, ArtisticOnPrimaryDark,
-                ArtisticPrimaryContainerDark, ArtisticOnPrimaryContainerDark, ArtisticSecondaryDark, ArtisticOnSecondaryDark,
-                ArtisticSecondaryContainerDark, ArtisticOnSecondaryContainerDark, baselineTertiaryDark,
-                ArtisticBorderDark, baselineErrorDark, baselineErrorContainerDark, baselineOnErrorContainerDark, Color(0xFF633B48), Color(0xFFFFD9E2))
+            // OffconAI Modern Slate Dark Design System (19390.png More Screens)
+            GlassColors(
+                background = Color(0xFF0F172A),
+                onBackground = Color(0xFFF8FAFC),
+                surface = Color(0xFF1E293B),
+                onSurface = Color(0xFFF1F5F9),
+                surfaceVariant = Color(0xFF334155),
+                onSurfaceVariant = Color(0xFF94A3B8),
+                primary = Color(0xFF687CFF),
+                onPrimary = Color.White,
+                primaryContainer = Color(0xFF1E293B),
+                onPrimaryContainer = Color(0xFFF8FAFC),
+                secondary = Color(0xFF242C44),
+                onSecondary = Color(0xFF818CF8),
+                secondaryContainer = Color(0xFF1E293B),
+                onSecondaryContainer = Color(0xFFF8FAFC),
+                tertiary = Color(0xFF10B981),
+                outline = Color(0xFF334155),
+                error = baselineErrorDark,
+                errorContainer = baselineErrorContainerDark,
+                onErrorContainer = baselineOnErrorContainerDark,
+                tertiaryContainer = Color(0xFF064E3B),
+                onTertiaryContainer = Color(0xFFA7F3D0)
+            )
         } else {
-            GlassColors(ArtisticBgLight, ArtisticTextLight, ArtisticSurfaceLight, ArtisticTextLight,
-                ArtisticSurfaceVariantLight, ArtisticTextMutedLight, ArtisticPrimaryLight, ArtisticOnPrimaryLight,
-                ArtisticPrimaryContainerLight, ArtisticOnPrimaryContainerLight, ArtisticSecondaryLight, ArtisticOnPrimaryLight,
-                ArtisticSecondaryContainerLight, ArtisticTextLight, baselineTertiaryLight,
-                ArtisticBorderLight, baselineErrorLight, baselineErrorContainerLight, baselineOnErrorContainerLight, Color(0xFFFFD9E2), Color(0xFF633B48))
+            // OffconAI Clean Canvas
+            GlassColors(
+                background = Color(0xFFFAFBFF),
+                onBackground = Color(0xFF0F172A),
+                surface = Color.White,
+                onSurface = Color(0xFF1E293B),
+                surfaceVariant = Color(0xFFE6EBFF),
+                onSurfaceVariant = Color(0xFF64748B),
+                primary = Color(0xFF687CFF),
+                onPrimary = Color.White,
+                primaryContainer = Color(0xFF0F172A),
+                onPrimaryContainer = Color.White,
+                secondary = Color(0xFFE6EBFF),
+                onSecondary = Color(0xFF687CFF),
+                secondaryContainer = Color(0xFFF1F5F9),
+                onSecondaryContainer = Color(0xFF1E293B),
+                tertiary = Color(0xFF10B981),
+                outline = Color(0xFFE2E8F0),
+                error = baselineErrorLight,
+                errorContainer = baselineErrorContainerLight,
+                onErrorContainer = baselineOnErrorContainerLight,
+                tertiaryContainer = Color(0xFFD1FAE5),
+                onTertiaryContainer = Color(0xFF065F46)
+            )
         }
     }
 }

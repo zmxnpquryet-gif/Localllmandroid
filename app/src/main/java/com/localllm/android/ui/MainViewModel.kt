@@ -1234,6 +1234,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     while (true) {
                         var turnText = ""
                         var turnReasoning: String? = null
+                        var lastUiPublishAt = 0L
+                        val uiIntervalMs = 45L
                         llmEngine.streamGenerate(
                             prompt = turnPrompt,
                             history = turnHistory,
@@ -1245,7 +1247,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             turnReasoning = chunk.currentReasoningText.ifBlank { null }
                             // While a tool block is streaming, show only the prose before it.
                             val shown = if (toolsActive) McpToolProtocol.visibleTextAll(turnText) else turnText
-                            _streamingMessage.value = turnPlaceholder.copy(
+                            val pendingMsg = turnPlaceholder.copy(
                                 content = shown,
                                 reasoning = turnReasoning,
                                 isReasoningStreaming = chunk.isReasoning,
@@ -1254,6 +1256,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 contextTokens = chunk.totalTokens,
                                 isStreaming = !chunk.isComplete
                             )
+                            val now = android.os.SystemClock.uptimeMillis()
+                            if (chunk.isComplete || now - lastUiPublishAt >= uiIntervalMs) {
+                                _streamingMessage.value = pendingMsg
+                                lastUiPublishAt = now
+                            }
                         }
 
                         val batch = if (toolsActive && round < McpToolProtocol.MAX_TOOL_ROUNDS) {

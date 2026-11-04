@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -116,57 +118,44 @@ fun ChatScreen(
         }
     }
 
-    // Monitor drag interactions: disable autoScroll only when user scrolls away from bottom
-    LaunchedEffect(listState.interactionSource) {
+    // Respect user touch interactions: suspend autoScroll immediately on drag start
+    LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { interaction ->
             when (interaction) {
                 is DragInteraction.Start -> {
-                    // User started dragging
+                    autoScrollEnabled = false
                 }
-                is DragInteraction.Stop -> {
-                    // Finger lifted: if at bottom, keep auto-scroll on; else allow manual browsing
-                    autoScrollEnabled = isScrolledToBottom
-                }
-                is DragInteraction.Cancel -> {
+                is DragInteraction.Stop, is DragInteraction.Cancel -> {
                     autoScrollEnabled = isScrolledToBottom
                 }
             }
         }
     }
 
-    // When scrolling reaches the bottom, automatically resume following
+    // Automatically resume auto-scroll only if user voluntarily scrolled back to the very bottom
     LaunchedEffect(isScrolledToBottom) {
         if (isScrolledToBottom) {
             autoScrollEnabled = true
         }
     }
 
-    // Scroll to bottom when sending/receiving new messages
-    LaunchedEffect(messages.size) {
-        autoScrollEnabled = true
-        val totalCount = listState.layoutInfo.totalItemsCount
-        if (totalCount > 0) {
-            listState.scrollToItem(totalCount - 1, scrollOffset = 100000)
-        }
-    }
-
-    // When streaming message appears, guarantee auto-scroll is enabled
-    LaunchedEffect(streamingMessage != null) {
-        if (streamingMessage != null) {
-            autoScrollEnabled = true
+    // Smooth scroll following the active streaming message without jumping if user scrolled away
+    LaunchedEffect(streamingMessage?.content?.length, autoScrollEnabled) {
+        if (streamingMessage != null && autoScrollEnabled) {
             val totalCount = listState.layoutInfo.totalItemsCount
             if (totalCount > 0) {
-                listState.scrollToItem(totalCount - 1, scrollOffset = 100000)
+                listState.scrollToItem(totalCount - 1)
             }
         }
     }
 
-    // Follow answer stream as tokens arrive in real-time with full scroll offset
-    LaunchedEffect(streamingMessage?.content) {
-        if (streamingMessage != null && autoScrollEnabled) {
+    // Scroll to bottom when user sends a new message
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty() && messages.last().role == com.localllm.android.model.MessageRole.USER) {
+            autoScrollEnabled = true
             val totalCount = listState.layoutInfo.totalItemsCount
             if (totalCount > 0) {
-                listState.scrollToItem(totalCount - 1, scrollOffset = 100000)
+                listState.scrollToItem(totalCount - 1)
             }
         }
     }
@@ -240,11 +229,18 @@ fun ChatScreen(
                     onOpenSettings = { viewModel.navigateTo(AppScreen.SETTINGS) },
                     onSwitchRuntime = { viewModel.switchRuntime(it) },
                     onOpenModelManager = { viewModel.navigateTo(AppScreen.MODELS) },
-                    onOpenApiMode = { viewModel.navigateTo(AppScreen.API_MODE) }
+                    onOpenApiMode = { viewModel.navigateTo(AppScreen.API_MODE) },
+                    contextUsageTokens = streamingMessage?.contextTokens ?: messages.lastOrNull()?.contextTokens ?: 0
                 )
             },
             bottomBar = {
-                ChatInputBar(
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth().widthIn(max = 680.dp)) {
+                        ChatInputBar(
                     inputText = inputText,
                     onInputTextChanged = { inputText = it },
                     onSendMessage = {
@@ -285,17 +281,29 @@ fun ChatScreen(
                             }
                         }
                     },
-                    onOpenVoiceMode = { viewModel.navigateTo(AppScreen.VOICE_MODE) }
-                )
+                    onOpenVoiceMode = { viewModel.navigateTo(AppScreen.VOICE_MODE) },
+                    isModelLoading = isModelLoading,
+                    modelLoadingProgress = modelLoadingProgress,
+                    modelLoadingStage = modelLoadingStage,
+                    currentTps = streamingMessage?.tps ?: 0f,
+                    promptSpeed = streamingMessage?.promptSpeed ?: 0f,
+                    contextTokens = streamingMessage?.contextTokens ?: messages.lastOrNull()?.contextTokens ?: 0
+                        )
+                    }
+                }
             },
             modifier = Modifier.fillMaxSize()
         ) {
             Box(
                 modifier = Modifier.fillMaxSize()
+                    .background(GlassTheme.colors.background)
             ) {
-                LiquidBackground()
                 Column(
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 680.dp)
+                        .align(Alignment.TopCenter)
+                        .fillMaxHeight()
                 ) {
                     // Model Loading Progress Bar (Visible during loading, disappears when loading finishes)
                     AnimatedVisibility(visible = isModelLoading) {
@@ -448,8 +456,8 @@ fun ChatScreen(
                                         Spacer(modifier = Modifier.width(6.dp))
                                         GText(
                                             text = engineStatus ?: "",
-                                            fontSize = 11.sp,
-                                            color = bannerTextColor,
+                                            fontSize = 12.sp,
+                                            color = Color(0xFFECECF1),
                                             maxLines = 3,
                                             modifier = Modifier.weight(1f)
                                         )
@@ -681,185 +689,116 @@ private fun EmptyChatPlaceholder(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 24.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.Start
     ) {
+        GText(
+            text = "새로운 대화를\n시작해보세요",
+            style = androidx.compose.ui.text.TextStyle(
+                fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                fontSize = 28.sp,
+                lineHeight = 36.sp
+            ),
+            color = GlassTheme.colors.onBackground
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        GText(
+            text = "OffconAI와 함께,\n더 자유로운 AI 경험을.",
+            style = GlassTheme.type.bodyMedium.copy(lineHeight = 22.sp),
+            color = GlassTheme.colors.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(36.dp))
+
         if (activeModel == null) {
-            // No downloaded model state
             Box(
                 modifier = Modifier
-                    .size(76.dp)
-                    .clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(
-                        androidx.compose.ui.graphics.Brush.radialGradient(
-                            colors = listOf(
-                                GlassTheme.colors.primary.copy(alpha = 0.35f),
-                                GlassTheme.colors.surfaceVariant.copy(alpha = 0.8f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-                    .border(
-                        width = 1.5.dp,
-                        color = GlassTheme.colors.primary.copy(alpha = 0.6f),
-                        shape = androidx.compose.foundation.shape.CircleShape
-                    ),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(GlassTheme.colors.secondary)
+                    .border(1.dp, Color(0xFF687CFF).copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                    .clickable { onOpenModelManager() }
+                    .padding(horizontal = 18.dp, vertical = 16.dp)
             ) {
-                GIcon(
-                    imageVector = GIcons.CloudDownload,
-                    contentDescription = null,
-                    tint = GlassTheme.colors.primary,
-                    modifier = Modifier.size(36.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            GText(
-                text = stringResource(R.string.chat_empty_no_model_title),
-                style = GlassTheme.type.headlineMedium,
-                color = GlassTheme.colors.onBackground
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            GText(
-                text = stringResource(R.string.chat_empty_no_model_desc),
-                style = GlassTheme.type.bodyMedium,
-                color = GlassTheme.colors.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            GButton(
-                onClick = onOpenModelManager,
-                modifier = Modifier.clip(RoundedCornerShape(16.dp))
-            ) {
-                GIcon(
-                    imageVector = GIcons.CloudDownload,
-                    contentDescription = null,
-                    tint = GlassTheme.colors.onPrimary,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                GText(
-                    text = stringResource(R.string.chat_empty_download_model),
-                    color = GlassTheme.colors.onPrimary,
-                    style = GlassTheme.type.labelLarge
-                )
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                GText(
-                    text = stringResource(R.string.chat_empty_features),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
-                )
-            }
-        } else {
-            // Downloaded Model ready state
-            Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(
-                        androidx.compose.ui.graphics.Brush.radialGradient(
-                            colors = listOf(
-                                GlassTheme.colors.primary.copy(alpha = 0.35f),
-                                GlassTheme.colors.surfaceVariant.copy(alpha = 0.8f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-                    .border(
-                        width = 1.5.dp,
-                        color = GlassTheme.colors.primary.copy(alpha = 0.6f),
-                        shape = androidx.compose.foundation.shape.CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                GIcon(
-                    imageVector = GIcons.Info,
-                    contentDescription = null,
-                    tint = GlassTheme.colors.primary,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            GText(
-                text = stringResource(R.string.app_name),
-                style = GlassTheme.type.headlineMedium,
-                color = GlassTheme.colors.onBackground
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GlassTheme.colors.primary.copy(alpha = 0.15f))
-                        .border(
-                            1.dp,
-                            GlassTheme.colors.primary.copy(alpha = 0.4f),
-                            RoundedCornerShape(12.dp)
-                        )
-                        .padding(horizontal = 10.dp, vertical = 3.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    GText(
-                        text = "${activeModel.name} • ${activeModel.runtimeBadge}",
-                        style = GlassTheme.type.labelMedium,
-                        color = GlassTheme.colors.primary
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GIcon(
+                            imageVector = GIcons.CloudDownload,
+                            contentDescription = null,
+                            tint = Color(0xFF687CFF),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        GText(
+                            text = "모델 선택 및 다운로드",
+                            style = GlassTheme.type.bodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                            color = GlassTheme.colors.onSurface
+                        )
+                    }
+                    GIcon(
+                        imageVector = GIcons.ArrowForward,
+                        contentDescription = null,
+                        tint = Color(0xFF687CFF),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
+            Spacer(modifier = Modifier.height(18.dp))
+        }
 
-            Spacer(modifier = Modifier.height(20.dp))
+        val suggestions = listOf(
+            "오늘의 날씨는 어때?",
+            "파이썬으로 Hello World!",
+            "이미지를 만들어줘"
+        )
 
-            // Feature chips
-            Row(
-                verticalAlignment = Alignment.CenterVertically
+        suggestions.forEach { prompt ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(GlassTheme.colors.surface)
+                    .clickable { onSampleClick(prompt) }
+                    .padding(horizontal = 16.dp, vertical = 15.dp)
             ) {
-                GText(
-                    text = stringResource(R.string.app_tagline),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Quick Suggestion buttons
-            val suggestions = listOf(
-                stringResource(R.string.prompt_suggestion_1),
-                stringResource(R.string.prompt_suggestion_2),
-                stringResource(R.string.prompt_suggestion_3)
-            )
-
-            suggestions.forEach { prompt ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 5.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(GlassTheme.colors.surface.copy(alpha = 0.55f))
-                        .border(
-                            1.dp,
-                            GlassTheme.colors.primary.copy(alpha = 0.25f),
-                            RoundedCornerShape(16.dp)
-                        )
-                        .clickable { onSampleClick(prompt) }
-                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    GText(
-                        text = prompt,
-                        style = GlassTheme.type.bodyMedium,
-                        color = GlassTheme.colors.onSurface
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GIcon(
+                            imageVector = GIcons.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color(0xFF687CFF),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        GText(
+                            text = prompt,
+                            style = GlassTheme.type.bodyMedium.copy(
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                fontSize = 15.sp
+                            ),
+                            color = GlassTheme.colors.onSurface
+                        )
+                    }
+                    GIcon(
+                        imageVector = GIcons.ArrowForward,
+                        contentDescription = null,
+                        tint = Color(0xFF94A3B8),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }

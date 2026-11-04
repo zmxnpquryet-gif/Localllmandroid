@@ -64,8 +64,8 @@ fun ChatMessageItem(
                 modifier = Modifier
                     .widthIn(max = 360.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(GlassTheme.colors.surface.copy(alpha = 0.6f))
-                    .border(1.dp, GlassTheme.colors.outline.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                    .background(Color(0xFFF1F5F9))
+                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
                     .padding(12.dp)
             ) {
                 GText(
@@ -97,13 +97,8 @@ fun ChatMessageItem(
                 modifier = Modifier
                     .widthIn(max = 320.dp)
                     .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 6.dp, bottomStart = 20.dp, bottomEnd = 20.dp))
-                    .background(GlassTheme.colors.primaryContainer)
-                    .border(
-                        1.dp,
-                        GlassTheme.colors.primary.copy(alpha = 0.25f),
-                        RoundedCornerShape(topStart = 20.dp, topEnd = 6.dp, bottomStart = 20.dp, bottomEnd = 20.dp)
-                    )
-                    .padding(14.dp)
+                    .background(GlassTheme.colors.secondary)
+                                        .padding(14.dp)
             ) {
                 // Attached file preview
                 if (message.attachment != null) {
@@ -153,7 +148,7 @@ fun ChatMessageItem(
                     MarkdownText(
                         markdown = message.content,
                         style = GlassTheme.type.bodyLarge,
-                        color = GlassTheme.colors.onPrimaryContainer
+                        color = GlassTheme.colors.onSurface
                     )
                 }
             }
@@ -167,9 +162,9 @@ fun ChatMessageItem(
                 Box(
                     modifier = Modifier
                         .size(30.dp)
-                        .clip(CircleShape)
-                        .background(GlassTheme.colors.primary)
-                        .border(1.dp, GlassTheme.colors.outline.copy(alpha = 0.3f), CircleShape),
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(GlassTheme.colors.surfaceVariant)
+                        ,
                     contentAlignment = Alignment.Center
                 ) {
                     GIcon(
@@ -199,9 +194,9 @@ fun ChatMessageItem(
                             markdown = message.content,
                             style = GlassTheme.type.bodyLarge.copy(
                                 lineHeight = 24.sp,
-                                color = GlassTheme.colors.onBackground
+                                color = GlassTheme.colors.onSurface
                             ),
-                            color = GlassTheme.colors.onBackground,
+                            color = GlassTheme.colors.onSurface,
                             isStreaming = message.isStreaming && !message.isReasoningStreaming
                         )
                     } else if (message.isStreaming && !message.isReasoningStreaming) {
