@@ -275,3 +275,14 @@
   - the streaming-input capability is no longer claimed for the current buffered push-to-talk implementation;
   - the UI now describes this mode as one tap per turn.
 - The optimized release native build completed a full native inference turn on WSA. A 2.0-second PCM input produced text, advanced through native mixed text/audio generation, supplied PCM to AudioTrack, and returned the UI to idle without a fatal exception. WSA's virtual microphone supplied silence, so speech recognition accuracy and spoken audio quality remain untested.
+
+## 2026-11-04 - UI/UX Blend, Mirror URLs, and Generic Omni Routing
+
+- Researched current ChatGPT, Claude, Gemini, and Perplexity interface patterns. The resulting product direction is documented in docs/UIUX.md. Work mode was deliberately excluded.
+- Home screen now uses a restrained local-first badge, stronger conversational headline, encryption/offline explanation, labeled quick-start section, and differentiated action icons instead of repeating one sparkle glyph.
+- Drawer now separates "recent conversations" from "tools" to adopt the clearer navigation hierarchy seen in current assistant apps.
+- Model manager continues to expose editable main model, projector, drafter, and template URLs. Added explicit guidance that any direct HTTPS mirror URL is accepted and that Hugging Face credentials are never forwarded to third-party mirrors.
+- PirateFace research was retained as a future source-resolution design, not implemented as a BitTorrent dependency. Its API, web seeds, hashes, license gate, and HF fallback were inspected directly from the GitHub source.
+- Refactored LFM3-only naming into a generic LlamaOmniBackend. Family detection now distinguishes LFM3, Qwen Omni, Gemma audio, Moshi, and custom families, and prompt envelopes are selected for LFM3, Gemma 4, Qwen 3.5/ChatML, or a generic fallback. Actual native audio capability is still gated by the model's flags and the projector exposed by libmtmd.
+- Build verification: assembleDebug succeeded after the final UI and routing changes. PromptFormatterTest, ModelStorageRoutingTest, OmniAudioConversationTest, and StringResourceParityTest passed.
+- WSA install succeeded and the final catalog/home/drawer screens were opened for visual verification.

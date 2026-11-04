@@ -16,13 +16,13 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * LFM3-Omni bridge for llama.cpp v0.8+. It feeds 16 kHz PCM to the multimodal
- * audio encoder and streams the model's text plus 24 kHz PCM speech back.
+ * Generic llama.cpp Omni bridge. The caller supplies the family-specific prompt
+ * envelope; libmtmd owns the model-specific audio encoder and speech decoder.
  *
  * This backend is deliberately separate from the Whisper STT -> text LLM -> TTS
  * path. The model itself performs understanding and speech generation.
  */
-class Lfm3OmniBackend(
+class LlamaOmniBackend(
     private val modelPath: String,
     private val mmprojPath: String,
     private val promptPrefix: String,

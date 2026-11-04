@@ -210,7 +210,24 @@ fun ChatDrawer(
             )
         }
 
-        GDivider(modifier = Modifier.padding(vertical = 8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GText(
+                text = "최근 대화",
+                style = GlassTheme.type.labelMedium,
+                color = GlassTheme.colors.onSurfaceVariant
+            )
+            GText(
+                text = filtered.size.toString(),
+                style = GlassTheme.type.labelSmall,
+                color = GlassTheme.colors.onSurfaceVariant
+            )
+        }
 
         // 3. Conversation List
         LazyColumn(
@@ -308,6 +325,12 @@ fun ChatDrawer(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            GText(
+                text = "도구",
+                style = GlassTheme.type.labelMedium,
+                color = GlassTheme.colors.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+            )
             // Model Management
             Row(
                 modifier = Modifier

@@ -1157,6 +1157,12 @@ private fun FdmAddBundleDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                GText(
+                    text = stringResource(R.string.model_manager_mirror_hint),
+                    style = GlassTheme.type.labelSmall,
+                    color = GlassTheme.colors.onSurfaceVariant
+                )
+
                 // 2. Hugging Face Access Token (Optional for gated / private models)
                 GTextField(
                     value = hfTokenInput,

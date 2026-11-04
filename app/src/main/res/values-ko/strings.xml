@@ -343,6 +343,7 @@
     <string name="model_manager_litert_hint">💡 Google LiteRT 모델은 비전 타워(Vision Encoder), 토크나이저, 프롬프트 템플릿이 단일 바이너리(.litertlm / .bin)에 통합 패키징된 올인원 구조입니다.</string>
     <string name="model_manager_field_filename">저장 파일명 (선택)</string>
     <string name="model_manager_field_main_url">메인 모델 다운로드 링크 [필수]</string>
+    <string name="model_manager_mirror_hint">직접 모델 주소나 어떤 HTTPS 미러 주소든 붙여넣을 수 있습니다. Hugging Face 토큰은 제3자 미러로 전송되지 않습니다.</string>
     <string name="model_manager_paste_desc">붙여넣기</string>
     <string name="model_manager_field_hf_token">Hugging Face 토큰 (선택: Gated/비공개 모델)</string>
     <string name="model_manager_field_template_url_recommended">LiteRT Jinja/JSON 템플릿 파일 링크 [권장]</string>

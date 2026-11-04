@@ -329,6 +329,7 @@
     <string name="model_manager_litert_hint">💡 Google LiteRT 模型将视觉塔（视觉编码器）、分词器和提示词模板打包为单个一体化二进制文件（.litertlm / .bin）。</string>
     <string name="model_manager_field_filename">保存文件名（可选）</string>
     <string name="model_manager_field_main_url">主模型下载链接 [必填]</string>
+    <string name="model_manager_mirror_hint">可粘贴任意直链或 HTTPS 镜像地址。Hugging Face 令牌不会发送到第三方镜像。</string>
     <string name="model_manager_paste_desc">粘贴</string>
     <string name="model_manager_field_hf_token">Hugging Face 令牌（可选：受限/私有模型）</string>
     <string name="model_manager_field_template_url_recommended">LiteRT Jinja/JSON 模板文件链接 [推荐]</string>

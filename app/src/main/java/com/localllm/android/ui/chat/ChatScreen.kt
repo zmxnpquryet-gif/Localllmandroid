@@ -689,29 +689,45 @@ private fun EmptyChatPlaceholder(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 24.dp),
+            .padding(horizontal = 24.dp, vertical = 28.dp),
         horizontalAlignment = Alignment.Start
     ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(GlassTheme.colors.secondary)
+                .padding(horizontal = 10.dp, vertical = 5.dp)
+        ) {
+            GText(
+                text = "LOCAL-FIRST AI",
+                style = GlassTheme.type.labelSmall,
+                color = GlassTheme.colors.primary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+
         GText(
-            text = "새로운 대화를\n시작해보세요",
+            text = "무엇이든\n함께해볼까요?",
             style = androidx.compose.ui.text.TextStyle(
                 fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                fontSize = 28.sp,
-                lineHeight = 36.sp
+                fontSize = 32.sp,
+                lineHeight = 38.sp,
+                letterSpacing = (-0.5).sp
             ),
             color = GlassTheme.colors.onBackground
         )
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         GText(
-            text = "OffconAI와 함께,\n더 자유로운 AI 경험을.",
-            style = GlassTheme.type.bodyMedium.copy(lineHeight = 22.sp),
+            text = "모델은 기기 안에서 실행되고\n대화는 암호화되어 저장됩니다.",
+            style = GlassTheme.type.bodyMedium.copy(lineHeight = 21.sp),
             color = GlassTheme.colors.onSurfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(36.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
         if (activeModel == null) {
             Box(
@@ -753,13 +769,20 @@ private fun EmptyChatPlaceholder(
             Spacer(modifier = Modifier.height(18.dp))
         }
 
+        GText(
+            text = "이렇게 시작해보세요",
+            style = GlassTheme.type.labelMedium,
+            color = GlassTheme.colors.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+
         val suggestions = listOf(
-            "오늘의 날씨는 어때?",
-            "파이썬으로 Hello World!",
-            "이미지를 만들어줘"
+            Triple("오늘의 날씨는 어때?", GIcons.Chat, "대화 시작"),
+            Triple("파이썬으로 Hello World!", GIcons.Description, "코드 작성"),
+            Triple("이미지를 만들어줘", GIcons.Image, "이미지 요청")
         )
 
-        suggestions.forEach { prompt ->
+        suggestions.forEach { (prompt, icon, category) ->
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -779,20 +802,27 @@ private fun EmptyChatPlaceholder(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         GIcon(
-                            imageVector = GIcons.AutoAwesome,
+                            imageVector = icon,
                             contentDescription = null,
                             tint = Color(0xFF687CFF),
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        GText(
-                            text = prompt,
-                            style = GlassTheme.type.bodyMedium.copy(
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                                fontSize = 15.sp
-                            ),
-                            color = GlassTheme.colors.onSurface
-                        )
+                        Column {
+                            GText(
+                                text = prompt,
+                                style = GlassTheme.type.bodyMedium.copy(
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                    fontSize = 15.sp
+                                ),
+                                color = GlassTheme.colors.onSurface
+                            )
+                            GText(
+                                text = category,
+                                style = GlassTheme.type.labelSmall,
+                                color = GlassTheme.colors.onSurfaceVariant
+                            )
+                        }
                     }
                     GIcon(
                         imageVector = GIcons.ArrowForward,

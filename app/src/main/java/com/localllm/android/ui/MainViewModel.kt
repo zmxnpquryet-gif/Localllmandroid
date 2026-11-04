@@ -30,6 +30,7 @@ import com.localllm.android.model.LlmModel
 import com.localllm.android.model.MessageRole
 import com.localllm.android.model.ModelCatalog
 import com.localllm.android.model.ModelRuntimeType
+import com.localllm.android.model.PromptTemplateType
 import com.localllm.android.R
 import com.localllm.android.OffconAIApplication
 import com.localllm.android.memory.MemoryGuard
@@ -42,7 +43,7 @@ import com.localllm.android.voice.VoiceManager
 import com.localllm.android.audio.AndroidPcmInputSource
 import com.localllm.android.audio.AndroidPcmOutputSink
 import com.localllm.android.audio.AudioFormat
-import com.localllm.android.audio.Lfm3OmniBackend
+import com.localllm.android.audio.LlamaOmniBackend
 import com.localllm.android.audio.NativeOmniCapabilities
 import com.localllm.android.audio.NativeOmniModel
 import com.localllm.android.audio.OmniAudioConversation
@@ -1541,11 +1542,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val inputFormat = AudioFormat(16_000, 1, 16)
                 val outputFormat = AudioFormat(24_000, 1, 16)
                 val sessionConfig = OmniSessionConfig(inputFormat, outputFormat)
-                val prompt = buildNativeOmniPrompt()
+                val prompt = buildNativeOmniPrompt(target)
                 val nativeModel = NativeOmniModel(
                     id = target.id,
                     displayName = target.name,
-                    family = OmniModelFamily.LFM3_OMNI,
+                    family = nativeOmniFamily(target),
                     protocol = target.nativeAudioProtocol,
                     capabilities = NativeOmniCapabilities(
                         nativeAudioInput = true,
@@ -1557,7 +1558,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         modelProtocols = setOf("lfm3-omni-pcm")
                     )
                 )
-                val backend = Lfm3OmniBackend(
+                val backend = LlamaOmniBackend(
                     modelPath = modelPath,
                     mmprojPath = mmprojPath,
                     promptPrefix = prompt.first,
@@ -1663,15 +1664,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
     }
 
-    private fun buildNativeOmniPrompt(): Pair<String, String> {
+    private fun buildNativeOmniPrompt(model: LlmModel): Pair<String, String> {
         val system = "You are OffconAI, a helpful on-device voice assistant. " +
             "Understand the user's speech directly. Reply in the user's language, " +
             "naturally and concisely. Speak the answer."
+        val history = _messages.value
+            .filter { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
+            .takeLast(8)
+        if (model.promptTemplateType == PromptTemplateType.GEMMA4) {
+            val prefix = StringBuilder("<|turn>system\n").append(system).append("<turn|>\n")
+            history.forEach { message ->
+                val role = if (message.role == MessageRole.USER) "user" else "model"
+                prefix.append("<|turn>").append(role).append('\n')
+                    .append(message.content).append("<turn|>\n")
+            }
+            prefix.append("<|turn>user\n<__media__>")
+            return prefix.toString() to "<turn|>\n<|turn>model\n"
+        }
+        if (model.promptTemplateType == PromptTemplateType.QWEN35 ||
+            model.promptTemplateType == PromptTemplateType.CHATML) {
+            val prefix = StringBuilder("<|im_start|>system\n").append(system).append("<|im_end|>\n")
+            history.forEach { message ->
+                val role = if (message.role == MessageRole.USER) "user" else "assistant"
+                prefix.append("<|im_start|>").append(role).append('\n')
+                    .append(message.content).append("<|im_end|>\n")
+            }
+            prefix.append("<|im_start|>user\n<__media__>")
+            return prefix.toString() to
+                "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        }
         val prefix = StringBuilder()
         prefix.append("<|im_start|>system\n").append(system).append("<|im_end|>\n")
-        _messages.value.filter { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
-            .takeLast(8)
-            .forEach { message ->
+        history.forEach { message ->
                 val role = if (message.role == MessageRole.USER) "user" else "assistant"
                 prefix.append("<|im_start|>").append(role).append('\n')
                 if (role == "assistant") {
@@ -1684,6 +1708,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefix.append("<|im_start|>user\n<__media__>")
         val continuation = "<|im_end|>\n<|im_start|>assistant\n<think></think>"
         return prefix.toString() to continuation
+    }
+
+    private fun nativeOmniFamily(model: LlmModel): OmniModelFamily {
+        val key = (model.id + " " + model.name).lowercase()
+        return when {
+            "lfm3" in key || "liquid" in key -> OmniModelFamily.LFM3_OMNI
+            "qwen" in key -> OmniModelFamily.QWEN_OMNI
+            "gemma" in key -> OmniModelFamily.GEMMA_AUDIO
+            "moshi" in key -> OmniModelFamily.MOSHI
+            else -> OmniModelFamily.CUSTOM
+        }
     }
 
     fun stopGeneration() {

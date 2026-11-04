@@ -343,6 +343,7 @@
     <string name="model_manager_litert_hint">💡 Google LiteRT models package the vision tower (Vision Encoder), tokenizer and prompt template into a single all-in-one binary (.litertlm / .bin).</string>
     <string name="model_manager_field_filename">Save file name (optional)</string>
     <string name="model_manager_field_main_url">Main model download link [required]</string>
+    <string name="model_manager_mirror_hint">Paste any direct HTTPS model URL or mirror URL. Hugging Face tokens are never forwarded to third-party mirrors.</string>
     <string name="model_manager_paste_desc">Paste</string>
     <string name="model_manager_field_hf_token">Hugging Face token (optional: gated/private models)</string>
     <string name="model_manager_field_template_url_recommended">LiteRT Jinja/JSON template file link [recommended]</string>
