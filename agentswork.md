@@ -286,3 +286,20 @@
 - Refactored LFM3-only naming into a generic LlamaOmniBackend. Family detection now distinguishes LFM3, Qwen Omni, Gemma audio, Moshi, and custom families, and prompt envelopes are selected for LFM3, Gemma 4, Qwen 3.5/ChatML, or a generic fallback. Actual native audio capability is still gated by the model's flags and the projector exposed by libmtmd.
 - Build verification: assembleDebug succeeded after the final UI and routing changes. PromptFormatterTest, ModelStorageRoutingTest, OmniAudioConversationTest, and StringResourceParityTest passed.
 - WSA install succeeded and the final catalog/home/drawer screens were opened for visual verification.
+
+## 2026-11-04 - Fully Theme-Propagated Accents and TTS Banner Cleanup
+
+- Fixed the theme selector so changing a palette now propagates through the app:
+  - drawer logo and new-chat accent;
+  - user message bubble/container color;
+  - input cursor, send button, focused borders, quick-start icons;
+  - model status indicator and conversation selection;
+  - switches, filter chips, voice orb and speaker controls;
+  - model-manager/API surfaces.
+- Added the previously missing Artistic Purple branch and an Offcon Blue palette. Theme swatches now scroll horizontally instead of squeezing eight choices into the card width.
+- Replaced hardcoded blue/gray values in chat, input, top bar, drawer, model manager and API screens with semantic GlassTheme tokens.
+- Investigated the unexpected TTS installation text in ordinary chat. The text was a global engine-status success message written after installing the local voice in Voice Mode, then shown by the chat banner on return. Removed that global status write and the unused localized resource, so TTS state stays inside Voice Mode where the local TTS card already reports readiness.
+- Verification:
+  - assembleDebug succeeded.
+  - PromptFormatterTest, ModelStorageRoutingTest, OmniAudioConversationTest, and StringResourceParityTest passed.
+  - WSA visual check showed theme selection changing the active palette.

@@ -110,7 +110,7 @@ fun ApiServerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFFAFBFF))
+                .background(GlassTheme.colors.background)
         ) {
             Column(
                 modifier = Modifier

@@ -81,9 +81,9 @@ fun GSwitch(
                 .clip(RoundedCornerShape(15.dp))
                 .background(
                     if (checked) activeColor
-                    else if (colors.background.luminance() < 0.5f) colors.surfaceVariant.copy(alpha = 0.7f) else Color(0xFFCBD5E1)
+                    else if (colors.background.luminance() < 0.5f) colors.surfaceVariant.copy(alpha = 0.7f) else colors.outline
                 )
-                .border(1.dp, if (colors.background.luminance() < 0.5f) glassHighlight(0.2f) else Color(0xFFE2E8F0), RoundedCornerShape(15.dp))
+                .border(1.dp, if (colors.background.luminance() < 0.5f) glassHighlight(0.2f) else colors.outline, RoundedCornerShape(15.dp))
                 .padding(3.dp),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -202,11 +202,11 @@ fun GFilterChip(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(
-                if (selected) (if (colors.background.luminance() < 0.5f) colors.primaryContainer.copy(alpha = 0.75f) else Color(0xFFE6EBFF))
-                else (if (colors.background.luminance() < 0.5f) colors.surface.copy(alpha = 0.5f) else Color.White)
+                if (selected) (if (colors.background.luminance() < 0.5f) colors.primaryContainer.copy(alpha = 0.75f) else colors.secondary)
+                else (if (colors.background.luminance() < 0.5f) colors.surface.copy(alpha = 0.5f) else colors.surface)
             )
             .border(
-                1.dp, if (selected) Color(0xFF687CFF) else Color(0xFFE2E8F0),
+                1.dp, if (selected) colors.primary else colors.outline,
                 RoundedCornerShape(12.dp)
             )
             .clickable(onClick = onClick)

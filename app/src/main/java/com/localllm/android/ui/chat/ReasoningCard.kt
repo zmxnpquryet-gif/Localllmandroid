@@ -62,7 +62,7 @@ fun ReasoningCard(
                 1.dp,
                 Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.30f),
+                        GlassTheme.colors.onSurface.copy(alpha = 0.30f),
                         accentColor.copy(alpha = 0.30f)
                     )
                 ),

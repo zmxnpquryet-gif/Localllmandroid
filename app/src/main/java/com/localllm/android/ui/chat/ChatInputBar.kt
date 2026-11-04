@@ -119,7 +119,7 @@ fun ChatInputBar(
                 modifier = Modifier
                     .padding(bottom = 6.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFE6EBFF))
+                    .background(GlassTheme.colors.secondary)
                     .clickable { showReasoningSlider = !showReasoningSlider }
                     .padding(horizontal = 10.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -127,7 +127,7 @@ fun ChatInputBar(
                 GIcon(
                     imageVector = GIcons.Psychology,
                     contentDescription = null,
-                    tint = Color(0xFF687CFF),
+                    tint = GlassTheme.colors.primary,
                     modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -140,7 +140,7 @@ fun ChatInputBar(
                 GText(
                     text = stringResource(R.string.chat_reasoning_effort_label, effortLabel),
                     style = GlassTheme.type.labelSmall,
-                    color = Color(0xFF1E293B)
+                    color = GlassTheme.colors.onSurface
                 )
             }
 
@@ -151,13 +151,13 @@ fun ChatInputBar(
                         .padding(bottom = 8.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(GlassTheme.colors.surface)
-                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                        .border(1.dp, GlassTheme.colors.outline, RoundedCornerShape(12.dp))
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     GText(
                         text = stringResource(R.string.chat_reasoning_slider_title),
                         style = GlassTheme.type.labelSmall,
-                        color = Color(0xFF64748B)
+                        color = GlassTheme.colors.onSurfaceVariant
                     )
                     GSlider(
                         value = reasoningEffort,
@@ -176,7 +176,7 @@ fun ChatInputBar(
                     .padding(bottom = 8.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(GlassTheme.colors.surface)
-                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                    .border(1.dp, GlassTheme.colors.outline, RoundedCornerShape(12.dp))
                     .padding(8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -192,7 +192,7 @@ fun ChatInputBar(
                         GIcon(
                             imageVector = GIcons.Description,
                             contentDescription = null,
-                            tint = Color(0xFF687CFF),
+                            tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(32.dp)
                         )
                     }
@@ -208,7 +208,7 @@ fun ChatInputBar(
                         GText(
                             text = if (pendingAttachment.isImage) "이미지" else "파일",
                             fontSize = 11.sp,
-                            color = Color(0xFF64748B)
+                            color = GlassTheme.colors.onSurfaceVariant
                         )
                     }
 
@@ -297,7 +297,7 @@ fun ChatInputBar(
                     onValueChange = onInputTextChanged,
                     modifier = Modifier.fillMaxWidth(),
                     textStyle = GlassTheme.type.bodyMedium.copy(color = GlassTheme.colors.onSurface),
-                    cursorBrush = SolidColor(Color(0xFF687CFF)),
+                    cursorBrush = SolidColor(GlassTheme.colors.primary),
                     maxLines = 4
                 )
             }
@@ -309,7 +309,7 @@ fun ChatInputBar(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(if (isGenerating) Color(0xFFEF4444) else GlassTheme.colors.primary)
+                    .background(if (isGenerating) GlassTheme.colors.error else GlassTheme.colors.primary)
                     .clickable {
                         if (isGenerating) onStopGeneration()
                         else if (inputText.isNotBlank() || pendingAttachment != null) onSendMessage()
@@ -320,14 +320,14 @@ fun ChatInputBar(
                     GIcon(
                         imageVector = GIcons.Stop,
                         contentDescription = stringResource(R.string.stop),
-                        tint = Color.White,
+                        tint = GlassTheme.colors.onPrimary,
                         modifier = Modifier.size(16.dp)
                     )
                 } else {
                     GIcon(
                         imageVector = GIcons.ArrowForward,
                         contentDescription = stringResource(R.string.send),
-                        tint = Color.White,
+                        tint = GlassTheme.colors.onPrimary,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -343,7 +343,7 @@ fun ChatInputBar(
         GText(
             text = stringResource(R.string.chat_attach_sheet_title),
             style = GlassTheme.type.titleMedium,
-            color = Color(0xFF1E293B)
+            color = GlassTheme.colors.onSurface
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -360,7 +360,7 @@ fun ChatInputBar(
             GIcon(
                 imageVector = GIcons.Add,
                 contentDescription = null,
-                tint = Color(0xFF687CFF),
+                tint = GlassTheme.colors.primary,
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
@@ -368,12 +368,12 @@ fun ChatInputBar(
                 GText(
                     text = stringResource(R.string.chat_attach_image),
                     style = GlassTheme.type.bodyLarge,
-                    color = Color(0xFF1E293B)
+                    color = GlassTheme.colors.onSurface
                 )
                 GText(
                     text = stringResource(R.string.chat_attach_image_mmproj_hint),
                     style = GlassTheme.type.bodySmall,
-                    color = Color(0xFF64748B)
+                    color = GlassTheme.colors.onSurfaceVariant
                 )
             }
         }
@@ -384,7 +384,7 @@ fun ChatInputBar(
             GIcon(
                 imageVector = GIcons.Description,
                 contentDescription = null,
-                tint = Color(0xFF687CFF),
+                tint = GlassTheme.colors.primary,
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
@@ -392,12 +392,12 @@ fun ChatInputBar(
                 GText(
                     text = stringResource(R.string.chat_attach_document),
                     style = GlassTheme.type.bodyLarge,
-                    color = Color(0xFF1E293B)
+                    color = GlassTheme.colors.onSurface
                 )
                 GText(
                     text = stringResource(R.string.chat_attach_document_hint),
                     style = GlassTheme.type.bodySmall,
-                    color = Color(0xFF64748B)
+                    color = GlassTheme.colors.onSurfaceVariant
                 )
             }
         }

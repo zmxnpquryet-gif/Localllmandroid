@@ -684,7 +684,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val installed = voiceManager.localTts.downloadModel()
             if (installed) {
                 voiceManager.setTtsMode(TtsEngineMode.LOCAL_NEURAL)
-                _engineStatusMessage.value = localizedString(R.string.vm_status_tts_installed)
             }
         }
     }

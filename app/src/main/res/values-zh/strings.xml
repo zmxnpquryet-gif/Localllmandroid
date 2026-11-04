@@ -376,7 +376,6 @@
 
     <string name="vm_status_memory_reduced">上次运行在推理过程中异常结束 — 已降低高内存占用设置（级别 %1$d）</string>
     <string name="vm_status_memory_stop">内存严重不足 — 已停止生成。下次运行将以降低后的设置启动（级别 %1$d）</string>
-    <string name="vm_status_tts_installed">本地韩语 TTS 语音已安装并选中</string>
     <string name="vm_status_runtime_override">%1$s 的运行时已设置为 %2$s</string>
 
     <string name="settings_gpu_title">GPU 加速</string>

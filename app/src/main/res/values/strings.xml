@@ -390,7 +390,6 @@
 
     <string name="vm_status_memory_reduced">Previous run ended during inference — memory-heavy settings were lowered (level %1$d)</string>
     <string name="vm_status_memory_stop">Memory critically low — generation stopped. The next run starts with reduced settings (level %1$d)</string>
-    <string name="vm_status_tts_installed">Local Korean TTS voice installed and selected</string>
     <string name="vm_status_runtime_override">Runtime for %1$s set to %2$s</string>
 
     <string name="settings_gpu_title">GPU acceleration</string>

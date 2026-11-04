@@ -157,16 +157,16 @@ fun VoiceModeScreen(
 
     val orbGradient = when (voiceState) {
         InteractiveVoiceState.LISTENING -> Brush.radialGradient(
-            listOf(Color(0xFF687CFF), Color(0xFF4F46E5), Color(0xFF1E1B4B))
+            listOf(GlassTheme.colors.primary, GlassTheme.colors.primary.copy(alpha = 0.62f), GlassTheme.colors.background)
         )
         InteractiveVoiceState.PROCESSING -> Brush.radialGradient(
-            listOf(Color(0xFFA855F7), Color(0xFF687CFF), Color(0xFF0F172A))
+            listOf(GlassTheme.colors.tertiary, GlassTheme.colors.primary, GlassTheme.colors.background)
         )
         InteractiveVoiceState.SPEAKING -> Brush.radialGradient(
-            listOf(Color(0xFF38BDF8), Color(0xFF687CFF), Color(0xFF1E1B4B))
+            listOf(GlassTheme.colors.primary, GlassTheme.colors.tertiary, GlassTheme.colors.background)
         )
         InteractiveVoiceState.IDLE -> Brush.radialGradient(
-            listOf(Color(0xFF334155), Color(0xFF1E293B), Color(0xFF0F172A))
+            listOf(GlassTheme.colors.surfaceVariant, GlassTheme.colors.surface, GlassTheme.colors.background)
         )
     }
 
@@ -180,7 +180,7 @@ fun VoiceModeScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0F172A))
+            .background(GlassTheme.colors.background)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -232,14 +232,14 @@ fun VoiceModeScreen(
                 GIcon(
                     imageVector = GIcons.Close,
                     contentDescription = stringResource(R.string.close),
-                    tint = Color.White
+                    tint = GlassTheme.colors.onPrimary
                 )
             }
 
             GText(
                 text = stringResource(R.string.voice_mode_title),
                 style = GlassTheme.type.titleSmall,
-                color = Color.White
+                color = GlassTheme.colors.onBackground
             )
 
             Spacer(modifier = Modifier.width(36.dp))
@@ -253,7 +253,7 @@ fun VoiceModeScreen(
             },
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
             fontSize = 11.sp,
-            color = if (isNativeOmni) GlassTheme.colors.primary else Color.White.copy(alpha = 0.55f)
+            color = if (isNativeOmni) GlassTheme.colors.primary else GlassTheme.colors.onBackground.copy(alpha = 0.55f)
         )
 
         // Center: Interactive Voice Orb (flexible area: it gives room to the controls)
@@ -272,7 +272,7 @@ fun VoiceModeScreen(
                     .scale(currentScale)
                     .clip(CircleShape)
                     .background(orbGradient)
-                    .border(2.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+                    .border(2.dp, GlassTheme.colors.onPrimary.copy(alpha = 0.35f), CircleShape)
                     .clickable {
                         if (isNativeOmni) {
                             nativeVoiceAction()
@@ -296,7 +296,7 @@ fun VoiceModeScreen(
                 GIcon(
                     imageVector = if (voiceState == InteractiveVoiceState.SPEAKING) GIcons.VolumeUp else GIcons.Mic,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = GlassTheme.colors.onPrimary,
                     modifier = Modifier.size(46.dp)
                 )
             }
@@ -306,7 +306,7 @@ fun VoiceModeScreen(
             GText(
                 text = statusText,
                 style = GlassTheme.type.titleMedium,
-                color = Color.White.copy(alpha = 0.9f)
+                color = GlassTheme.colors.onBackground.copy(alpha = 0.9f)
             )
 
             val liveTranscript = if (isNativeOmni) nativeOmniTranscript else recognizedText
@@ -345,13 +345,13 @@ fun VoiceModeScreen(
                     GText(
                         text = "16 kHz PCM is fed directly to the model; text and 24 kHz speech arrive together.",
                         fontSize = 11.sp,
-                        color = Color.White.copy(alpha = 0.65f)
+                        color = GlassTheme.colors.onBackground.copy(alpha = 0.65f)
                     )
                     if (nativeOmniTranscript.isNotBlank()) {
                         GText(
                             text = nativeOmniTranscript.takeLast(240),
                             fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.9f),
+                            color = GlassTheme.colors.onBackground.copy(alpha = 0.9f),
                             maxLines = 3
                         )
                     }
@@ -360,7 +360,7 @@ fun VoiceModeScreen(
                 GText(
                     text = stringResource(R.string.voice_tts_section),
                     style = GlassTheme.type.labelSmall,
-                    color = Color.White.copy(alpha = 0.7f),
+                    color = GlassTheme.colors.onBackground.copy(alpha = 0.7f),
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                 )
 
@@ -439,12 +439,12 @@ fun VoiceModeScreen(
                     modifier = Modifier
                         .size(52.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF1E293B))
+                        .background(GlassTheme.colors.surface)
                 ) {
                     GIcon(
                         imageVector = if (isMicMuted) GIcons.MicOff else GIcons.Mic,
                         contentDescription = stringResource(R.string.voice_mic_desc),
-                        tint = if (isMicMuted) Color.Red else Color.White
+                        tint = if (isMicMuted) GlassTheme.colors.error else GlassTheme.colors.onPrimary
                     )
                 }
 
@@ -494,7 +494,7 @@ private fun SttStatusRow(viewModel: MainViewModel) {
             GText(
                 text = stringResource(R.string.voice_stt_ondevice),
                 style = GlassTheme.type.labelSmall,
-                color = Color.White.copy(alpha = 0.9f)
+                color = GlassTheme.colors.onBackground.copy(alpha = 0.9f)
             )
             val engineNote = when (lastEngine) {
                 SttEngine.LOCAL_WHISPER -> stringResource(R.string.voice_stt_last_local)
@@ -509,7 +509,7 @@ private fun SttStatusRow(viewModel: MainViewModel) {
                     is LocalSttEngine.ModelState.Failed -> stringResource(R.string.voice_stt_failed, s.message)
                 },
                 style = GlassTheme.type.labelSmall,
-                color = Color.White.copy(alpha = 0.6f)
+                color = GlassTheme.colors.onBackground.copy(alpha = 0.6f)
             )
         }
         when (sttState) {
@@ -517,7 +517,7 @@ private fun SttStatusRow(viewModel: MainViewModel) {
                 GTextButton(onClick = { viewModel.downloadLocalStt() }) {
                     GText(
                         text = if (sttState is LocalSttEngine.ModelState.Failed) stringResource(R.string.voice_stt_retry) else stringResource(R.string.voice_stt_get),
-                        color = Color.White
+                        color = GlassTheme.colors.onBackground
                     )
                 }
             }
@@ -538,17 +538,17 @@ private fun TtsEngineCard(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF1E293B))
+            .background(GlassTheme.colors.surface)
             .border(
                 width = 1.dp,
-                color = if (selected) GlassTheme.colors.primary else Color.White.copy(alpha = 0.1f),
+                color = if (selected) GlassTheme.colors.primary else GlassTheme.colors.outline,
                 shape = RoundedCornerShape(10.dp)
             )
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            GText(text = title, fontSize = 12.sp, color = Color.White, maxLines = 1)
+            GText(text = title, fontSize = 12.sp, color = GlassTheme.colors.onBackground, maxLines = 1)
             Spacer(modifier = Modifier.width(4.dp))
             when {
                 selected -> GIcon(
@@ -560,7 +560,7 @@ private fun TtsEngineCard(
                 !installed -> GIcon(
                     imageVector = GIcons.CloudDownload,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.6f),
+                    tint = GlassTheme.colors.onBackground.copy(alpha = 0.6f),
                     modifier = Modifier.size(14.dp)
                 )
             }
@@ -568,7 +568,7 @@ private fun TtsEngineCard(
         GText(
             text = subtitle,
             fontSize = 10.sp,
-            color = Color.White.copy(alpha = 0.6f),
+            color = GlassTheme.colors.onBackground.copy(alpha = 0.6f),
             maxLines = 2
         )
     }
@@ -592,7 +592,7 @@ private fun TtsVoiceControls(
             GText(
                 text = stringResource(R.string.voice_tts_speaker),
                 fontSize = 11.sp,
-                color = Color.White.copy(alpha = 0.8f)
+                color = GlassTheme.colors.onBackground.copy(alpha = 0.8f)
             )
             Spacer(modifier = Modifier.width(6.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -602,12 +602,12 @@ private fun TtsVoiceControls(
                             .size(24.dp)
                             .clip(CircleShape)
                             .background(
-                                if (index == speakerId) GlassTheme.colors.primary else Color(0xFF1E293B)
+                                if (index == speakerId) GlassTheme.colors.primary else GlassTheme.colors.surfaceVariant
                             )
                             .clickable { onSpeakerChange(index) },
                         contentAlignment = Alignment.Center
                     ) {
-                        GText(text = "${index + 1}", fontSize = 10.sp, color = Color.White)
+                        GText(text = "${index + 1}", fontSize = 10.sp, color = GlassTheme.colors.onBackground)
                     }
                 }
             }
@@ -616,7 +616,7 @@ private fun TtsVoiceControls(
             GText(
                 text = stringResource(R.string.voice_tts_speed, String.format(Locale.US, "%.1f", speed)),
                 fontSize = 11.sp,
-                color = Color.White.copy(alpha = 0.8f)
+                color = GlassTheme.colors.onBackground.copy(alpha = 0.8f)
             )
             Box(modifier = Modifier
                 .weight(1f)
@@ -630,10 +630,10 @@ private fun TtsVoiceControls(
                 )
             }
             GTextButton(onClick = onPreview) {
-                GText(text = stringResource(R.string.voice_tts_preview), color = Color.White, fontSize = 12.sp)
+                GText(text = stringResource(R.string.voice_tts_preview), color = GlassTheme.colors.onBackground, fontSize = 12.sp)
             }
             GTextButton(onClick = onDelete) {
-                GText(text = stringResource(R.string.voice_stt_delete), color = Color.White, fontSize = 12.sp)
+                GText(text = stringResource(R.string.voice_stt_delete), color = GlassTheme.colors.onBackground, fontSize = 12.sp)
             }
         }
     }

@@ -457,7 +457,7 @@ fun ChatScreen(
                                         GText(
                                             text = engineStatus ?: "",
                                             fontSize = 12.sp,
-                                            color = Color(0xFFECECF1),
+                                            color = GlassTheme.colors.onSurface,
                                             maxLines = 3,
                                             modifier = Modifier.weight(1f)
                                         )
@@ -735,7 +735,7 @@ private fun EmptyChatPlaceholder(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
                     .background(GlassTheme.colors.secondary)
-                    .border(1.dp, Color(0xFF687CFF).copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                    .border(1.dp, GlassTheme.colors.primary.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
                     .clickable { onOpenModelManager() }
                     .padding(horizontal = 18.dp, vertical = 16.dp)
             ) {
@@ -748,7 +748,7 @@ private fun EmptyChatPlaceholder(
                         GIcon(
                             imageVector = GIcons.CloudDownload,
                             contentDescription = null,
-                            tint = Color(0xFF687CFF),
+                            tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
@@ -761,7 +761,7 @@ private fun EmptyChatPlaceholder(
                     GIcon(
                         imageVector = GIcons.ArrowForward,
                         contentDescription = null,
-                        tint = Color(0xFF687CFF),
+                        tint = GlassTheme.colors.primary,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -804,7 +804,7 @@ private fun EmptyChatPlaceholder(
                         GIcon(
                             imageVector = icon,
                             contentDescription = null,
-                            tint = Color(0xFF687CFF),
+                            tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
@@ -827,7 +827,7 @@ private fun EmptyChatPlaceholder(
                     GIcon(
                         imageVector = GIcons.ArrowForward,
                         contentDescription = null,
-                        tint = Color(0xFF94A3B8),
+                        tint = GlassTheme.colors.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
                 }

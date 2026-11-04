@@ -89,13 +89,13 @@ fun ChatDrawer(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF0F172A)),
+                    .background(GlassTheme.colors.primary),
                 contentAlignment = Alignment.Center
             ) {
                 GIcon(
                     imageVector = GIcons.AutoAwesome,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = GlassTheme.colors.onPrimary,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -109,7 +109,7 @@ fun ChatDrawer(
                 GText(
                     text = "v2.0.0",
                     style = GlassTheme.type.labelSmall,
-                    color = Color(0xFF94A3B8)
+                    color = GlassTheme.colors.onSurfaceVariant
                 )
             }
         }
@@ -122,10 +122,10 @@ fun ChatDrawer(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFFE6EBFF))
+                .background(GlassTheme.colors.secondary)
                 .border(
                     1.dp,
-                    Color(0xFF687CFF).copy(alpha = 0.25f),
+                    GlassTheme.colors.primary.copy(alpha = 0.25f),
                     RoundedCornerShape(14.dp)
                 )
                 .clickable { onNewChat() }
@@ -137,7 +137,7 @@ fun ChatDrawer(
                 GIcon(
                     imageVector = GIcons.Add,
                     contentDescription = null,
-                    tint = Color(0xFF687CFF),
+                    tint = GlassTheme.colors.primary,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))

@@ -93,7 +93,7 @@ fun ChatTopBar(
                                 modifier = Modifier
                                     .size(6.dp)
                                     .clip(androidx.compose.foundation.shape.CircleShape)
-                                    .background(Color(0xFF687CFF))
+                                    .background(GlassTheme.colors.primary)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             GText(
@@ -105,7 +105,7 @@ fun ChatTopBar(
                             GIcon(
                                 imageVector = GIcons.ArrowDown,
                                 contentDescription = null,
-                                tint = Color(0xFF687CFF),
+                                tint = GlassTheme.colors.primary,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
@@ -114,7 +114,7 @@ fun ChatTopBar(
                             GText(
                                 text = activeModel.runtimeBadge + " • " + activeModel.quantization,
                                 style = GlassTheme.type.labelSmall,
-                                color = Color(0xFF64748B),
+                                color = GlassTheme.colors.onSurfaceVariant,
                                 fontSize = 10.sp
                             )
                             if (activeModel.isVisionDownloaded || activeModel.hasMmproj) {
@@ -137,7 +137,7 @@ fun ChatTopBar(
                                 GText(
                                     text = " • " + contextUsageTokens + " ctx",
                                     style = GlassTheme.type.labelSmall,
-                                    color = Color(0xFF38BDF8),
+                                    color = GlassTheme.colors.primary,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -149,7 +149,7 @@ fun ChatTopBar(
                         GIcon(
                             imageVector = GIcons.CloudDownload,
                             contentDescription = null,
-                            tint = Color(0xFF687CFF),
+                            tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -162,7 +162,7 @@ fun ChatTopBar(
                         GIcon(
                             imageVector = GIcons.ArrowDown,
                             contentDescription = null,
-                            tint = Color(0xFF687CFF),
+                            tint = GlassTheme.colors.primary,
                             modifier = Modifier.size(16.dp)
                         )
                     }

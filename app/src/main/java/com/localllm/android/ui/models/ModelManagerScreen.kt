@@ -136,7 +136,7 @@ fun ModelManagerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFFAFBFF))
+                .background(GlassTheme.colors.background)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
             // Quick actions live here (not in the top bar) so the title never squeezes

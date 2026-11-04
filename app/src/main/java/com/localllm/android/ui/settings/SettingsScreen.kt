@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -609,6 +610,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 val themes = listOf(
+                    Triple("offcon", "Offcon Blue", Color(0xFF687CFF)),
                     Triple("artistic", "Artistic Purple", Color(0xFFD0BCFF)),
                     Triple("liquid", "Liquid Glass", Color(0xFF7DD3FC)),
                     Triple("chatgpt", "Emerald Green", Color(0xFF10A37F)),
@@ -619,8 +621,10 @@ fun SettingsScreen(
                 )
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     themes.forEach { (key, name, color) ->
                         val isSelected = settings.themeColorName == key

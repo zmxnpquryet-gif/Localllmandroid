@@ -163,6 +163,21 @@ private val baselineOnErrorContainerLight = Color(0xFF410002)
 
 fun glassColors(themeName: String, dark: Boolean): GlassColors {
     return when (themeName.lowercase()) {
+        "artistic" -> if (dark) {
+            GlassColors(ArtisticBgDark, ArtisticTextDark, ArtisticSurfaceDark, ArtisticTextDark,
+                ArtisticSurfaceVariantDark, ArtisticTextMutedDark, ArtisticPrimaryDark, ArtisticOnPrimaryDark,
+                ArtisticPrimaryContainerDark, ArtisticOnPrimaryContainerDark, ArtisticSecondaryDark, ArtisticOnSecondaryDark,
+                ArtisticSecondaryContainerDark, ArtisticOnSecondaryContainerDark, baselineTertiaryDark,
+                ArtisticBorderDark, baselineErrorDark, baselineErrorContainerDark, baselineOnErrorContainerDark,
+                Color(0xFF633B48), Color(0xFFFFD9E2))
+        } else {
+            GlassColors(ArtisticBgLight, ArtisticTextLight, ArtisticSurfaceLight, ArtisticTextLight,
+                ArtisticSurfaceVariantLight, ArtisticTextMutedLight, ArtisticPrimaryLight, ArtisticOnPrimaryLight,
+                ArtisticPrimaryContainerLight, ArtisticOnPrimaryContainerLight, ArtisticSecondaryLight, ArtisticOnPrimaryLight,
+                ArtisticSecondaryContainerLight, ArtisticTextLight, baselineTertiaryLight,
+                ArtisticBorderLight, baselineErrorLight, baselineErrorContainerLight, baselineOnErrorContainerLight,
+                Color(0xFFFFD9E2), Color(0xFF633B48))
+        }
         "liquid", "glass" -> if (dark) {
             GlassColors(LiquidBgDark, LiquidTextDark, LiquidSurfaceDark, LiquidTextDark,
                 LiquidSurfaceVariantDark, LiquidTextMutedDark, LiquidPrimaryDark, LiquidOnPrimaryDark,

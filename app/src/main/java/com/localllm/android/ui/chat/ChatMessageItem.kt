@@ -64,8 +64,8 @@ fun ChatMessageItem(
                 modifier = Modifier
                     .widthIn(max = 360.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFFF1F5F9))
-                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
+                    .background(GlassTheme.colors.surfaceVariant)
+                    .border(1.dp, GlassTheme.colors.outline, RoundedCornerShape(14.dp))
                     .padding(12.dp)
             ) {
                 GText(
