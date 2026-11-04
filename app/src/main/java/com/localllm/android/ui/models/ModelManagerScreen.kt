@@ -703,10 +703,36 @@ private fun ModelBundleCardItem(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         GText(
-                            text = if (model.runtimeType == ModelRuntimeType.LITE_RT) stringResource(R.string.model_manager_litert_vision)
+                            text = if (model.supportsNativeAudioInput)
+                                if (model.isVisionDownloaded) "Omni projector ready" else "Omni projector"
+                            else if (model.runtimeType == ModelRuntimeType.LITE_RT) stringResource(R.string.model_manager_litert_vision)
                             else if (model.isVisionDownloaded) stringResource(R.string.model_manager_vision_included) else stringResource(R.string.model_manager_vision_supported),
                             fontSize = 10.sp,
                             color = GlassTheme.colors.primary
+                        )
+                    }
+                }
+            }
+
+            if (model.supportsNativeAudioInput && model.supportsNativeAudioOutput) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(GlassTheme.colors.tertiary.copy(alpha = 0.15f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GIcon(
+                            imageVector = GIcons.RecordVoiceOver,
+                            contentDescription = null,
+                            tint = GlassTheme.colors.tertiary,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        GText(
+                            text = "Native Voice",
+                            fontSize = 10.sp,
+                            color = GlassTheme.colors.tertiary
                         )
                     }
                 }

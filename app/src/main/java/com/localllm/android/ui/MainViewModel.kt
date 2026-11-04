@@ -39,12 +39,23 @@ import com.localllm.android.memory.MemoryWatchdog
 import com.localllm.android.voice.InteractiveVoiceState
 import com.localllm.android.voice.TtsEngineMode
 import com.localllm.android.voice.VoiceManager
+import com.localllm.android.audio.AndroidPcmInputSource
+import com.localllm.android.audio.AndroidPcmOutputSink
+import com.localllm.android.audio.AudioFormat
+import com.localllm.android.audio.Lfm3OmniBackend
+import com.localllm.android.audio.NativeOmniCapabilities
+import com.localllm.android.audio.NativeOmniModel
+import com.localllm.android.audio.OmniAudioConversation
+import com.localllm.android.audio.OmniAudioEvent
+import com.localllm.android.audio.OmniModelFamily
+import com.localllm.android.audio.OmniSessionConfig
 import android.net.Uri
 import com.localllm.android.server.OllamaApiServer
 import com.localllm.android.server.ApiServerService
 import com.localllm.android.service.ModelDownloadService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -52,6 +63,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.File
 import java.net.NetworkInterface
@@ -1483,6 +1495,196 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var voiceSessionJob: Job? = null
+    private var nativeOmniJob: Job? = null
+    private var nativeOmniConversation: OmniAudioConversation? = null
+    private var nativeOmniInput: AndroidPcmInputSource? = null
+    private var nativeOmniOutput: AndroidPcmOutputSink? = null
+    private val _nativeOmniActive = MutableStateFlow(false)
+    val nativeOmniActive: StateFlow<Boolean> = _nativeOmniActive.asStateFlow()
+    private val _nativeOmniTranscript = MutableStateFlow("")
+    val nativeOmniTranscript: StateFlow<String> = _nativeOmniTranscript.asStateFlow()
+
+    fun toggleNativeOmniTurn() {
+        if (_nativeOmniActive.value) stopNativeOmniTurn() else startNativeOmniTurn()
+    }
+
+    fun startNativeOmniTurn() {
+        val target = _activeModel.value
+        if (target == null || !target.isDownloaded ||
+            !target.supportsNativeAudioInput || !target.supportsNativeAudioOutput) {
+            _engineStatusMessage.value = "Download a native audio model such as LFM3 Omni 2B."
+            voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+            return
+        }
+        val modelPath = target.localFilePath
+        val mmprojPath = target.localMmprojPath
+        if (modelPath.isNullOrBlank() || mmprojPath.isNullOrBlank()) {
+            _engineStatusMessage.value = "The Omni model or its audio projector is missing."
+            voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+            return
+        }
+
+        _nativeOmniActive.value = true
+        nativeOmniJob?.cancel()
+        nativeOmniJob = viewModelScope.launch {
+            var input: AndroidPcmInputSource? = null
+            var output: AndroidPcmOutputSink? = null
+            var conversation: OmniAudioConversation? = null
+            try {
+                voiceManager.stopListening()
+                voiceManager.stopSpeaking()
+                // The text engine and the Omni backend both mmap a 2B model. Free the
+                // text context first so low-RAM phones do not run two copies at once.
+                if (llmEngine.isModelReady()) llmEngine.loadModel(null, _settings.value)
+
+                _engineStatusMessage.value = "Preparing ${target.name} native audio…"
+                val inputFormat = AudioFormat(16_000, 1, 16)
+                val outputFormat = AudioFormat(24_000, 1, 16)
+                val sessionConfig = OmniSessionConfig(inputFormat, outputFormat)
+                val prompt = buildNativeOmniPrompt()
+                val nativeModel = NativeOmniModel(
+                    id = target.id,
+                    displayName = target.name,
+                    family = OmniModelFamily.LFM3_OMNI,
+                    protocol = target.nativeAudioProtocol,
+                    capabilities = NativeOmniCapabilities(
+                        nativeAudioInput = true,
+                        nativeAudioOutput = true,
+                        streamingInput = false,
+                        streamingOutput = true,
+                        supportsInterruption = true,
+                        synchronizedTextOutput = true,
+                        modelProtocols = setOf("lfm3-omni-pcm")
+                    )
+                )
+                val backend = Lfm3OmniBackend(
+                    modelPath = modelPath,
+                    mmprojPath = mmprojPath,
+                    promptPrefix = prompt.first,
+                    promptContinuation = prompt.second,
+                    scope = viewModelScope
+                )
+                conversation = OmniAudioConversation(
+                    backend = backend,
+                    model = nativeModel,
+                    config = sessionConfig,
+                    scope = viewModelScope
+                )
+                output = AndroidPcmOutputSink(outputFormat)
+                output.open()
+                this@MainViewModel.nativeOmniOutput = output
+                conversation.open()
+                this@MainViewModel.nativeOmniConversation = conversation
+                _nativeOmniTranscript.value = ""
+                _engineStatusMessage.value = "LFM3 Omni · speaking and listening directly"
+
+                val finished = CompletableDeferred<Unit>()
+                val eventJob = launch(Dispatchers.IO) {
+                    conversation.events.collect { event ->
+                        when (event) {
+                            is OmniAudioEvent.TextDelta -> {
+                                _nativeOmniTranscript.value += event.text
+                                voiceManager.setVoiceState(InteractiveVoiceState.SPEAKING)
+                            }
+                            is OmniAudioEvent.AudioOutput -> {
+                                voiceManager.setVoiceState(InteractiveVoiceState.SPEAKING)
+                                output.write(event.frame)
+                            }
+                            is OmniAudioEvent.TurnFinished -> finished.complete(Unit)
+                            is OmniAudioEvent.Failure -> {
+                                finished.completeExceptionally(IllegalStateException(event.message))
+                            }
+                            is OmniAudioEvent.Interrupted -> finished.cancel()
+                            is OmniAudioEvent.Ready -> {
+                                voiceManager.setVoiceState(InteractiveVoiceState.LISTENING)
+                            }
+                        }
+                    }
+                }
+
+                input = AndroidPcmInputSource(getApplication(), inputFormat)
+                this@MainViewModel.nativeOmniInput = input
+                voiceManager.setVoiceState(InteractiveVoiceState.LISTENING)
+                input.frames().collect { frame ->
+                    conversation.sendAudio(frame)
+                }
+                if (_nativeOmniActive.value) {
+                    voiceManager.setVoiceState(InteractiveVoiceState.PROCESSING)
+                    conversation.finishInput()
+                    finished.await()
+                }
+                eventJob.cancel()
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                throw cancel
+            } catch (t: Throwable) {
+                _engineStatusMessage.value = t.localizedMessage ?: t.message ?: "Native Omni session failed"
+                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+            } finally {
+                input?.close()
+                output?.close()
+                withContext(Dispatchers.IO) {
+                    runCatching { conversation?.close() }
+                }
+                this@MainViewModel.nativeOmniInput = null
+                this@MainViewModel.nativeOmniOutput = null
+                this@MainViewModel.nativeOmniConversation = null
+                _nativeOmniActive.value = false
+                if (voiceManager.voiceState.value != InteractiveVoiceState.IDLE) {
+                    voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                }
+            }
+        }
+    }
+
+    fun stopNativeOmniTurn() {
+        nativeOmniInput?.close()
+        nativeOmniInput = null
+        if (voiceManager.voiceState.value != InteractiveVoiceState.LISTENING) {
+            nativeOmniConversation?.let { conversation ->
+                viewModelScope.launch { runCatching { conversation.interrupt() } }
+            }
+            nativeOmniJob?.cancel()
+            nativeOmniJob = null
+            _nativeOmniActive.value = false
+            voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+        }
+    }
+
+    fun stopNativeOmniSession() {
+        nativeOmniInput?.close()
+        nativeOmniInput = null
+        nativeOmniConversation?.let { conversation ->
+            viewModelScope.launch { runCatching { conversation.interrupt() } }
+        }
+        nativeOmniJob?.cancel()
+        nativeOmniJob = null
+        _nativeOmniActive.value = false
+        voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+    }
+
+    private fun buildNativeOmniPrompt(): Pair<String, String> {
+        val system = "You are OffconAI, a helpful on-device voice assistant. " +
+            "Understand the user's speech directly. Reply in the user's language, " +
+            "naturally and concisely. Speak the answer."
+        val prefix = StringBuilder()
+        prefix.append("<|im_start|>system\n").append(system).append("<|im_end|>\n")
+        _messages.value.filter { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
+            .takeLast(8)
+            .forEach { message ->
+                val role = if (message.role == MessageRole.USER) "user" else "assistant"
+                prefix.append("<|im_start|>").append(role).append('\n')
+                if (role == "assistant") {
+                    prefix.append("<think></think>").append(message.content)
+                } else {
+                    prefix.append(message.content)
+                }
+                prefix.append("<|im_end|>\n")
+            }
+        prefix.append("<|im_start|>user\n<__media__>")
+        val continuation = "<|im_end|>\n<|im_start|>assistant\n<think></think>"
+        return prefix.toString() to continuation
+    }
 
     fun stopGeneration() {
         // Stopping while a tool is awaiting approval is a decline, never an approval.
@@ -1491,6 +1693,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         toolApprovalDecision?.complete(false)
         voiceSessionJob?.cancel()
         voiceSessionJob = null
+        nativeOmniInput?.close()
+        nativeOmniInput = null
+        nativeOmniJob?.cancel()
+        nativeOmniJob = null
+        _nativeOmniActive.value = false
         try {
             voiceManager.stopListening()
         } catch (_: Throwable) {
@@ -1849,6 +2056,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        nativeOmniInput?.close()
+        nativeOmniJob?.cancel()
+        nativeOmniJob = null
         voiceManager.release()
         modelLoadingJob?.cancel()
         // Deliberately NOT stopping the API server: the foreground service owns it

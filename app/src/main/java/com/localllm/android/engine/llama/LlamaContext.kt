@@ -34,6 +34,9 @@ class LlamaContext(params: Map<String, Any>) {
     @Volatile
     private var tokenCallback: ((String) -> Unit)? = null
 
+    @Volatile
+    private var audioCallback: ((ByteArray) -> Unit)? = null
+
     val context: Long
         get() = handle
 
@@ -88,6 +91,42 @@ class LlamaContext(params: Map<String, Any>) {
         }
     }
 
+    /**
+     * One native LFM3-Omni turn. [pcm16] is mono 16 kHz little-endian PCM;
+     * [onAudioPcm16] receives the model's native 24 kHz speech stream.
+     */
+    fun omniCompletion(
+        promptPrefix: String,
+        promptContinuation: String,
+        pcm16: ShortArray,
+        temperature: Float,
+        maxSteps: Int,
+        expectedOutputSampleRate: Int,
+        onToken: (String) -> Unit,
+        onAudioPcm16: (ByteArray) -> Unit
+    ) {
+        val activeHandle = handle
+        check(activeHandle != 0L) { "llama.cpp context is not loaded" }
+        tokenCallback = onToken
+        audioCallback = onAudioPcm16
+        try {
+            val status = nativeOmniCompletion(
+                activeHandle,
+                promptPrefix,
+                promptContinuation,
+                pcm16,
+                temperature,
+                maxSteps,
+                expectedOutputSampleRate,
+                this
+            )
+            if (status != STATUS_OK) throw CompletionException(status)
+        } finally {
+            tokenCallback = null
+            audioCallback = null
+        }
+    }
+
     fun tokenize(text: String): List<Int> {
         val activeHandle = handle
         if (activeHandle == 0L) return emptyList()
@@ -110,6 +149,7 @@ class LlamaContext(params: Map<String, Any>) {
         handle = 0L
         if (activeHandle != 0L) nativeFree(activeHandle)
         tokenCallback = null
+        audioCallback = null
     }
 
     /**
@@ -119,6 +159,11 @@ class LlamaContext(params: Map<String, Any>) {
     @Keep
     fun emitTokenBytes(bytes: ByteArray) {
         tokenCallback?.invoke(String(bytes, Charsets.UTF_8))
+    }
+
+    @Keep
+    fun emitAudioPcm16(bytes: ByteArray) {
+        audioCallback?.invoke(bytes)
     }
 
     private fun resolvePath(value: String?): String? {
@@ -154,6 +199,16 @@ class LlamaContext(params: Map<String, Any>) {
         topP: Float,
         repetitionPenalty: Float,
         nPredict: Int,
+        callbackTarget: LlamaContext
+    ): Int
+    private external fun nativeOmniCompletion(
+        handle: Long,
+        promptPrefix: String,
+        promptContinuation: String,
+        pcm16: ShortArray,
+        temperature: Float,
+        maxSteps: Int,
+        expectedOutputSampleRate: Int,
         callbackTarget: LlamaContext
     ): Int
     private external fun nativeStop(handle: Long)

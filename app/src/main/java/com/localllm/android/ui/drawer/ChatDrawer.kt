@@ -359,7 +359,7 @@ fun ChatDrawer(
                         style = GlassTheme.type.bodyMedium
                     )
                     GText(
-                        text = "STT + TTS",
+                        text = "Native Omni + STT/TTS",
                         style = GlassTheme.type.labelSmall,
                         color = GlassTheme.colors.onSurfaceVariant
                     )

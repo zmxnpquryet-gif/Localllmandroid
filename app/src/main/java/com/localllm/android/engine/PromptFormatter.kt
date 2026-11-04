@@ -45,6 +45,8 @@ object PromptFormatter {
             PromptTemplateType.PHI -> formatPhi(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
             PromptTemplateType.LLAMA3 -> formatLlama3(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
             PromptTemplateType.LFM3 -> formatLfm3(systemPrompt, history, userPrompt, toolsContext)
+            PromptTemplateType.GEMMA4 -> formatGemma4(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
+            PromptTemplateType.QWEN35 -> formatQwen35(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
             PromptTemplateType.CHATML, PromptTemplateType.CUSTOM -> formatChatML(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
         }
     }
@@ -228,6 +230,59 @@ object PromptFormatter {
 
         sb.append("<|im_start|>user\n").append(userPrompt.trim()).append("<|im_end|>\n")
         sb.append("<|im_start|>assistant\n<think>")
+        return sb.toString()
+    }
+
+    /**
+     * Google Gemma 4 canonical turn format. The GGUF tokenizer supplies BOS.
+     */
+    fun formatGemma4(
+        systemPrompt: String,
+        history: List<Pair<String, String>>,
+        userPrompt: String,
+        toolsContext: String?,
+        supportsReasoning: Boolean
+    ): String {
+        val sb = StringBuilder()
+        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning)
+        if (systemText.isNotBlank() || supportsReasoning) {
+            sb.append("<|turn>system\n")
+            if (supportsReasoning) sb.append("<|think|>\n")
+            sb.append(systemText).append("<turn|>\n")
+        }
+        for ((role, text) in normalizedHistory(history)) {
+            val turnRole = if (role.equals("user", ignoreCase = true)) "user" else "model"
+            sb.append("<|turn>").append(turnRole).append('\n')
+                .append(text.trim()).append("<turn|>\n")
+        }
+        sb.append("<|turn>user\n").append(userPrompt.trim()).append("<turn|>\n")
+        sb.append("<|turn>model\n")
+        return sb.toString()
+    }
+
+    /**
+     * Qwen 3.5 ChatML template with an explicit thinking channel. When thinking is
+     * disabled the assistant opens with an empty think block, matching the official
+     * tokenizer template rather than relying on hidden template defaults.
+     */
+    fun formatQwen35(
+        systemPrompt: String,
+        history: List<Pair<String, String>>,
+        userPrompt: String,
+        toolsContext: String?,
+        supportsReasoning: Boolean
+    ): String {
+        val sb = StringBuilder()
+        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning)
+        sb.append("<|im_start|>system\n").append(systemText).append("<|im_end|>\n")
+        for ((role, text) in normalizedHistory(history)) {
+            val normalizedRole = if (role.equals("user", ignoreCase = true)) "user" else "assistant"
+            sb.append("<|im_start|>").append(normalizedRole).append('\n')
+                .append(text.trim()).append("<|im_end|>\n")
+        }
+        sb.append("<|im_start|>user\n").append(userPrompt.trim()).append("<|im_end|>\n")
+        sb.append("<|im_start|>assistant\n")
+        if (supportsReasoning) sb.append("<think>\n") else sb.append("<think>\n\n</think>\n\n")
         return sb.toString()
     }
 

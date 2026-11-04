@@ -86,7 +86,11 @@ class ModelStorageManager(private val context: Context) {
                         downloadStatus = saved.downloadStatus,
                         supportsReasoning = saved.supportsReasoning,
                         hasMmproj = saved.hasMmproj,
+                        mmprojSizeBytes = if (saved.mmprojSizeBytes > 0L) saved.mmprojSizeBytes else defaultModel.mmprojSizeBytes,
                         supportsMtp = saved.supportsMtp,
+                        supportsNativeAudioInput = saved.supportsNativeAudioInput || defaultModel.supportsNativeAudioInput,
+                        supportsNativeAudioOutput = saved.supportsNativeAudioOutput || defaultModel.supportsNativeAudioOutput,
+                        nativeAudioProtocol = saved.nativeAudioProtocol.ifBlank { defaultModel.nativeAudioProtocol },
                         templateFileName = saved.templateFileName ?: defaultModel.templateFileName,
                         templateFileUrl = saved.templateFileUrl.ifBlank { defaultModel.templateFileUrl }
                     )
@@ -299,7 +303,11 @@ class ModelStorageManager(private val context: Context) {
         obj.put("supportsMtp", m.supportsMtp)
         obj.put("supportsReasoning", m.supportsReasoning)
         obj.put("hasMmproj", m.hasMmproj)
+        obj.put("mmprojSizeBytes", m.mmprojSizeBytes)
         obj.put("mmprojFileName", m.mmprojFileName ?: "")
+        obj.put("supportsNativeAudioInput", m.supportsNativeAudioInput)
+        obj.put("supportsNativeAudioOutput", m.supportsNativeAudioOutput)
+        obj.put("nativeAudioProtocol", m.nativeAudioProtocol)
         obj.put("mtpDrafterFileName", m.mtpDrafterFileName ?: "")
         obj.put("templateFileName", m.templateFileName ?: "")
         obj.put("templateFileUrl", m.templateFileUrl)
@@ -343,7 +351,11 @@ class ModelStorageManager(private val context: Context) {
             supportsMtp = obj.optBoolean("supportsMtp", false),
             supportsReasoning = obj.optBoolean("supportsReasoning", false),
             hasMmproj = obj.optBoolean("hasMmproj", false),
+            mmprojSizeBytes = obj.optLong("mmprojSizeBytes", 0L),
             mmprojFileName = obj.optString("mmprojFileName", "").ifBlank { null },
+            supportsNativeAudioInput = obj.optBoolean("supportsNativeAudioInput", false),
+            supportsNativeAudioOutput = obj.optBoolean("supportsNativeAudioOutput", false),
+            nativeAudioProtocol = obj.optString("nativeAudioProtocol", ""),
             mtpDrafterFileName = obj.optString("mtpDrafterFileName", "").ifBlank { null },
             templateFileName = obj.optString("templateFileName", "").ifBlank { null },
             templateFileUrl = obj.optString("templateFileUrl", ""),

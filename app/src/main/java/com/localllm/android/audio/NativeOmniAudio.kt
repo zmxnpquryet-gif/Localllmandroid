@@ -2,7 +2,7 @@ package com.localllm.android.audio
 
 import kotlinx.coroutines.flow.Flow
 
-enum class OmniModelFamily { QWEN_OMNI, GEMMA_AUDIO, MOSHI, CUSTOM }
+enum class OmniModelFamily { QWEN_OMNI, GEMMA_AUDIO, LFM3_OMNI, MOSHI, CUSTOM }
 
 data class AudioFormat(
     val sampleRateHz: Int,
@@ -59,7 +59,6 @@ object OmniCapabilityDetector {
         val missing = buildList {
             if (!capabilities.nativeAudioInput) add("native audio input")
             if (!capabilities.nativeAudioOutput) add("native audio output")
-            if (!capabilities.streamingInput) add("streaming audio input")
             if (!capabilities.streamingOutput) add("streaming audio output")
             if (model.protocol.isBlank()) add("model audio protocol")
         }

@@ -234,3 +234,44 @@
   - `ModelManagerScreen.kt`, `ApiServerScreen.kt`, `VoiceModeScreen.kt` (Consistent palette & background binding)
   - `GPrimitives.kt`, `GControls.kt`, `GOverlays.kt` (Theme token propagation, eliminated hardcoded hex colors)
   - `GlassTheme.kt`, `Color.kt` (Single source-of-truth OffconAI slate dark and light palettes)
+
+## 2026-11-04 - Latest On-Device Model Catalog and Native LFM3 Omni Voice
+
+- Replaced the stale Android catalog with current small GGUF families verified against Hugging Face on 2026-11-04: LFM3 Omni 2B, LFM3 1.7B, LFM3-VL 2B, Qwen 3.5 0.8B/2B/4B, and official Gemma 4 E2B/E4B QAT GGUF packages.
+- Added model capability metadata for projector size, native audio input/output, and native audio protocol. Persisted these fields in ModelStorageManager so downloaded models keep the information after restarts.
+- Added explicit prompt templates for Gemma 4 turn markers and Qwen 3.5 thinking behavior rather than routing both through incompatible older templates.
+- Added LFM3 Omni 2B with the Q4_K_M backbone and the official Q8_0 audio/vision projector. The app now shows a Native Voice badge and labels the Omni projector separately from vision-only projectors.
+- Implemented a llama.cpp native Omni completion path through libmtmd:
+  - PCM16 16 kHz input is converted to model audio embeddings.
+  - The multimodal prompt is evaluated through mtmd.
+  - The native audio generation helper streams text and 24 kHz PCM output.
+  - UTF-8 text chunks are buffered at token boundaries.
+  - The Model ViewModel records PCM directly, writes native PCM output to AudioTrack, and keeps this route separate from Whisper STT to LLM to TTS.
+- Added docs/MODEL_CATALOG.md with exact files, byte sizes, licenses, runtime requirements, and the distinction between native Omni voice and pipeline voice.
+- Verification on WSA (localhost:58526):
+  - The latest model catalog renders eight entries in the app.
+  - LFM3 Omni 2B shows Native Voice and the downloaded state.
+  - The 1.6 GB model body and Q8_0 projector load successfully through the Android JNI bridge.
+  - The Voice Mode screen identifies LFM3 Omni 2B as native audio in to audio out and starts a native PCM recording session.
+  - The unoptimized x86_64 debug runtime took several minutes on a 1-2 second clip, so verification continued with the optimized RelWithDebInfo native library packaged in the signed release build.
+  - The optimized release completed a native turn: the Q8_0 projector encoded 2.0 seconds of PCM, the text/audio generation loop advanced through 192+ frames, and AudioTrack received PCM output before the UI returned to idle. No fatal exception was logged.
+  - The WSA virtual microphone supplied silence rather than intelligible speech, so response relevance, speech intelligibility, voice quality, and real-device latency were not established.
+  - Follow-up fixes moved model loading off the main dispatcher, added native microphone permission flow, preserved whitespace-only token pieces, disabled the inaccurate streaming-input capability flag, and made the UI describe the current interaction as one tap per turn.
+- Build verification:
+  - assembleDebug passed with reduced Gradle heap/worker settings.
+  - apksigner verified the debug APK with APK Signature Scheme v2.
+  - PromptFormatterTest, ModelStorageRoutingTest, OmniAudioConversationTest, and StringResourceParityTest passed with testDebugUnitTest.
+
+## 2026-11-04 - Independent Catalog and Native Audio Audit
+
+- Researched the catalog with two read-only sub-agents. One independently checked the eight GGUF entries against public Hugging Face metadata; the other audited prompt templates, audio lifecycle, cancellation, and unsupported capability claims.
+- Confirmed the LFM3 Omni body/projector dimensions, repository, license, 16 kHz input, 24 kHz output, and v0.8.0 runtime requirement. Corrected the catalog to use the official Q8_0 projector.
+- Corrected model capability metadata: LFM3 1.7B/VL and Gemma 4 expose reasoning; the Gemma 4 formatter now enables the canonical <|think|> system marker.
+- Hardened the native path after the audit:
+  - model loading now runs on the IO dispatcher;
+  - native-mode microphone permission is requested through the same permission gateway as pipeline voice;
+  - whitespace-only text pieces are preserved;
+  - native output sample rate is checked against the negotiated AudioTrack format;
+  - the streaming-input capability is no longer claimed for the current buffered push-to-talk implementation;
+  - the UI now describes this mode as one tap per turn.
+- The optimized release native build completed a full native inference turn on WSA. A 2.0-second PCM input produced text, advanced through native mixed text/audio generation, supplied PCM to AudioTrack, and returned the UI to idle without a fatal exception. WSA's virtual microphone supplied silence, so speech recognition accuracy and spoken audio quality remain untested.

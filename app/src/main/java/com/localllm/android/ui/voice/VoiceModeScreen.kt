@@ -83,13 +83,20 @@ fun VoiceModeScreen(
     val localTtsState by viewModel.voiceManager.localTts.modelState.collectAsStateWithLifecycle()
     val ttsSpeaker by viewModel.voiceManager.ttsSpeakerId.collectAsStateWithLifecycle()
     val ttsSpeed by viewModel.voiceManager.ttsSpeed.collectAsStateWithLifecycle()
+    val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
+    val nativeOmniActive by viewModel.nativeOmniActive.collectAsStateWithLifecycle()
+    val nativeOmniTranscript by viewModel.nativeOmniTranscript.collectAsStateWithLifecycle()
+    val isNativeOmni = activeModel?.supportsNativeAudioInput == true &&
+        activeModel?.supportsNativeAudioOutput == true
 
     var isMicMuted by remember { mutableStateOf(false) }
+    var nativePermissionPending by remember { mutableStateOf(false) }
 
     // Leaving this screen (back gesture included) must break the hands-free loop:
     // otherwise the TTS completion callback would restart listening after exit.
     DisposableEffect(Unit) {
         onDispose {
+            viewModel.stopNativeOmniSession()
             viewModel.voiceManager.stopListening()
             viewModel.voiceManager.stopSpeaking()
         }
@@ -101,9 +108,31 @@ fun VoiceModeScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            viewModel.startInteractiveVoiceSession()
+            if (nativePermissionPending) {
+                nativePermissionPending = false
+                viewModel.startNativeOmniTurn()
+            } else {
+                viewModel.startInteractiveVoiceSession()
+            }
         } else {
             Toast.makeText(context, micPermissionRequiredMsg, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun nativeVoiceAction() {
+        if (nativeOmniActive) {
+            viewModel.stopNativeOmniTurn()
+            return
+        }
+        val hasMic = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasMic) {
+            viewModel.startNativeOmniTurn()
+        } else {
+            nativePermissionPending = true
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
@@ -217,10 +246,14 @@ fun VoiceModeScreen(
         }
 
         GText(
-            text = stringResource(R.string.voice_native_audio_unavailable),
+            text = if (isNativeOmni) {
+                (activeModel?.name ?: "LFM3 Omni") + " · native audio in → audio out · one tap per turn"
+            } else {
+                stringResource(R.string.voice_native_audio_unavailable)
+            },
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
             fontSize = 11.sp,
-            color = Color.White.copy(alpha = 0.55f)
+            color = if (isNativeOmni) GlassTheme.colors.primary else Color.White.copy(alpha = 0.55f)
         )
 
         // Center: Interactive Voice Orb (flexible area: it gives room to the controls)
@@ -241,7 +274,9 @@ fun VoiceModeScreen(
                     .background(orbGradient)
                     .border(2.dp, Color.White.copy(alpha = 0.25f), CircleShape)
                     .clickable {
-                        if (voiceState == InteractiveVoiceState.IDLE) {
+                        if (isNativeOmni) {
+                            nativeVoiceAction()
+                        } else if (voiceState == InteractiveVoiceState.IDLE) {
                             val hasMic = ContextCompat.checkSelfPermission(
                                 context,
                                 Manifest.permission.RECORD_AUDIO
@@ -274,10 +309,11 @@ fun VoiceModeScreen(
                 color = Color.White.copy(alpha = 0.9f)
             )
 
-            if (recognizedText.isNotBlank()) {
+            val liveTranscript = if (isNativeOmni) nativeOmniTranscript else recognizedText
+            if (liveTranscript.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 GText(
-                    text = "\"$recognizedText\"",
+                    text = "\"$liveTranscript\"",
                     style = GlassTheme.type.bodyMedium,
                     color = GlassTheme.colors.primary,
                     modifier = Modifier.padding(horizontal = 24.dp)
@@ -295,65 +331,92 @@ fun VoiceModeScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 12.dp)
         ) {
-            GText(
-                text = stringResource(R.string.voice_tts_section),
-                style = GlassTheme.type.labelSmall,
-                color = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                TtsEngineCard(
-                    modifier = Modifier.weight(1f),
-                    title = stringResource(R.string.voice_tts_system_title),
-                    subtitle = stringResource(R.string.voice_tts_system_desc),
-                    selected = ttsMode == TtsEngineMode.SYSTEM,
-                    installed = true,
-                    onClick = { viewModel.selectTtsMode(TtsEngineMode.SYSTEM) }
-                )
-                TtsEngineCard(
-                    modifier = Modifier.weight(1f),
-                    title = stringResource(R.string.voice_tts_local_title),
-                    subtitle = when (val state = localTtsState) {
-                        is LocalTtsEngine.ModelState.Missing -> stringResource(R.string.voice_tts_local_missing)
-                        is LocalTtsEngine.ModelState.Downloading ->
-                            stringResource(R.string.voice_stt_downloading, (state.progress * 100).toInt())
-                        is LocalTtsEngine.ModelState.Ready -> stringResource(R.string.voice_tts_local_ready)
-                        is LocalTtsEngine.ModelState.Failed -> stringResource(R.string.voice_stt_failed, state.message)
-                    },
-                    selected = ttsMode == TtsEngineMode.LOCAL_NEURAL,
-                    installed = localTtsState is LocalTtsEngine.ModelState.Ready,
-                    onClick = {
-                        when (localTtsState) {
-                            is LocalTtsEngine.ModelState.Ready -> viewModel.selectTtsMode(TtsEngineMode.LOCAL_NEURAL)
-                            is LocalTtsEngine.ModelState.Downloading -> Unit
-                            else -> viewModel.downloadLocalTts()
-                        }
+            if (isNativeOmni) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 6.dp)
+                ) {
+                    GText(
+                        text = "Native Omni session",
+                        style = GlassTheme.type.labelSmall,
+                        color = GlassTheme.colors.primary
+                    )
+                    GText(
+                        text = "16 kHz PCM is fed directly to the model; text and 24 kHz speech arrive together.",
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.65f)
+                    )
+                    if (nativeOmniTranscript.isNotBlank()) {
+                        GText(
+                            text = nativeOmniTranscript.takeLast(240),
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.9f),
+                            maxLines = 3
+                        )
                     }
+                }
+            } else {
+                GText(
+                    text = stringResource(R.string.voice_tts_section),
+                    style = GlassTheme.type.labelSmall,
+                    color = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                 )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TtsEngineCard(
+                        modifier = Modifier.weight(1f),
+                        title = stringResource(R.string.voice_tts_system_title),
+                        subtitle = stringResource(R.string.voice_tts_system_desc),
+                        selected = ttsMode == TtsEngineMode.SYSTEM,
+                        installed = true,
+                        onClick = { viewModel.selectTtsMode(TtsEngineMode.SYSTEM) }
+                    )
+                    TtsEngineCard(
+                        modifier = Modifier.weight(1f),
+                        title = stringResource(R.string.voice_tts_local_title),
+                        subtitle = when (val state = localTtsState) {
+                            is LocalTtsEngine.ModelState.Missing -> stringResource(R.string.voice_tts_local_missing)
+                            is LocalTtsEngine.ModelState.Downloading ->
+                                stringResource(R.string.voice_stt_downloading, (state.progress * 100).toInt())
+                            is LocalTtsEngine.ModelState.Ready -> stringResource(R.string.voice_tts_local_ready)
+                            is LocalTtsEngine.ModelState.Failed -> stringResource(R.string.voice_stt_failed, state.message)
+                        },
+                        selected = ttsMode == TtsEngineMode.LOCAL_NEURAL,
+                        installed = localTtsState is LocalTtsEngine.ModelState.Ready,
+                        onClick = {
+                            when (localTtsState) {
+                                is LocalTtsEngine.ModelState.Ready -> viewModel.selectTtsMode(TtsEngineMode.LOCAL_NEURAL)
+                                is LocalTtsEngine.ModelState.Downloading -> Unit
+                                else -> viewModel.downloadLocalTts()
+                            }
+                        }
+                    )
+                }
+
+                if (ttsMode == TtsEngineMode.LOCAL_NEURAL && localTtsState is LocalTtsEngine.ModelState.Ready) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TtsVoiceControls(
+                        speakerId = ttsSpeaker,
+                        speed = ttsSpeed,
+                        onSpeakerChange = { viewModel.setTtsSpeaker(it) },
+                        onSpeedChange = { viewModel.setTtsSpeed(it) },
+                        onPreview = { viewModel.previewTts() },
+                        onDelete = { viewModel.deleteLocalTts() }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // On-device STT status (Whisper tiny multilingual, ~75MB one-time)
+                SttStatusRow(viewModel = viewModel)
             }
-
-            if (ttsMode == TtsEngineMode.LOCAL_NEURAL && localTtsState is LocalTtsEngine.ModelState.Ready) {
-                Spacer(modifier = Modifier.height(8.dp))
-                TtsVoiceControls(
-                    speakerId = ttsSpeaker,
-                    speed = ttsSpeed,
-                    onSpeakerChange = { viewModel.setTtsSpeaker(it) },
-                    onSpeedChange = { viewModel.setTtsSpeed(it) },
-                    onPreview = { viewModel.previewTts() },
-                    onDelete = { viewModel.deleteLocalTts() }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // On-device STT status (Whisper tiny multilingual, ~75MB one-time)
-            SttStatusRow(viewModel = viewModel)
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -368,7 +431,10 @@ fun VoiceModeScreen(
                 GIconButton(
                     onClick = {
                         isMicMuted = !isMicMuted
-                        if (isMicMuted) viewModel.voiceManager.stopListening()
+                        if (isMicMuted) {
+                            if (isNativeOmni) viewModel.stopNativeOmniSession()
+                            else viewModel.voiceManager.stopListening()
+                        }
                     },
                     modifier = Modifier
                         .size(52.dp)
@@ -384,7 +450,9 @@ fun VoiceModeScreen(
 
                 GButton(
                     onClick = {
-                        if (voiceState != InteractiveVoiceState.IDLE) {
+                        if (isNativeOmni) {
+                            nativeVoiceAction()
+                        } else if (voiceState != InteractiveVoiceState.IDLE) {
                             viewModel.voiceManager.stopListening()
                             viewModel.voiceManager.stopSpeaking()
                         } else {

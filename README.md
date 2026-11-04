@@ -104,23 +104,21 @@ Estimates the real footprint (weights + KV cache + compute buffers) before mappi
 
 | Model | Params | Recommended Quant | File Size (approx.) | Min. Device RAM | Runtime | Notes |
 | :--- | :---: | :--- | :---: | :---: | :--- | :--- |
-| **Qwen 2.5** | 1.5B | Q4_K_M | ~1.0 GB | 3 GB | llama.cpp | Excellent quality/size ratio; strong multilingual |
-| **Qwen 2.5** | 3B | Q4_K_M | ~2.0 GB | 4 GB | llama.cpp | Sweet spot for most 8 GB phones |
-| **Qwen 2.5** | 7B | Q4_K_M | ~4.7 GB | 6 GB | llama.cpp | Best in-app quality; needs a flagship or 12 GB device |
-| **LFM3** | 1.7B | Q4_K_M | ~1.0 GB | 3 GB | llama.cpp | Liquid AI; hybrid reasoning with 262K-context support |
-| **LFM3-VL** | 2B | Q4_K_M + mmproj Q8_0 | ~1.3 GB | 3 GB | llama.cpp | Liquid AI vision model; image input through `mmproj` |
-| **DeepSeek-R1-Distill** | 1.5B | Q4_K_M | ~1.1 GB | 3 GB | llama.cpp | Reasoning model — `<​think>` parsing built in |
-| **DeepSeek-R1-Distill** | 7B | Q4_K_M | ~4.7 GB | 6 GB | llama.cpp | Chain-of-thought on device |
-| **Llama 3.2** | 1B | Q4_K_M | ~0.8 GB | 2.5 GB | llama.cpp | Fast drafts, tool calls |
-| **Llama 3.2** | 3B | Q4_K_M | ~2.0 GB | 4 GB | llama.cpp | Balanced daily driver |
-| **Gemma 2** | 2B | Q4_K_M / `.task` | ~1.8 GB | 3.5 GB | llama.cpp **or** LiteRT-LM | LiteRT-LM path unlocks GPU/NPU delegates |
-| **FunctionGemma** | — | mobile binaries | — | 3 GB | LiteRT-LM | Mobile-optimized function calling |
+| **LFM3 Omni 2B** | 2.17B | Q4_K_M + mmproj Q8_0 | ~1.58 GB | 4 GB | llama.cpp | Native audio → text + speech, plus image/video input; no STT/TTS pipeline |
+| **LFM3** | 1.7B | Q4_K_M | ~1.02 GB | 3 GB | llama.cpp | Fast multilingual text model |
+| **LFM3-VL** | 2B | Q4_K_M + mmproj Q8_0 | ~1.22 GB | 3 GB | llama.cpp | Image understanding through the LFM3 projector |
+| **Qwen 3.5 0.8B** | 0.8B | Q4_K_M + mmproj F16 | ~0.69 GB | 3 GB | llama.cpp | 2026 compact hybrid-reasoning and vision model |
+| **Qwen 3.5 2B** | 2B | Q4_K_M + mmproj F16 | ~1.82 GB | 4 GB | llama.cpp | Balanced phone-class reasoning, vision and tool use |
+| **Qwen 3.5 4B** | 4B | Q4_K_M + mmproj F16 | ~3.18 GB | 6 GB | llama.cpp | Higher-quality variant for phones with more RAM |
+| **Gemma 4 E2B IT** | E2B | official QAT q4_0 + mmproj | ~4.04 GB | 6 GB | llama.cpp | Google's efficient on-device variant |
+| **Gemma 4 E4B IT** | E4B | official QAT q4_0 + mmproj | ~5.72 GB | 8 GB | llama.cpp | Larger Gemma 4 variant for high-memory phones/tablets |
 
 > **📋 Notes on the table**
 >
 > - File sizes are typical GGUF Q4_K_M payloads; **Min. Device RAM** is the practical footprint including KV cache and compute buffers, as estimated by the app's OOM Guard before load. Actual numbers depend on context length.
 > - Generation speed is device-dependent and displayed live on every message (`promptSpeed` / `tps`): roughly 20+ tok/s for 1–1.5B models, ~10–15 tok/s for 3B, and ~5–10 tok/s for 7B on recent flagship-class SoCs in 4-bit. Use the in-app benchmark for your own device — the app never claims speed it didn't measure.
-> - Any community **GGUF** from Hugging Face works through llama.cpp; the list above is a curated starting point, not a whitelist.
+> - Any compatible **GGUF** from Hugging Face can be added through llama.cpp; the list above is a curated starting point, not a whitelist.
+> - Native Omni voice is available for LFM3 Omni 2B. Text and vision models without native audio continue to use the separate on-device Whisper STT → LLM → TTS conversation path.
 
 ---
 

@@ -79,6 +79,7 @@ std::atomic<jlong> g_next_session_id{1};
 
 // Cached JNI identifier for LlamaContext.emitTokenBytes([B)V.
 jmethodID g_emit_token_method = nullptr;
+jmethodID g_emit_audio_method = nullptr;
 
 jlong register_session(std::unique_ptr<LlamaSession> session) {
     const jlong id = g_next_session_id.fetch_add(1);
@@ -218,6 +219,42 @@ void emit_bytes(JNIEnv * env, jobject target, const std::string & chunk) {
     }
 }
 
+void emit_audio_pcm16(JNIEnv * env, jobject target, const float * samples, size_t count) {
+    if (target == nullptr || samples == nullptr || count == 0) return;
+    jmethodID method = g_emit_audio_method;
+    if (method == nullptr) {
+        jclass cls = env->GetObjectClass(target);
+        if (cls == nullptr) return;
+        method = env->GetMethodID(cls, "emitAudioPcm16", "([B)V");
+        env->DeleteLocalRef(cls);
+        if (method == nullptr) {
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+            return;
+        }
+        g_emit_audio_method = method;
+    }
+    std::vector<int16_t> pcm(count);
+    for (size_t i = 0; i < count; ++i) {
+        const float v = std::max(-1.0f, std::min(1.0f, samples[i]));
+        pcm[i] = static_cast<int16_t>(v * 32767.0f);
+    }
+    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(pcm.size() * sizeof(int16_t)));
+    if (bytes == nullptr) {
+        env->ExceptionClear();
+        return;
+    }
+    env->SetByteArrayRegion(
+        bytes, 0, static_cast<jsize>(pcm.size() * sizeof(int16_t)),
+        reinterpret_cast<const jbyte *>(pcm.data()));
+    env->CallVoidMethod(target, method, bytes);
+    env->DeleteLocalRef(bytes);
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+    }
+}
+
 std::string token_to_piece(const llama_vocab * vocab, llama_token token) {
     char buffer[256];
     int32_t written = llama_token_to_piece(vocab, token, buffer, sizeof(buffer), 0, false);
@@ -332,6 +369,67 @@ bool eval_multimodal(
     mtmd_bitmap_free(loaded.bitmap);
     if (result != 0) {
         LOGE("multimodal chunk evaluation failed: %d", result);
+        return false;
+    }
+    return true;
+}
+
+bool eval_multimodal_audio(
+        LlamaSession * session,
+        const std::string & prompt,
+        const jshort * pcm16,
+        size_t sample_count,
+        int & n_past) {
+    if (session->mtmd == nullptr || pcm16 == nullptr || sample_count == 0) {
+        LOGE("native Omni audio requested without an audio projector or samples");
+        return false;
+    }
+    if (!mtmd_support_audio(session->mtmd)) {
+        LOGE("loaded projector has no audio input encoder");
+        return false;
+    }
+
+    std::string full_prompt = prompt;
+    const char * marker = mtmd_default_marker();
+    if (marker != nullptr && full_prompt.find(marker) == std::string::npos) {
+        full_prompt = std::string(marker) + full_prompt;
+    }
+
+    std::vector<float> samples(sample_count);
+    for (size_t i = 0; i < sample_count; ++i) {
+        samples[i] = static_cast<float>(pcm16[i]) / 32768.0f;
+    }
+    LOGI("native Omni audio: %zu samples (%.1fs @16kHz)",
+         samples.size(), (double) samples.size() / 16000.0);
+    mtmd_bitmap * bitmap = mtmd_bitmap_init_from_audio(samples.size(), samples.data());
+    if (bitmap == nullptr) return false;
+    mtmd_input_chunks * chunks = mtmd_input_chunks_init();
+    if (chunks == nullptr) {
+        mtmd_bitmap_free(bitmap);
+        return false;
+    }
+    mtmd_input_text input{};
+    input.text = full_prompt.c_str();
+    input.text_len = full_prompt.size();
+    input.add_special = true;
+    input.parse_special = true;
+    const mtmd_bitmap * bitmaps[1] = { bitmap };
+    int result = mtmd_tokenize(session->mtmd, chunks, &input, bitmaps, 1);
+    if (result == 0) {
+        llama_pos new_n_past = 0;
+        LOGI("native Omni audio prompt tokenized; evaluating");
+        result = mtmd_helper_eval_chunks(
+            session->mtmd, session->ctx, chunks,
+            0, 0, session->n_batch, true, &new_n_past);
+        if (result == 0) {
+            n_past = static_cast<int>(new_n_past);
+            LOGI("native Omni audio prompt evaluated at position %d", n_past);
+        }
+    }
+    mtmd_input_chunks_free(chunks);
+    mtmd_bitmap_free(bitmap);
+    if (result != 0) {
+        LOGE("native Omni audio evaluation failed: %d", result);
         return false;
     }
     return true;
@@ -538,6 +636,7 @@ Java_com_localllm_android_engine_llama_LlamaContext_nativeCompletion(
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     int n_past = 0;
+    LOGI("native Omni completion: evaluating audio turn");
     jint status = STATUS_OK;
     if (!image_path.empty()) {
         if (!eval_multimodal(session.get(), prompt, image_path, n_past)) {
@@ -614,6 +713,194 @@ Java_com_localllm_android_engine_llama_LlamaContext_nativeCompletion(
     llama_sampler_free(sampler);
     LOGI("completion finished: status=%d, %zu token(s), n_past=%d, stopped=%s",
          status, generated, n_past, session->stop.load() ? "true" : "false");
+    return status;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_localllm_android_engine_llama_LlamaContext_nativeOmniCompletion(
+        JNIEnv * env, jobject /* thiz */,
+        jlong handle,
+        jstring j_prompt_prefix,
+        jstring j_prompt_continuation,
+        jshortArray j_pcm16,
+        jfloat temperature,
+        jint max_steps,
+        jint expected_output_sample_rate,
+        jobject callback_target) {
+    const auto session = acquire_session(handle);
+    if (session == nullptr || session->ctx == nullptr || session->vocab == nullptr ||
+        session->mtmd == nullptr) {
+        return STATUS_NOT_READY;
+    }
+    if (session->closing.load()) return STATUS_NOT_READY;
+    std::unique_lock<std::mutex> lock(session->mutex, std::try_to_lock);
+    if (!lock.owns_lock()) return STATUS_BUSY;
+
+    const std::string prefix = jstring_to_utf8(env, j_prompt_prefix);
+    const std::string continuation = jstring_to_utf8(env, j_prompt_continuation);
+    if (prefix.empty() || j_pcm16 == nullptr) return STATUS_PROMPT_FAILED;
+    const jsize sample_count = env->GetArrayLength(j_pcm16);
+    if (sample_count <= 0) return STATUS_PROMPT_FAILED;
+    std::vector<jshort> pcm16(static_cast<size_t>(sample_count));
+    env->GetShortArrayRegion(j_pcm16, 0, sample_count, pcm16.data());
+
+    session->stop.store(false);
+    session->predicting.store(true);
+    struct PredictingGuard {
+        LlamaSession * session;
+        ~PredictingGuard() { session->predicting.store(false); }
+    } guard{session.get()};
+
+    llama_memory_clear(llama_get_memory(session->ctx), true);
+    llama_set_embeddings(session->ctx, true);
+
+    int n_past = 0;
+    if (!eval_multimodal_audio(
+            session.get(), prefix, pcm16.data(), pcm16.size(), n_past)) {
+        return STATUS_MULTIMODAL_FAILED;
+    }
+    if (n_past >= session->n_ctx) return STATUS_CONTEXT_OVERFLOW;
+
+    mtmd_helper_gen_audio * gen = mtmd_helper_gen_audio_init(session->ctx, session->mtmd);
+    if (gen == nullptr) return STATUS_NOT_READY;
+    LOGI("native Omni completion: generation pipeline created");
+    struct GenGuard {
+        mtmd_helper_gen_audio * gen;
+        ~GenGuard() { mtmd_helper_gen_audio_free(gen); }
+    } gen_guard{gen};
+
+    mtmd_helper_gen_audio_inp input = mtmd_helper_gen_audio_inp_default();
+    input.stream = true;
+    input.seq_id = 0;
+    input.prompt = continuation.c_str();
+    input.prompt_len = continuation.size();
+    input.n_past = n_past;
+    input.out_mode = MTMD_HELPER_GEN_AUDIO_OUT_MIXED;
+    input.out_type = MTMD_HELPER_GEN_AUDIO_OUTTYPE_PCM;
+    input.seed = LLAMA_DEFAULT_SEED;
+    if (mtmd_helper_gen_audio_set_input(gen, &input) != 0) {
+        return STATUS_MULTIMODAL_FAILED;
+    }
+    LOGI("native Omni completion: generation input ready");
+    int32_t prompt_remaining;
+    while ((prompt_remaining = mtmd_helper_gen_audio_step_prompt(
+                gen, session->n_batch)) > 0) {
+        if (session->stop.load() || session->closing.load()) break;
+    }
+    if (prompt_remaining < 0) return STATUS_DECODE_FAILED;
+    LOGI("native Omni completion: continuation prompt decoded");
+
+    const float * initial_h = llama_get_embeddings_ith(session->ctx, -1);
+    const int32_t n_embd = llama_model_n_embd(session->model);
+    if (initial_h == nullptr) return STATUS_DECODE_FAILED;
+    std::vector<float> h_state(initial_h, initial_h + n_embd);
+
+    llama_sampler_chain_params sampler_params = llama_sampler_chain_default_params();
+    sampler_params.no_perf = true;
+    llama_sampler * sampler = llama_sampler_chain_init(sampler_params);
+    if (sampler == nullptr) return STATUS_OUT_OF_MEMORY;
+    struct SamplerGuard {
+        llama_sampler * sampler;
+        ~SamplerGuard() { llama_sampler_free(sampler); }
+    } sampler_guard{sampler};
+    if (temperature <= 0.0f) {
+        llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
+    } else {
+        llama_sampler_chain_add(sampler, llama_sampler_init_temp(temperature));
+        llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+    }
+
+    const int32_t capped_steps = max_steps > 0 ? max_steps : 8192;
+    int32_t steps = 0;
+    bool stopped = false;
+    jint status = STATUS_OK;
+    std::string pending_text;
+    while (!stopped && steps < capped_steps) {
+        if (session->stop.load() || session->closing.load()) break;
+        llama_token sampled = LLAMA_TOKEN_NULL;
+        if (mtmd_helper_gen_audio_next_is_text(gen)) {
+            sampled = llama_sampler_sample(sampler, session->ctx, -1);
+            if (sampled < 0) {
+                status = STATUS_DECODE_FAILED;
+                break;
+            }
+            llama_sampler_accept(sampler, sampled);
+        }
+
+        const float * next_h = nullptr;
+        bool frame_stop = false;
+        if (mtmd_helper_gen_audio_step_gen(
+                gen, sampled, h_state.data(), &next_h, &frame_stop) != 0) {
+            status = STATUS_DECODE_FAILED;
+            break;
+        }
+        if (next_h != nullptr) h_state.assign(next_h, next_h + n_embd);
+
+        if (sampled != LLAMA_TOKEN_NULL && !frame_stop &&
+            !llama_vocab_is_control(session->vocab, sampled) &&
+            !llama_vocab_is_eog(session->vocab, sampled)) {
+            pending_text += token_to_piece(session->vocab, sampled);
+            const size_t hold = utf8_incomplete_suffix(pending_text);
+            const size_t ready = pending_text.size() - hold;
+            if (ready > 0) {
+                emit_bytes(env, callback_target, pending_text.substr(0, ready));
+                pending_text.erase(0, ready);
+            }
+        }
+
+        int32_t sample_rate = 0;
+        const char * audio_data = nullptr;
+        size_t audio_len = 0;
+        if (mtmd_helper_gen_audio_get_output(
+                gen, &sample_rate, &audio_data, &audio_len, nullptr) == 0 &&
+            audio_data != nullptr && audio_len >= sizeof(float)) {
+            if (expected_output_sample_rate > 0 &&
+                sample_rate != expected_output_sample_rate) {
+                LOGE("native Omni output rate %d != negotiated %d",
+                     sample_rate, expected_output_sample_rate);
+                status = STATUS_DECODE_FAILED;
+                stopped = true;
+                break;
+            }
+            emit_audio_pcm16(
+                env, callback_target,
+                reinterpret_cast<const float *>(audio_data),
+                audio_len / sizeof(float));
+        }
+
+        stopped = frame_stop;
+        steps++;
+        if (steps == 1 || steps % 32 == 0) {
+            LOGI("native Omni completion: step %d, text_mode=%d",
+                 steps, mtmd_helper_gen_audio_next_is_text(gen) ? 1 : 0);
+        }
+        const llama_pos max_pos =
+            llama_memory_seq_pos_max(llama_get_memory(session->ctx), 0);
+        if (max_pos + 2 >= session->n_ctx) stopped = true;
+    }
+
+    if (!stopped) {
+        mtmd_helper_gen_audio_flush(gen);
+        int32_t sample_rate = 0;
+        const char * audio_data = nullptr;
+        size_t audio_len = 0;
+        if (mtmd_helper_gen_audio_get_output(
+                gen, &sample_rate, &audio_data, &audio_len, nullptr) == 0 &&
+            audio_data != nullptr && audio_len >= sizeof(float)) {
+            if (expected_output_sample_rate <= 0 ||
+                sample_rate == expected_output_sample_rate) {
+                emit_audio_pcm16(
+                    env, callback_target,
+                    reinterpret_cast<const float *>(audio_data),
+                    audio_len / sizeof(float));
+            } else {
+                status = STATUS_DECODE_FAILED;
+            }
+        }
+    }
+    if (!pending_text.empty()) {
+        emit_bytes(env, callback_target, pending_text);
+    }
     return status;
 }
 
