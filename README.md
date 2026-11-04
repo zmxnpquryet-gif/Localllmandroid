@@ -1,383 +1,147 @@
-<div align="center">
-
-# ⚡ OffconAI
-
-### Run State-of-the-Art LLMs 100% Offline in Your Pocket
-
-**Privacy-first on-device AI · 완전 오프라인 온디바이스 AI · 100% 离线设备端 AI**
-
-[📱 Screenshots](#-screenshots) · [✨ Key Features](#-key-features) · [🤗 Models](#-supported-models--hardware) · [🏛️ Architecture](#️-architecture) · [🌐 API Server](#-on-device-ollama--openai-api-server) · [🚀 Getting Started](#-getting-started)
-
-</div>
-
 <p align="center">
-  <img src="docs/screenshots/chat_screen.png" alt="OffconAI" width="45%" />
-  <img src="docs/screenshots/model_manager.png" alt="Model Manager" width="45%" />
+  <img src="docs/assets/offcon-banner.svg" alt="OffconAI - Local intelligence, without the leash" width="100%" />
 </p>
 
 <p align="center">
-  <strong>English</strong> | <a href="README.ko.md">한국어</a> | <a href="README.zh-CN.md">中文</a>
+  <a href="https://github.com/zmxnpquryet-gif/OffconAI/releases/latest"><img src="https://img.shields.io/github/v/release/zmxnpquryet-gif/OffconAI?label=latest%20release&color=687CFF" alt="Latest release" /></a>
+  <a href="https://github.com/zmxnpquryet-gif/OffconAI/actions/workflows/android.yml"><img src="https://github.com/zmxnpquryet-gif/OffconAI/actions/workflows/android.yml/badge.svg" alt="Android CI" /></a>
+  <img src="https://img.shields.io/badge/Android-24%2B-0F172A" alt="Android 24+" />
+  <img src="https://img.shields.io/badge/llama.cpp-GGUF-687CFF" alt="llama.cpp" />
+  <img src="https://img.shields.io/badge/LiteRT-LM-94A3B8" alt="LiteRT-LM" />
+  <img src="https://img.shields.io/badge/telemetry-0-10B981" alt="Zero telemetry" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-687CFF" alt="Apache-2.0" /></a>
+</p>
+
+<h1 align="center">AI that stays with you.</h1>
+
+<p align="center">
+  OffconAI is a local-first AI workspace for Android and desktop.<br/>
+  Run language, vision, and native voice models on your own hardware. No account required for inference.
 </p>
 
 <p align="center">
-  <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/releases/latest"><img src="https://img.shields.io/github/v/release/zmxnpquryet-gif/Localllmandroid?label=Release%20APK&color=success&logo=android" alt="Release APK" /></a>
-  <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/actions/workflows/android.yml"><img src="https://github.com/zmxnpquryet-gif/Localllmandroid/actions/workflows/android.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/Runtime-llama.cpp%20%2B%20LiteRT--LM-orange.svg" alt="Android runtimes" />
-  <img src="https://img.shields.io/badge/Platform-Android%2024%2B-green.svg" alt="Platform" />
-  <img src="https://img.shields.io/badge/Kotlin-2.2-purple.svg" alt="Kotlin" />
-  <img src="https://img.shields.io/badge/API-Ollama%20%7C%20OpenAI%20Port%2011434-blueviolet.svg" alt="API" />
-  <img src="https://img.shields.io/badge/MCP-Client%20Ready-1f8f8f.svg" alt="MCP" />
-  <img src="https://img.shields.io/badge/Encryption-Keystore%20AES--256--GCM-red.svg" alt="Keystore AES-256" />
-  <img src="https://img.shields.io/badge/Telemetry-Zero%20%F0%9F%9A%AB-black.svg" alt="Zero Telemetry" />
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License" /></a>
-  <img src="https://img.shields.io/badge/UI-EN%20%2F%20KO%20%2F%20ZH%20Switcher-ff69b4.svg" alt="Multilingual" />
+  <a href="#install"><b>Download</b></a> ·
+  <a href="#feature-tour">Screens</a> ·
+  <a href="#models">Models</a> ·
+  <a href="https://zmxnpquryet-gif.github.io/OffconAI/"><b>Website</b></a> ·
+  <a href="README.ko.md">한국어</a> ·
+  <a href="README.zh-CN.md">中文</a>
 </p>
 
-**OffconAI** is a local-first AI platform. The Android edition runs **llama.cpp** for GGUF models and **Google LiteRT-LM** for supported bundles; the new desktop module provides typed llama.cpp, vLLM, and Strata adapters plus LLM and All-in-One editions. Model loading and generation remain on local hardware. Network access is used only for user-requested downloads, remote model servers, or the optional LAN API server.
+<p align="center">
+  <img src="docs/screenshots/ui-home.png" alt="OffconAI home" width="31%" />
+  <img src="docs/screenshots/ui-chat.png" alt="OffconAI chat" width="31%" />
+  <img src="docs/screenshots/ui-models.png" alt="OffconAI model manager" width="31%" />
+</p>
 
----
+## Local by architecture
 
-## 📱 Screenshots
+OffconAI keeps prompts, conversations, model files, and generation on the device. Network access is used only when you deliberately download a model, connect an MCP server, or expose the optional local API.
 
-| On-Device Chat & Live Metrics | Model Hub & Download Manager |
-| :---: | :---: |
-| <img src="docs/screenshots/chat_screen.png" width="100%" /> | <img src="docs/screenshots/model_manager.png" width="100%" /> |
-| **Ollama / OpenAI API Server Mode** | **Hands-Free Voice Conversation** |
-| <img src="docs/screenshots/api_server.png" width="100%" /> | <img src="docs/screenshots/voice_mode.png" width="100%" /> |
+| Boundary | What OffconAI does |
+| --- | --- |
+| **Text inference** | llama.cpp GGUF and LiteRT-LM, with explicit CPU fallback |
+| **Native voice** | LFM3 Omni runs through llama.cpp/libmtmd: 16 kHz PCM in, text plus 24 kHz PCM out |
+| **Pipeline voice** | Text and vision models can use on-device Whisper STT → LLM → TTS |
+| **Conversation storage** | AES-256-GCM encryption with Android Keystore |
+| **Local API** | Ollama and OpenAI-compatible server on port 11434 |
+| **Tool calls** | MCP client with structured parsing and per-call approval |
+| **Desktop** | Independent llama.cpp, vLLM, and Strata adapters |
 
----
+<a id="feature-tour"></a>
+## A calm interface, built for long sessions
 
-## ✨ Key Features
+| Home | Conversation | Native voice |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/ui-home.png" width="100%" /> | <img src="docs/screenshots/ui-chat.png" width="100%" /> | <img src="docs/screenshots/ui-voice.png" width="100%" /> |
 
-### 🏎️ Dual-Runtime Inference
+- **One composer, clear actions.** Attach an image, dictate, enter voice mode, or send without leaving the conversation.
+- **Theme-wide color changes.** Accent changes propagate to the logo, bubbles, focus rings, controls, and status states.
+- **Streaming-friendly rendering.** Markdown, highlighted code, tables, links, and readable math render without executing raw HTML.
+- **Live runtime truth.** TPS, prompt speed, context usage, model format, and acceleration state come from the active backend.
+- **Responsive layout.** The content column stays readable on phones, tablets, foldables, and Windows Subsystem for Android.
 
-Two production inference engines behind one abstraction — pick the right tool per model instead of settling for one:
+<a id="models"></a>
+## Model catalog without dead ends
 
-- **llama.cpp (GGUF)** — tens of thousands of community quants (Q4_K_M, Q8_0, K-quants…), reasoning models, chat templates, and `mmproj` vision towers, all from Hugging Face.
-- **Google LiteRT-LM** — Google's mobile-optimized runtime with GPU/NPU delegates where supported (automatic CPU fallback), tuned for Snapdragon / MediaTek / Tensor / Exynos SoCs.
+| Family | Size range | Strengths |
+| --- | --- | --- |
+| **LFM3 Omni** | 2B | Native audio and image input with text and speech output |
+| **LFM3 / LFM3-VL** | 1.7B · 2B | Compact multilingual text and vision |
+| **Qwen 3.5** | 0.8B · 2B · 4B | Reasoning, vision, tools, Korean support |
+| **Gemma 4 E2B / E4B** | 2B · 4B (QAT) | Official QAT GGUF builds for higher-memory devices |
 
-### 🌐 On-Device Ollama / OpenAI Server (Port 11434)
+You can also add any compatible model through a direct URL, HTTPS mirror, Hugging Face repository, or local file. Main weights, projectors, drafters, and prompt templates are configured independently. Hugging Face credentials are never forwarded to third-party mirrors. See the [model catalog](docs/MODEL_CATALOG.md) for exact files, sizes, and licenses.
 
-Turn your phone into a **local AI server**: Ollama- and OpenAI-compatible HTTP endpoints, LAN toggle with live rebinding, bearer-token auth, and a foreground service that keeps serving after the UI closes. Wire it into **VS Code Continue, Cursor, or plain cURL** — full guide in [🌐 API Server](#-on-device-ollama--openai-api-server).
+## Native voice, without a relay
 
-### 🔌 Native Model Context Protocol (MCP) Client
+LFM3 Omni 2B is connected to the app native audio path:
 
-Chats can call **real tools** — a hardened Streamable-HTTP-first JSON-RPC client with legacy SSE fallback, per-request bearer re-checks, size-capped bodies, and an explicit approval dialog before every call. Every tool result is framed as untrusted external data. Deep dive in [⚡ Engineering Highlights](#-engineering-highlights).
+- 16 kHz mono PCM is encoded by the multimodal projector.
+- Audio is evaluated directly by the language model.
+- The native audio helper emits synchronized text and 24 kHz PCM speech.
+- The voice screen distinguishes this route from the separate Whisper STT pipeline.
 
-Tool turns now parse multiple Hermes JSON and namespaced XML calls, validate the complete batch before execution, require approval per call, run calls sequentially, and return every result to the model. Partial streaming blocks stay hidden and are never executed.
+The current native mode records one buffered turn after a tap and submits it on the next tap. Continuous duplex input and real-device ARM latency remain verification targets; the app labels that limitation instead of presenting it as complete.
 
-### 📝 Streaming Markdown workspace
+## Built on runtimes you can inspect
 
-Assistant and user content use an offline Compose Markdown renderer for headings, paragraphs, nested lists, tables, blockquotes, links, emphasis, fenced code with lexical highlighting, and a readable TeX subset. Incomplete code fences, math blocks, and tables remain stable while tokens stream. Raw HTML is not executed, and external links are limited to `http`, `https`, and `mailto`.
+| Android | Desktop |
+| --- | --- |
+| llama.cpp, LiteRT-LM, libmtmd | Java 17 application |
+| GGUF and LiteRT model formats | Independent llama.cpp, vLLM, and Strata adapters |
+| CPU fallback and capability detection | LLM Edition and All-in-One Edition |
+| JNI bridge with explicit status codes | Backend-specific configuration and resource monitoring |
 
-### 🖥️ Desktop editions and independent backends
+Architecture details: [Android and platform architecture](docs/ARCHITECTURE.md) · [Desktop backends](docs/desktop.md).
 
-The desktop module builds a Java 17 application with an **LLM Edition** and an **All-in-One Edition**. llama.cpp owns a GGUF process lifecycle, vLLM has managed or external server configuration, and Strata uses an explicit OpenAI-compatible gateway adapter because its APIs vary by deployment. See [Desktop](docs/desktop.md) for setup and current limitations.
+## Privacy controls
 
-### 🎙️ Zero-Cloud Voice Mode
+- Conversations and credentials are encrypted using Android Keystore-backed AES-256-GCM.
+- The optional API server binds to loopback by default and requires a generated bearer token.
+- No telemetry or analytics are included.
+- Tool calls pause for approval and their output is treated as untrusted external data.
+- OOM Guard estimates weights, KV cache, and compute buffers before loading a model.
 
-A hands-free conversational loop, entirely on-device: **local Whisper STT** → on-device LLM generation → **supertonic Korean neural TTS** (downloaded once; device TTS as fallback), visualized with an animated reactive **Voice Orb**. Your voice never leaves the phone.
+<a id="install"></a>
+## Get started
 
-Native duplex Omni audio has a separate session/capability layer with PCM streaming, turn ids, ordered text/audio events, interruption, bounded input, and idempotent cleanup. No native Omni model adapter ships in this build, so Voice Mode remains the conventional and clearly labeled STT → LLM → TTS path.
+### Install
 
-### 🛡️ Keystore AES-256-GCM & Zero Telemetry
+Download the [latest release](https://github.com/zmxnpquryet-gif/OffconAI/releases/latest), allow installation from the browser or file manager, then choose a model in Model Manager.
 
-Conversations and credentials live in an **Android Keystore AES-256-GCM** encrypted Room database with AEAD row binding. Zero telemetry, zero analytics, zero external API dependencies for text inference. Details in [🔒 Security & Privacy](#-security--privacy).
+### Build
 
-### 💎 Bespoke Glass Theme
-
-**Material3 stripped out entirely.** A first-party glass UI toolkit (`GlassTheme`, `GButtons`, `GControls`, `GOverlays`…) covers every screen, with instant EN / KO / ZH switching — no app restart required.
-
-### 🛡️ Android OOM Guard
-
-Estimates the real footprint (weights + KV cache + compute buffers) before mapping a model and shrinks the context instead of walking into an OOM kill. Detects mid-inference process kills, polls available RAM while generating, and stops safely before the LMK does. Details in [⚡ Engineering Highlights](#-engineering-highlights).
-
-### More engineering highlights
-
-- **Real-time hardware benchmarking** — prompt prefill speed (`promptSpeed` tokens/sec), generation decode speed (`tps`), and active context token counts on every message.
-- **Streaming reasoning state machine (`ReasoningStreamParser`)** — elegantly parses `<​think>` … `<​/think>` tags across token streaming chunks for reasoning models like DeepSeek-R1.
-- **Resilient mobile downloader** — foreground-service downloads with resume support, SHA-256 verification against hashes Hugging Face publishes, and truncated transfers never published as completed.
-
----
-
-## 🤗 Supported Models & Hardware
-
-| Model | Params | Recommended Quant | File Size (approx.) | Min. Device RAM | Runtime | Notes |
-| :--- | :---: | :--- | :---: | :---: | :--- | :--- |
-| **LFM3 Omni 2B** | 2.17B | Q4_K_M + mmproj Q8_0 | ~1.58 GB | 4 GB | llama.cpp | Native audio → text + speech, plus image/video input; no STT/TTS pipeline |
-| **LFM3** | 1.7B | Q4_K_M | ~1.02 GB | 3 GB | llama.cpp | Fast multilingual text model |
-| **LFM3-VL** | 2B | Q4_K_M + mmproj Q8_0 | ~1.22 GB | 3 GB | llama.cpp | Image understanding through the LFM3 projector |
-| **Qwen 3.5 0.8B** | 0.8B | Q4_K_M + mmproj F16 | ~0.69 GB | 3 GB | llama.cpp | 2026 compact hybrid-reasoning and vision model |
-| **Qwen 3.5 2B** | 2B | Q4_K_M + mmproj F16 | ~1.82 GB | 4 GB | llama.cpp | Balanced phone-class reasoning, vision and tool use |
-| **Qwen 3.5 4B** | 4B | Q4_K_M + mmproj F16 | ~3.18 GB | 6 GB | llama.cpp | Higher-quality variant for phones with more RAM |
-| **Gemma 4 E2B IT** | E2B | official QAT q4_0 + mmproj | ~4.04 GB | 6 GB | llama.cpp | Google's efficient on-device variant |
-| **Gemma 4 E4B IT** | E4B | official QAT q4_0 + mmproj | ~5.72 GB | 8 GB | llama.cpp | Larger Gemma 4 variant for high-memory phones/tablets |
-
-> **📋 Notes on the table**
->
-> - File sizes are typical GGUF Q4_K_M payloads; **Min. Device RAM** is the practical footprint including KV cache and compute buffers, as estimated by the app's OOM Guard before load. Actual numbers depend on context length.
-> - Generation speed is device-dependent and displayed live on every message (`promptSpeed` / `tps`): roughly 20+ tok/s for 1–1.5B models, ~10–15 tok/s for 3B, and ~5–10 tok/s for 7B on recent flagship-class SoCs in 4-bit. Use the in-app benchmark for your own device — the app never claims speed it didn't measure.
-> - Any compatible **GGUF** from Hugging Face can be added through llama.cpp; the list above is a curated starting point, not a whitelist.
-> - Native Omni voice is available for LFM3 Omni 2B. Text and vision models without native audio continue to use the separate on-device Whisper STT → LLM → TTS conversation path.
-
----
-
-## 🏛️ Architecture
-
-OffconAI Android currently integrates **llama.cpp** and **Google LiteRT-LM** behind the existing `LlmEngine` facade. The upstream llama.cpp engine is vendored as a pinned git submodule and builds from source with the app.
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                            UI (Compose)                              │
-│        Chat · Model Manager · API Server · Voice Mode · Settings     │
-│                     [ first-party Glass design system ]              │
-└──────────────────────────────────┬───────────────────────────────────┘
-                                   ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                           MainViewModel                              │
-│      chat sessions · MCP tool loop · voice loop · OOM guard          │
-└──────────────────────────────────┬───────────────────────────────────┘
-                                   ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                             LlmEngine                                │
-│         one abstraction · streaming · tokenization · cancel          │
-└───────┬───────────────────────────┬──────────────────────────┬───────┘
-        ▼                           ▼                          ▼
-┌───────────────────┐   ┌──────────────────────┐   ┌─────────────────────┐
-├───────────────────┤   ├──────────────────────┤   ├─────────────────────┤
-│ • GGUF quants     │   │ • Google mobile      │   │ • GGUF metadata     │
-│   (Q4_K_M, Q8_0,  │   │   binaries           │   │ • descriptor        │
-│   K-quants)       │   │ • Gemma-2,           │   │   inspection        │
-│ • Qwen, DeepSeek, │   │   FunctionGemma      │   │ • tensor layout     │
-│   Llama 3, LFM3   │   │ • GPU/NPU delegates  │   │   without payload   │
-│ • CPU threads;    │   │   where supported    │   │   allocation        │
-│   GPU only when   │   │   (automatic CPU     │   │ • feature and       │
-│   native backend  │   │   fallback)          │   │   schema validation │
-│   reports support │   │                      │   │                     │
-│ • mmproj vision   │   │ • low-power mobile   │   │                     │
-│   (Qwen2/LFM3-VL) │   │   inference          │   │                     │
-└─────────┬─────────┘   └──────────┬───────────┘   └──────────┬──────────┘
-          ▼                        ▼                          ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                            Hardware (SoC)                            │
-│   llama.cpp CPU (multi-thread) · LiteRT GPU/NPU where supported      │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-### Why Dual Runtimes?
-
-1. **Broad Model Compatibility (`llama.cpp` / GGUF)**
-   - Download and run tens of thousands of community quantized models (Q4_K_M, Q8_0, etc.) directly from Hugging Face.
-   - Reasoning models (DeepSeek-R1), GGUF chat templates, and vision towers (`mmproj`) all work through the same runtime.
-
-2. **Native Mobile Hardware Acceleration (`Google LiteRT-LM`)**
-   - Direct integration with Google's on-device AI runtime, deeply optimized for mobile SoCs (Snapdragon, MediaTek, Tensor, Exynos).
-   - High-throughput, thermal-efficient inference utilizing specialized NPU and GPU delegates.
-
----
-
-## 🌐 On-Device Ollama / OpenAI API Server
-
-Turn your Android phone or tablet into an autonomous, on-device AI server accessible from desktop applications, IDEs (VS Code, Cursor, Continue), and other local network devices.
-
-### Endpoints
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/tags` | List installed on-device models |
-| `POST` | `/api/generate` | Single-turn completion (Ollama spec) |
-| `POST` | `/api/chat` | Multi-turn conversational completion (Ollama spec) |
-| `POST` | `/api/show` | Model details for the active model |
-| `GET` | `/api/version` | Server version (reports Ollama-compatible `0.5.1`) |
-| `POST` | `/v1/chat/completions` | OpenAI API compatible endpoint |
-| `GET` | `/v1/models` | OpenAI model list |
-
-> Protocol notes: one request per connection (`Connection: close`); request bodies must carry `Content-Length` (chunked request bodies are answered with `411`).
-
-### Network & Access Controls
-
-- **Local Loopback (`127.0.0.1`) Isolation**: secure default mode preventing unauthorized external access.
-- **External Network (LAN) Toggle**: instantly bind to `0.0.0.0` with live socket rebinding, enabling access from any computer or device on your local Wi-Fi / LAN network.
-- **Bearer Token Authentication**: `sk-local-...` API keys, generated once and persisted on-device (regenerable from the API screen). No TLS: on LAN the bearer travels in plaintext HTTP, so use a trusted network or an SSH tunnel.
-- **Foreground Service**: the server keeps running after the app UI is closed (visible notification with a Stop action); killing the process stops it.
-
-### Quickstart: cURL
-
-```bash
-curl -X POST http://<YOUR_DEVICE_IP>:11434/api/generate \
-  -H "Authorization: Bearer <API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Hello from my terminal!", "stream": false}'
-```
-
-### Quickstart: VS Code Continue
-
-Install the [Continue](https://marketplace.visualstudio.com/items?itemName=Continue.continue) extension, enable the LAN toggle in the app's API screen, then add your phone as a provider:
-
-```json
-{
-  "models": [
-    {
-      "title": "OffconAI Android",
-      "provider": "ollama",
-      "model": "qwen2.5-3b",
-      "apiBase": "http://<YOUR_DEVICE_IP>:11434",
-      "apiKey": "sk-local-...",
-      "apiType": "openai"
-    }
-  ]
-}
-```
-
-The model id is the filename of the GGUF installed on the phone (without the `.gguf` extension) — check `GET /v1/models` or the API screen for the exact list. Any **OpenAI-compatible** client works the same way: point its base URL at `http://<YOUR_DEVICE_IP>:11434/v1`, supply the `sk-local-...` key, and pick the model.
-
----
-
-## 🔒 Security & Privacy
-
-1. **Keystore AES-256-GCM Encryption (`ChatCrypto`)**
-   - The key is generated non-exportable inside the **Android Keystore** (no hardcoded fallback, fail closed). Whether that Keystore is backed by a TEE/StrongBox is device-dependent: it is read back via `KeyInfo` and exposed by `keyProtection()` (the instrumented test logs the level per device) instead of being claimed.
-   - Authenticated Encryption (AEAD) with per-row binding: ciphertexts carry the conversation/message id and column as associated data, so a row copied into another slot fails authentication. Current format is `v2:`; older rows are upgraded in place on launch.
-   - Credentials (Hugging Face token, API server key, MCP bearer token) are stored only as Keystore ciphertext (`SecretPrefs`); legacy plaintext copies are migrated in a single atomic commit on next access and removed (model-file tokens are re-encrypted on next save). A broken ciphertext falls back to a surviving plaintext once, then re-encrypts; otherwise undecryptable values read as absent, never as valid.
-
-2. **Offline Text Inference & Private Storage**
-   - Zero telemetry, zero analytics, zero external API dependencies for text inference.
-   - Conversations and prompts remain strictly on your physical device in an encrypted Room SQLite database.
-   - Note: speech-to-text runs through a **local Whisper STT engine** (`LocalSttEngine`); speech synthesis uses the on-device **supertonic Korean neural voice** (`LocalTtsEngine`, downloaded once from Hugging Face) with the device's built-in speech service as fallback.
-
----
-
-## ⚡ Engineering Highlights
-
-<details>
-<summary><b>Real-Time Hardware Benchmarking</b></summary>
-
-- **llama.cpp (GGUF)**: `llamaCtx.tokenize()` native tokenization calls give token-count-based `promptSpeed` (prompt tokens/sec) and `tps` (generation tokens/sec).
-- **Google LiteRT-LM**: the C++ core's `conv.getBenchmarkInfo()` native metrics are wired in directly for error-free real-time readouts.
-
-</details>
-
-<details>
-<summary><b>Interactive Voice Mode</b></summary>
-
-- Hands-free conversational loop: **local Whisper STT** (on-device speech-to-text) → local LLM generation → Text-to-Speech (TTS) response.
-- Visualized with an animated reactive Voice Orb.
-
-</details>
-
-<details>
-<summary><b>Streaming Reasoning State Machine (<code>ReasoningStreamParser</code>)</b></summary>
-
-- Elegantly parses `<​think>` ... `<​/think>` tags across token streaming chunks for reasoning models like DeepSeek-R1: the buffer state machine separates the thinking process from the final answer even when the tags arrive split across streaming chunks.
-
-</details>
-
-<details>
-<summary><b>Model Context Protocol (MCP) Client (<code>McpClient</code>)</b></summary>
-
-- JSON-RPC client speaking Streamable HTTP first, legacy SSE second (with the session id kept and `notifications/initialized` sent on both paths; the legacy SSE stream stays open for the whole session and responses delivered there — including servers that answer only over SSE — are matched to their pending POST by request id). Responses are matched to their request id (stale or unsolicited frames are ignored), bodies and stream lines are size-capped, and tool names are sanitized before they reach the prompt. Optional bearer token, re-checked per request: https anywhere, or plain http only to loopback/private-LAN hosts (mDNS `.local` excluded — it resolves over broadcast, so it needs https); a token saved for one server is never re-sent to a changed address without re-entry, and https is never downgraded on redirect. Legacy-SSE endpoints on another origin are rejected, and `Mcp-Session-Id` is tracked per connection.
-- Tools are offered in the prompt and called with one `<​tool_call>{"name": ..., "arguments": {...}}<​/tool_call>` block per reply (only names the connected server advertised; first call per turn only; fenced code examples and unclosed blocks are never calls). Every call waits for an explicit approval dialog (no always-allow, auto-declines after 60 s); a decline ends the tool use and a second straight syntax error ends it too, at most 3 tool rounds per message. Requests are async and cancellable, so Stop never leaves an orphan running on the tool server. Results come back wrapped as untrusted `<tool_result>` data (all tag spellings neutralized), shown as a tool card with the recorded call, and fed to the next turn framed as external data. Whether a small local model calls tools well depends on the model.
-
-</details>
-
-<details>
-<summary><b>First-Party Glass Design System (<code>ui/glass</code>) &amp; In-App Multilingual UI</b></summary>
-
-- Material3 stripped out entirely; a custom glass UI toolkit (`GlassTheme`, `GButtons`, `GControls`, `GOverlays`...) covers every screen.
-- Instant real-time language switching (system default / English / 한국어 / 中文) from Settings — no app restart required.
-
-</details>
-
-<details>
-<summary><b>Out-of-Memory Protection (Android-aware)</b></summary>
-
-- Estimates the real footprint (weights + KV cache + compute buffers) before mapping a model and reduces the context window instead of walking into an OOM kill.
-- Writes an in-flight marker per generation: a marker found at startup means the previous process was killed mid-inference, which is recorded and lowers the memory-heavy settings for the next run (memory guard log + incidents in Settings).
-- Polls available RAM while generating and stops the run safely when the device runs critical, before the LMK kills the app.
-
-</details>
-
-<details>
-<summary><b>Type-Safe Navigation &amp; Resilient Mobile Downloader</b></summary>
-
-- **Type-safe global navigation (`AppScreen`)** & system gesture handling: every screen transition is managed by the `AppScreen` enum, and back gestures on sub-screens return naturally to the main chat.
-- Background foreground-service downloads with resume support (interrupted downloads pick up from part files; there is no manual pause button). SHA-256 is verified against the hash Hugging Face publishes (`X-Linked-ETag`, read across the redirect chain) when present — a mismatch deletes the file and fails the download, and files already on disk are re-checked (a mismatch re-downloads). Truncated transfers are never published as completed (byte counts are checked before the file is moved into place, and resume parts are discarded unless their sidecar proves they match the remote revision). Files with no published hash complete with a format check of the weight files only (tiny template sidecars are accepted as-is) and the download card says so instead of claiming verification.
-
-</details>
-
----
-
-
-## 🚀 Getting Started
-
-### 📲 Install the Release APK
-
-Grab the signed APK from the [**latest release**](https://github.com/zmxnpquryet-gif/Localllmandroid/releases/latest), allow "install unknown apps" for your browser or file manager, and install. Then:
-
-1. Open **Model Manager** and download a model (see [🤗 Supported Models](#-supported-models--hardware) for a starting point).
-2. Chat — or open the **API Server** screen, flip the LAN toggle, and point your desktop at `http://<phone-ip>:11434`.
-3. *(Optional)* Turn on **Voice Mode** for a fully hands-free, zero-cloud loop.
-
-### 🛠️ Build from Source
-
-<details open>
-<summary><b>Prerequisites</b></summary>
-
-- Android Studio Ladybug (2024.2.1+) or newer
-- JDK 17
-- Android SDK 36 (Min SDK 24)
-- Git submodule checkout: clone with `--recurse-submodules` or run `git submodule update --init --recursive`. `app/src/main/cpp/llama.cpp` is pinned to upstream v0.8.0 (b11960), the first release with LFM3 support
-- Target device with 64-bit ARM architecture (`arm64-v8a`) or `x86_64`
-- No manual native dependencies: the sherpa-onnx STT AAR (~50 MB) is not committed — Gradle fetches it automatically via the `fetchSherpaAar` task (pinned version + SHA-256) before every build
-
-</details>
-
-<details open>
-<summary><b>Gradle commands</b></summary>
-
-```bash
-# Compile Kotlin sources
-./gradlew compileDebugKotlin
-
-# Run unit test suite
+~~~bash
+git clone --recurse-submodules https://github.com/zmxnpquryet-gif/OffconAI.git
+cd OffconAI
+./gradlew assembleDebug
 ./gradlew testDebugUnitTest
+~~~
 
-# Assemble Release APK
-./gradlew assembleRelease
-```
+Requirements: JDK 17, Android SDK 36, NDK 27, and an arm64-v8a or x86_64 device. The native llama.cpp submodule is pinned to upstream v0.8.0 for LFM3 support.
 
-</details>
+### Local API
 
-<details>
-<summary><b>Release signing</b></summary>
+~~~bash
+curl http://<phone-ip>:11434/v1/models \
+  -H "Authorization: Bearer <local-api-key>"
+~~~
 
-Release builds are never debug-signed. Supply the upload keystore credentials either as
-environment variables (`KEYSTORE_PATH`, `STORE_PASSWORD`, `KEY_PASSWORD`, optional
-`KEY_ALIAS`) or — for local builds — in a gitignored `keystore.properties` at the
-repository root:
+The server exposes Ollama /api/* and OpenAI-compatible /v1/* endpoints. LAN binding is opt-in; HTTP traffic on a LAN is not encrypted.
 
-```properties
-storeFile=my-upload-key.jks
-storePassword=...
-keyAlias=upload
-keyPassword=...
-```
+## Project map
 
-Instrumented tests run against a connected device or emulator:
-`./gradlew connectedDebugAndroidTest`.
+~~~text
+app/       Android UI, llama.cpp/LiteRT runtimes, voice, storage, API server
+desktop/   Java 17 desktop editions and independent backend adapters
+docs/      Architecture, model catalog, UI direction, GitHub Pages
+~~~
 
-</details>
+## Contributing
 
----
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/UIUX.md](docs/UIUX.md) before changing architecture or interface patterns. Changes should preserve offline behavior, state the verification performed, and avoid capability claims that the runtime cannot prove.
 
-## 📄 License
+## License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
-
----
-
-<div align="center">
-
-**⭐ Star this repo if you believe your AI should run on your device — not someone else's server.**
-
-</div>
+Apache License 2.0. Model files retain their own licenses and are downloaded separately.

@@ -4,7 +4,7 @@ Thanks for your interest in contributing! Bug reports, feature requests, and pul
 
 ## Reporting bugs
 
-Please use the [bug report template](https://github.com/zmxnpquryet-gif/Localllmandroid/issues/new?template=bug_report.yml) and include:
+Please use the [bug report template](https://github.com/zmxnpquryet-gif/OffconAI/issues/new?template=bug_report.yml) and include:
 
 - Your device model and Android version
 - The model you were using (name and quantization)
@@ -13,7 +13,7 @@ Please use the [bug report template](https://github.com/zmxnpquryet-gif/Localllm
 
 ## Suggesting features
 
-Use the [feature request template](https://github.com/zmxnpquryet-gif/Localllmandroid/issues/new?template=feature_request.yml).
+Use the [feature request template](https://github.com/zmxnpquryet-gif/OffconAI/issues/new?template=feature_request.yml).
 
 ## Building from source
 
@@ -53,7 +53,7 @@ keytool -genkeypair -v -keystore debug.keystore \
 - Keep changes focused; one feature or fix per PR
 - Make sure `./gradlew :app:testDebugUnitTest :desktop:test` passes
 - Follow the existing Kotlin code style
-- Update the README (English and Korean) if you change user-facing behavior
+- Update the English, Korean, and Chinese README files if you change user-facing behavior
 
 ## Code of conduct
 

@@ -90,22 +90,6 @@ fun ChatInputBar(
         showAttachmentSheet = false
     }
 
-    val docPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            onSetAttachment(
-                ChatAttachment(
-                    uriString = uri.toString(),
-                    mimeType = "application/octet-stream",
-                    fileName = uri.lastPathSegment ?: "document",
-                    isImage = false
-                )
-            )
-        }
-        showAttachmentSheet = false
-    }
-
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -263,13 +247,13 @@ fun ChatInputBar(
                 )
             }
 
-            // Sparkle Voice Mode Quick Trigger
+            // Hands-free voice mode quick trigger
             GIconButton(
                 onClick = onOpenVoiceMode,
                 modifier = Modifier.size(36.dp)
             ) {
                 GIcon(
-                    imageVector = GIcons.AutoAwesome,
+                    imageVector = GIcons.VoiceMode,
                     contentDescription = stringResource(R.string.nav_voice_mode),
                     tint = GlassTheme.colors.onSurfaceVariant,
                     modifier = Modifier.size(19.dp)
@@ -372,30 +356,6 @@ fun ChatInputBar(
                 )
                 GText(
                     text = stringResource(R.string.chat_attach_image_mmproj_hint),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        GOptionRow(onClick = { docPicker.launch("*/*") }) {
-            GIcon(
-                imageVector = GIcons.Description,
-                contentDescription = null,
-                tint = GlassTheme.colors.primary,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                GText(
-                    text = stringResource(R.string.chat_attach_document),
-                    style = GlassTheme.type.bodyLarge,
-                    color = GlassTheme.colors.onSurface
-                )
-                GText(
-                    text = stringResource(R.string.chat_attach_document_hint),
                     style = GlassTheme.type.bodySmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="620" viewBox="0 0 1600 620" fill="none" role="img" aria-label="OffconAI — local intelligence on your terms">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="0" x2="1520" y2="620" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1020"/><stop offset=".58" stop-color="#111A30"/><stop offset="1" stop-color="#0B1020"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="96" y1="84" x2="264" y2="252" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A9B6FF"/><stop offset="1" stop-color="#5D73F3"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0" cy="0" r="1" gradientTransform="translate(1286 214) rotate(90) scale(460 520)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#687CFF" stop-opacity=".32"/><stop offset="1" stop-color="#687CFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="620" rx="42" fill="url(#bg)"/>
+  <circle cx="1316" cy="224" r="386" fill="url(#halo)"/>
+  <path d="M960 88h420M1018 128h362M1108 168h272" stroke="#7D91FF" stroke-opacity=".14" stroke-width="2"/>
+  <rect x="96" y="80" width="172" height="172" rx="46" fill="#111A30"/>
+  <path d="M215 126h-71c-29.3 0-53 23.7-53 53v7c0 29.3 23.7 53 53 53h70c24.3 0 44-19.7 44-44v-18" fill="none" stroke="url(#mark)" stroke-width="22" stroke-linecap="round"/>
+  <path d="M168 186h58" stroke="#F4F6FB" stroke-width="11" stroke-linecap="round"/>
+  <circle cx="224" cy="186" r="7" fill="#B9F8D0"/>
+  <text x="96" y="348" fill="#F7F8FB" font-family="Inter, Pretendard, Segoe UI, sans-serif" font-size="94" font-weight="780" letter-spacing="-5">OffconAI</text>
+  <text x="100" y="405" fill="#9AA8C6" font-family="Inter, Pretendard, Segoe UI, sans-serif" font-size="24" font-weight="650" letter-spacing="4">LOCAL INTELLIGENCE. YOUR TERMS.</text>
+  <text x="100" y="487" fill="#F7F8FB" font-family="Georgia, 'Times New Roman', serif" font-size="39">AI that stays with you.</text>
+  <text x="100" y="535" fill="#B5BFD2" font-family="Inter, Pretendard, Segoe UI, sans-serif" font-size="21">Run language, vision, and voice models on hardware you control.</text>
+  <g transform="translate(100 570)">
+    <rect width="170" height="38" rx="19" fill="#19233D"/>
+    <text x="85" y="25" text-anchor="middle" fill="#DCE3FF" font-family="Inter, Segoe UI, sans-serif" font-size="15">Android + Desktop</text>
+    <rect x="184" width="154" height="38" rx="19" fill="#19233D"/>
+    <text x="261" y="25" text-anchor="middle" fill="#DCE3FF" font-family="Inter, Segoe UI, sans-serif" font-size="15">Zero telemetry</text>
+    <rect x="352" width="178" height="38" rx="19" fill="#19233D"/>
+    <text x="441" y="25" text-anchor="middle" fill="#DCE3FF" font-family="Inter, Segoe UI, sans-serif" font-size="15">Open-weight models</text>
+  </g>
+  <g transform="translate(952 96)">
+    <rect width="554" height="428" rx="26" fill="#F6F7FA"/>
+    <rect x="15" y="15" width="524" height="398" rx="18" fill="#0B1020"/>
+    <circle cx="42" cy="43" r="5" fill="#FF8A80"/><circle cx="60" cy="43" r="5" fill="#FFD36A"/><circle cx="78" cy="43" r="5" fill="#B9F8D0"/>
+    <rect x="102" y="30" width="222" height="26" rx="13" fill="#18223A"/>
+    <text x="213" y="48" text-anchor="middle" fill="#D6DCE9" font-family="Inter, sans-serif" font-size="12">OffconAI / local session</text>
+    <text x="52" y="126" fill="#F7F8FB" font-family="Georgia, 'Times New Roman', serif" font-size="36">Start with any</text>
+    <text x="52" y="168" fill="#F7F8FB" font-family="Georgia, 'Times New Roman', serif" font-size="36">conversation.</text>
+    <rect x="52" y="206" width="441" height="58" rx="18" fill="#172138"/><circle cx="81" cy="235" r="11" fill="#687CFF"/>
+    <text x="103" y="241" fill="#CFD7E7" font-family="Inter, sans-serif" font-size="15">Explain this image locally</text>
+    <rect x="52" y="278" width="441" height="58" rx="18" fill="#172138"/><circle cx="81" cy="307" r="11" fill="#687CFF"/>
+    <text x="103" y="313" fill="#CFD7E7" font-family="Inter, sans-serif" font-size="15">Review Markdown and code</text>
+    <rect x="42" y="359" width="470" height="50" rx="25" fill="#F7F8FB"/>
+    <text x="70" y="390" fill="#77839B" font-family="Inter, sans-serif" font-size="14">Ask anything, privately...</text>
+    <circle cx="482" cy="384" r="17" fill="#687CFF"/>
+    <path d="M476 384h12M483 379l5 5-5 5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

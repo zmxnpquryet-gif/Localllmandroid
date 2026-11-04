@@ -9,7 +9,7 @@ The Android model picker is curated for current small GGUF models that fit phone
 - Repository: [LiquidAI/LFM3-Omni-2B-GGUF](https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF)
 - Main GGUF: LFM3-Omni-2B-Q4_K_M.gguf (1,099,630,080 bytes)
 - Projector: mmproj-LFM3-Omni-2B-Q8_0.gguf (506,842,528 bytes)
-- Input: text, images, video, and 16 kHz PCM audio
+- Input: text, images, and 16 kHz PCM audio. The model card also lists video, but the current Android picker accepts images only.
 - Output: text and 24 kHz PCM speech
 - License: LFM Open License v1.0
 - Runtime: llama.cpp v0.8.0 or newer

@@ -120,11 +120,15 @@ object GIcons {
         stroke("M4.5 19c1-5 4-8.5 7.5-8.5S18.5 14 19.5 19M12 14.5l4-4.5", "M10.8 15.5h2.4")
     }
     val Layers: ImageVector by lazy { stroke("M12 3l9 5-9 5-9-5zM3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5") }
-    val AutoAwesome: ImageVector by lazy {
-        fill("M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z",
-            "M19 2l.9 2.6 2.6.9-2.6.9L19 9l-.9-2.6-2.6-.9 2.6-.9z")
+    val Psychology: ImageVector by lazy {
+        stroke(
+            "M9 4C7 4 6 5.4 6 7c-2 .4-3 1.8-3 3.4 0 1.3.8 2.5 2 3-.5 2 .8 3.8 2.8 4H9v2.5M15 4h-2v16.9h2V18h1c2 0 3.5-1.6 3.5-3.5 0-1.2-.6-2.3-1.5-2.8 1-.5 1.5-1.4 1.5-2.7 0-2-1.5-3.5-3.5-3.5H15",
+            "M7 10h2M15 10h2M8 14h2M15 14h2"
+        )
     }
-    val Psychology: ImageVector get() = AutoAwesome
+    val VoiceMode: ImageVector by lazy {
+        stroke("M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4")
+    }
     val Info: ImageVector by lazy {
         stroke("M12 3c5 0 9 4 9 9s-4 9-9 9-9-4-9-9 4-9 9-9z", "M12 11v5", "M10.8 7.5h2.4")
     }

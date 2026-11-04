@@ -1057,11 +1057,11 @@ private fun FdmAddBundleDialog(
                         onClick = {
                             modelNameInput = "Phi-4 Mini (LiteRT)"
                             runtimeChoice = ModelRuntimeType.LITE_RT
-                            mainUrlInput = "https://huggingface.co/litert-community/Phi-4-mini-instruct/resolve/main/phi-4-mini-instruct-gpu.bin"
-                            customFileNameInput = "phi-4-mini-instruct-gpu.bin"
+                            mainUrlInput = "https://huggingface.co/litert-community/Phi-4-mini-instruct/resolve/main/Phi-4-mini-instruct_multi-prefill-seq_q8_ekv4096.litertlm"
+                            customFileNameInput = "Phi-4-mini-instruct_multi-prefill-seq_q8_ekv4096.litertlm"
                             visionUrlInput = ""
                             mtpUrlInput = ""
-                            templateUrlInput = "https://huggingface.co/litert-community/Phi-4-mini-instruct/raw/main/tokenizer_config.json"
+                            templateUrlInput = ""
                             hasEmbeddedVisionInput = false
                             supportsReasoningInput = true
                         },

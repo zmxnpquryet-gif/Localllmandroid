@@ -210,12 +210,10 @@
     <string name="chat_empty_features">支持 GGUF / LiteRT • 视觉与加速</string>
     <string name="chat_reasoning_slider_title">实时推理强度控制</string>
     <string name="chat_reasoning_effort_label">推理强度：%1$s</string>
-    <string name="chat_attach_sheet_title">添加文件与媒体</string>
+    <string name="chat_attach_sheet_title">添加图片</string>
     <string name="chat_attach_image">选择照片与图片（支持视觉）</string>
     <string name="chat_attach_image_mmproj_hint">mmproj 视觉编码器将自动启用</string>
     <string name="chat_attach_text_only">纯文本模型</string>
-    <string name="chat_attach_document">添加文档与文本文件</string>
-    <string name="chat_attach_document_hint">注入 TXT、PDF 和代码文件内容</string>
     <string name="chat_model_download_required">需要下载模型</string>
     <string name="chat_model_manage">下载并管理模型</string>
     <string name="chat_local_models">本地模型</string>
@@ -362,7 +360,7 @@
     <string name="voice_tts_preview_text">你好，这是本地韩语神经语音。</string>
     <string name="voice_stt_delete">删除</string>
     <string name="voice_mic_desc">麦克风</string>
-    <string name="voice_native_audio_unavailable">当前版本使用设备端 STT → LLM → TTS。尚未包含原生双向 Omni 音频模型适配器。</string>
+    <string name="voice_native_audio_unavailable">此模型使用设备端 STT → LLM → TTS 流水线。直接音频输入与语音输出请选择 Native Voice 模型。</string>
     <string name="voice_dialogue_start">开始对话</string>
     <string name="voice_stt_ondevice">设备端语音识别（Whisper tiny • 多语言）</string>
     <string name="voice_stt_last_local">上次识别：设备端（离线）</string>

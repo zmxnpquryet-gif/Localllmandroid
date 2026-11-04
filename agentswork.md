@@ -303,3 +303,23 @@
   - assembleDebug succeeded.
   - PromptFormatterTest, ModelStorageRoutingTest, OmniAudioConversationTest, and StringResourceParityTest passed.
   - WSA visual check showed theme selection changing the active palette.
+
+## 2026-11-04 - OffconAI Repository Rebrand and GitHub Pages Rebuild
+
+- Read the supplied rebranding brief and project instructions before changing files. Preserved the Android application ID and all encrypted-data/signing identifiers for upgrade compatibility.
+- Replaced the README landing page with a concise, screenshot-led OffconAI presentation and updated the Korean and Chinese READMEs through an independent subagent. The documents now use the planned OffconAI repository and Pages URLs, current model families, native-audio boundaries, and accurate attachment behavior.
+- Rebuilt docs/index.html from the existing purple glass page into a responsive product site with a local font set, layered app previews, runtime and privacy statistics, a feature grid, a dedicated native-audio section, current model catalog, Android/Desktop editions, setup guidance, and accessible reduced-motion behavior.
+- Added a GitHub Actions Pages deployment workflow that uploads docs/ directly and deploys it through the official Pages actions on main-branch documentation changes.
+- Replaced the generic sparkle brand mark with a geometric open-loop OffconAI mark. The same mark now drives the README banner, Pages favicon/logo, adaptive Android launcher foreground, legacy launcher WebP assets, drawer identity, assistant avatar, and the voice-mode trigger (changed from a sparkle to a waveform).
+- Added a theme-token-backed OffconMark composable. The launcher resources use a 108dp adaptive icon plus density-specific square and round WebP fallbacks for API 24-25.
+- Removed the attachment sheet's nonfunctional document/code/PDF option. The current engine forwards image paths only, so the UI and localized copy now state the implemented image-attachment boundary instead of claiming text context injection.
+- Corrected stale native-Omni copy in all three locales, removed video input claims from app-facing model descriptions, aligned the page and READMEs to tap-to-record/tap-to-submit one-turn behavior, and clarified that continuous duplex audio is still future work.
+- Fixed the Phi-4 Mini LiteRT preset: replaced two verified 404 URLs with the published Phi-4-mini-instruct_multi-prefill-seq_q8_ekv4096.litertlm artifact and removed the nonexistent tokenizer template URL.
+- Updated contribution links, license attribution, architecture notes, catalog verification wording, OG metadata, and the UI theme policy to remove stale Localllmandroid claims outside intentional compatibility history.
+- Verification:
+  - app assembleDebug and testDebugUnitTest succeeded.
+  - Test reports contain 27 suites and 179/179 passing tests, with 0 failures, 0 errors, and 0 skipped.
+  - Fresh debug APK installed over the existing OffconAI app on WSA at localhost:58526.
+  - Computer Use verified the new launcher/app identity, image-only attachment sheet, home, conversation, and model-manager flows.
+  - The GitHub Pages page was served locally in the in-app browser; all local links and images resolved, self-hosted fonts loaded, and the 599px viewport had no horizontal overflow.
+  - A screenshot of the updated web page was reviewed at narrow responsive width; the full-page layout and layered previews rendered without broken assets.

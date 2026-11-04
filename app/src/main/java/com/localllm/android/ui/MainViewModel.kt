@@ -1576,7 +1576,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 conversation.open()
                 this@MainViewModel.nativeOmniConversation = conversation
                 _nativeOmniTranscript.value = ""
-                _engineStatusMessage.value = "LFM3 Omni · speaking and listening directly"
+                _engineStatusMessage.value = "LFM3 Omni · native audio · one buffered turn"
 
                 val finished = CompletableDeferred<Unit>()
                 val eventJob = launch(Dispatchers.IO) {

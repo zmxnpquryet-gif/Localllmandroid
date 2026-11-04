@@ -210,12 +210,10 @@
     <string name="chat_empty_features">GGUF / LiteRT support • Vision and acceleration</string>
     <string name="chat_reasoning_slider_title">Real-time reasoning effort control</string>
     <string name="chat_reasoning_effort_label">Reasoning Effort: %1$s</string>
-    <string name="chat_attach_sheet_title">Attach Files &amp; Media</string>
+    <string name="chat_attach_sheet_title">Attach an image</string>
     <string name="chat_attach_image">Choose Photos &amp; Images (Vision supported)</string>
     <string name="chat_attach_image_mmproj_hint">mmproj vision encoder auto-enabled</string>
     <string name="chat_attach_text_only">Text-only model</string>
-    <string name="chat_attach_document">Attach Documents &amp; Text Files</string>
-    <string name="chat_attach_document_hint">Inject TXT, PDF and code file context</string>
     <string name="chat_model_download_required">Model download required</string>
     <string name="chat_model_manage">Download &amp; manage models</string>
     <string name="chat_local_models">Local models</string>
@@ -376,7 +374,7 @@
     <string name="voice_tts_preview_text">Hello. This is the local Korean neural voice.</string>
     <string name="voice_stt_delete">Delete</string>
     <string name="voice_mic_desc">Microphone</string>
-    <string name="voice_native_audio_unavailable">This build uses on-device STT → LLM → TTS. Native duplex Omni audio model adapters are not included yet.</string>
+    <string name="voice_native_audio_unavailable">This model uses the on-device STT → LLM → TTS pipeline. Choose a Native Voice model for direct audio input and speech output.</string>
     <string name="voice_dialogue_start">Start Conversation</string>
     <string name="voice_stt_ondevice">On-device STT (Whisper tiny • multilingual)</string>
     <string name="voice_stt_last_local">Last recognition: on-device (offline)</string>

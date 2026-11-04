@@ -112,7 +112,7 @@ object ModelCatalog {
             nativeAudioProtocol = "LFM3-Omni / PCM16 16kHz input / 24kHz output",
             mainModelUrl = "https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF/resolve/main/LFM3-Omni-2B-Q4_K_M.gguf",
             visionTowerUrl = "https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF/resolve/main/mmproj-LFM3-Omni-2B-Q8_0.gguf",
-            description = "Liquid AI의 2.17B end-to-end Omni 모델. 텍스트·이미지·영상·16kHz 음성을 직접 이해하고 텍스트와 24kHz 음성으로 응답합니다. Q8_0 프로젝터는 공식 llama.cpp 가이드가 사용하는 구성입니다. LFM Open License v1.0.",
+            description = "Liquid AI의 2.17B end-to-end Omni 모델. 텍스트·이미지와 16kHz 음성을 직접 이해하고 텍스트와 24kHz 음성으로 응답합니다. Q8_0 프로젝터는 공식 llama.cpp 가이드가 사용하는 구성입니다. LFM Open License v1.0.",
             quantization = "Q4_K_M"
         ),
         LlmModel(
@@ -159,7 +159,7 @@ object ModelCatalog {
             mmprojSizeBytes = 204_987_232L,
             mainModelUrl = "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf",
             visionTowerUrl = "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/mmproj-F16.gguf",
-            description = "Qwen 3.5 0.8B Q4_K_M. 2026 compact hybrid-reasoning model with image/video input and Korean support. Verified Unsloth GGUF; Apache-2.0.",
+            description = "Qwen 3.5 0.8B Q4_K_M. 2026 compact hybrid-reasoning model with image input and Korean support. Verified Unsloth GGUF; Apache-2.0.",
             quantization = "Q4_K_M"
         ),
         LlmModel(
@@ -176,7 +176,7 @@ object ModelCatalog {
             mmprojSizeBytes = 668_227_264L,
             mainModelUrl = "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf",
             visionTowerUrl = "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/mmproj-F16.gguf",
-            description = "Qwen 3.5 2B Q4_K_M. Balanced phone-class model with adaptive reasoning, vision/video understanding, tools and multilingual output. Apache-2.0.",
+            description = "Qwen 3.5 2B Q4_K_M. Balanced phone-class model with adaptive reasoning, image understanding, tools and multilingual output. Apache-2.0.",
             quantization = "Q4_K_M"
         ),
         LlmModel(

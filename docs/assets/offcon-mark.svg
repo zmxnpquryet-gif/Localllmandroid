@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="OffconAI">
+  <defs>
+    <linearGradient id="offcon-gradient" x1="108" y1="92" x2="409" y2="426" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9EADFF"/>
+      <stop offset="1" stop-color="#5D73F3"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="124" fill="#0B1020"/>
+  <path d="M375 166H219c-64.6 0-117 52.4-117 117v9c0 64.6 52.4 117 117 117h156c54.1 0 98-43.9 98-98v-40" fill="none" stroke="url(#offcon-gradient)" stroke-width="48" stroke-linecap="round"/>
+  <path d="M272 256h123" fill="none" stroke="#F4F6FB" stroke-width="24" stroke-linecap="round"/>
+  <circle cx="395" cy="256" r="16" fill="#B9F8D0"/>
+</svg>

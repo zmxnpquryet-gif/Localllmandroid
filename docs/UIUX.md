@@ -11,7 +11,7 @@ This pass intentionally excludes Work mode. The app keeps one primary chat flow,
 
 ## What OffconAI uses
 
-1. A single dark slate canvas with no decorative card borders.
+1. A theme-aware canvas, with the dark slate treatment as the primary visual direction and a light palette available.
 2. One primary message composer with attachment, microphone, and voice actions.
 3. A short local-first status statement and three clearly differentiated start actions.
 4. A drawer hierarchy with recent conversations separated from tools.

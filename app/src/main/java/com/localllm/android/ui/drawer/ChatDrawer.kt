@@ -43,6 +43,7 @@ import com.localllm.android.ui.glass.GText
 import com.localllm.android.ui.glass.GTextButton
 import com.localllm.android.ui.glass.GTextField
 import com.localllm.android.ui.glass.GlassTheme
+import com.localllm.android.ui.glass.OffconMark
 
 @Composable
 fun ChatDrawer(
@@ -85,20 +86,7 @@ fun ChatDrawer(
                 .padding(horizontal = 20.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(GlassTheme.colors.primary),
-                contentAlignment = Alignment.Center
-            ) {
-                GIcon(
-                    imageVector = GIcons.AutoAwesome,
-                    contentDescription = null,
-                    tint = GlassTheme.colors.onPrimary,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+            OffconMark(modifier = Modifier.size(36.dp))
             Spacer(modifier = Modifier.width(12.dp))
             Column {
                 GText(

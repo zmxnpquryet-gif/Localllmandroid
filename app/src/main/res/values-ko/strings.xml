@@ -210,12 +210,10 @@
     <string name="chat_empty_features">GGUF / LiteRT 지원 • 비전 및 가속 지원</string>
     <string name="chat_reasoning_slider_title">실시간 추론 깊이 (Reasoning Effort) 조절</string>
     <string name="chat_reasoning_effort_label">추론 깊이: %1$s</string>
-    <string name="chat_attach_sheet_title">파일 및 미디어 첨부</string>
+    <string name="chat_attach_sheet_title">이미지 첨부</string>
     <string name="chat_attach_image">사진 및 이미지 선택 (Vision 지원)</string>
     <string name="chat_attach_image_mmproj_hint">mmproj 비전 인코더 자동 활성화</string>
     <string name="chat_attach_text_only">텍스트 전용 모델</string>
-    <string name="chat_attach_document">문서 및 텍스트 파일 첨부</string>
-    <string name="chat_attach_document_hint">TXT, PDF, 코드 파일 콘텍스트 주입</string>
     <string name="chat_model_download_required">모델 다운로드 필요</string>
     <string name="chat_model_manage">모델 다운로드 및 관리</string>
     <string name="chat_local_models">로컬 모델 목록</string>
@@ -376,7 +374,7 @@
     <string name="voice_tts_preview_text">안녕하세요. 로컬 한국어 신경망 음성입니다.</string>
     <string name="voice_stt_delete">삭제</string>
     <string name="voice_mic_desc">마이크</string>
-    <string name="voice_native_audio_unavailable">이 빌드는 기기 내 STT → LLM → TTS를 사용합니다. 네이티브 양방향 Omni 오디오 모델 어댑터는 아직 포함되지 않았습니다.</string>
+    <string name="voice_native_audio_unavailable">이 모델은 기기 내 STT → LLM → TTS 파이프라인을 사용합니다. 직접 오디오 입력과 음성 출력에는 Native Voice 모델을 선택하세요.</string>
     <string name="voice_dialogue_start">대화 시작</string>
     <string name="voice_stt_ondevice">온디바이스 STT (Whisper tiny • 다국어)</string>
     <string name="voice_stt_last_local">마지막 인식: 로컬 (오프라인)</string>

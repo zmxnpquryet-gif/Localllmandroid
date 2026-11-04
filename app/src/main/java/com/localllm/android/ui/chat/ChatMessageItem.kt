@@ -37,6 +37,7 @@ import com.localllm.android.ui.glass.GIconButton
 import com.localllm.android.ui.glass.GIcons
 import com.localllm.android.ui.glass.GText
 import com.localllm.android.ui.glass.GlassTheme
+import com.localllm.android.ui.glass.OffconMark
 import com.localllm.android.ui.markdown.MarkdownText
 
 @Composable
@@ -158,22 +159,10 @@ fun ChatMessageItem(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top
             ) {
-                // ChatGPT spark avatar
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(GlassTheme.colors.surfaceVariant)
-                        ,
-                    contentAlignment = Alignment.Center
-                ) {
-                    GIcon(
-                        imageVector = GIcons.AutoAwesome,
-                        contentDescription = "AI",
-                        tint = GlassTheme.colors.onPrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
+                OffconMark(
+                    modifier = Modifier.size(30.dp),
+                    contentDescription = "OffconAI"
+                )
 
                 Spacer(modifier = Modifier.width(10.dp))
 
