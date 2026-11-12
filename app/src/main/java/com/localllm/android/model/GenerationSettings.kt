@@ -26,6 +26,16 @@ data class GenerationSettings(
     val apiServerRequireAuth: Boolean = true, // Require Bearer API key for OllamaApiServer
     val mcpServerUrl: String = "",
     val isMcpEnabled: Boolean = false,
+    /**
+     * Tool calling. Off skips the tools block in the prompt and never parses calls:
+     * a low-end device saves the prefill that the tool schemas would cost.
+     */
+    val toolCallsEnabled: Boolean = true,
+    /**
+     * The app's bundled instruction prompt. Off sends no system message unless tools
+     * or reasoning instructions need one, which cuts prefill on weak hardware.
+     */
+    val builtInSystemPromptEnabled: Boolean = true,
     val darkModePreference: String = "dark", // "system", "dark", "light"
     val themeColorName: String = "artistic", // "artistic", "liquid", "chatgpt", "cyber", "obsidian", "amber", "frost"
     val languagePreference: String = "system", // "system", "en", "ko", "zh"

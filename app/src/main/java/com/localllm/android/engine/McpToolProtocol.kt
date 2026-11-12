@@ -50,6 +50,14 @@ object McpToolProtocol {
     /** Mistral's tool-call announcement. */
     const val MISTRAL_OPEN = "[TOOL_CALLS]"
 
+    /** MiniCPM5's XML call syntax: <function name="x"><param name="y">v</param></function>. */
+    const val MINICPM5_OPEN = "<function name=\""
+    const val MINICPM5_CLOSE = "</function>"
+    private const val PARAM_OPEN = "<param name=\""
+    private const val PARAM_CLOSE = "</param>"
+    private const val CDATA_OPEN = "<![CDATA["
+    private const val CDATA_CLOSE = "]]>"
+
     /** Hard cap on chained tool calls per user message. */
     const val MAX_TOOL_ROUNDS = 3
 
@@ -59,6 +67,7 @@ object McpToolProtocol {
     /** Dialects the parser knows, in recovery order. */
     private val DIALECTS = listOf(
         ToolCallTemplate.HERMES,
+        ToolCallTemplate.MINICPM5,
         ToolCallTemplate.LLAMA3_JSON,
         ToolCallTemplate.MISTRAL,
         ToolCallTemplate.PLAIN_JSON
@@ -116,6 +125,11 @@ object McpToolProtocol {
         ToolCallTemplate.PLAIN_JSON ->
             "To call a tool, reply with exactly one JSON object and nothing else:\n" +
                 "{\"name\": \"<tool name>\", \"arguments\": {<json arguments>}}"
+
+        ToolCallTemplate.MINICPM5 ->
+            "To call a tool, reply with exactly one XML function block and nothing after it:\n" +
+                "<function name=\"<tool name>\"><param name=\"<argument name>\">value</param></function>\n" +
+                "Wrap a value in <![CDATA[...]]> when it contains <, & or a newline."
 
         ToolCallTemplate.NONE -> ""
 
@@ -226,6 +240,25 @@ object McpToolProtocol {
                 "$MISTRAL_OPEN [{\"name\":$quotedName,\"arguments\":$args}]"
             ToolCallTemplate.PLAIN_JSON ->
                 "{\"name\":$quotedName,\"arguments\":$args}"
+            ToolCallTemplate.MINICPM5 -> {
+                val sb = StringBuilder(MINICPM5_OPEN).append(name).append("\">")
+                val obj = try {
+                    JSONObject(args)
+                } catch (_: Exception) {
+                    JSONObject()
+                }
+                for (key in obj.keys()) {
+                    val value = obj.optString(key)
+                    sb.append(PARAM_OPEN).append(sanitizeName(key)).append("\">")
+                    if (value.contains('<') || value.contains('&') || value.contains('\n')) {
+                        sb.append(CDATA_OPEN).append(value).append(CDATA_CLOSE)
+                    } else {
+                        sb.append(value)
+                    }
+                    sb.append(PARAM_CLOSE)
+                }
+                sb.append(MINICPM5_CLOSE).toString()
+            }
             ToolCallTemplate.NONE -> ""
             else -> "$OPEN{\"name\":$quotedName,\"arguments\":$args}$CLOSE"
         }
@@ -278,6 +311,7 @@ object McpToolProtocol {
 
     private fun markerOf(template: ToolCallTemplate): String? = when (template) {
         ToolCallTemplate.HERMES -> OPEN
+        ToolCallTemplate.MINICPM5 -> MINICPM5_OPEN
         ToolCallTemplate.LLAMA3_JSON -> LLAMA_TAG
         ToolCallTemplate.MISTRAL -> MISTRAL_OPEN
         else -> null
@@ -291,6 +325,7 @@ object McpToolProtocol {
 
     private fun find(text: String, template: ToolCallTemplate): Found = when (template) {
         ToolCallTemplate.HERMES -> findHermes(text)
+        ToolCallTemplate.MINICPM5 -> findMiniCpm5(text)
         ToolCallTemplate.LLAMA3_JSON -> findTaggedJson(text)
         ToolCallTemplate.MISTRAL -> findMistral(text)
         ToolCallTemplate.PLAIN_JSON -> findPlainJson(text)
@@ -314,6 +349,74 @@ object McpToolProtocol {
                 open
             )
         return Found.Match(obj, open, close + CLOSE.length)
+    }
+
+    /**
+     * MiniCPM5 asks for tools with XML instead of JSON:
+     * `<function name="get_weather"><param name="city">Seoul</param></function>`,
+     * with `<![CDATA[...]]>` around values that contain `<`, `&` or newlines.
+     */
+    private fun findMiniCpm5(text: String): Found {
+        val open = indexOfOutsideFences(text, MINICPM5_OPEN, 0)
+        if (open < 0) return Found.Missing
+        val nameStart = open + MINICPM5_OPEN.length
+        val nameEnd = text.indexOf('"', nameStart)
+        if (nameEnd < 0) {
+            return Found.Broken(
+                "The <function> tag is missing its closing quote. Emit the whole call again.",
+                open
+            )
+        }
+        val name = text.substring(nameStart, nameEnd).trim()
+        if (!NAME_OK.matches(name)) {
+            return Found.Broken(
+                "The function name may only contain letters, digits, '_', '-' and '.'.",
+                open
+            )
+        }
+        val tagEnd = text.indexOf('>', nameEnd)
+        if (tagEnd < 0) {
+            return Found.Broken("The <function> tag was not closed with '>'.", open)
+        }
+        val close = indexOfOutsideFences(text, MINICPM5_CLOSE, tagEnd + 1)
+        if (close < 0) {
+            return Found.Broken(
+                "The tool call block was not closed with </function>. Emit the whole block again.",
+                open
+            )
+        }
+
+        val body = text.substring(tagEnd + 1, close)
+        val args = JSONObject()
+        var cursor = 0
+        while (true) {
+            val paramOpen = body.indexOf(PARAM_OPEN, cursor)
+            if (paramOpen < 0) break
+            val paramNameStart = paramOpen + PARAM_OPEN.length
+            val paramNameEnd = body.indexOf('"', paramNameStart)
+            if (paramNameEnd < 0) {
+                return Found.Broken("A <param> tag is missing its closing quote.", open)
+            }
+            val paramName = body.substring(paramNameStart, paramNameEnd).trim()
+            if (paramName.isEmpty()) return Found.Broken("A <param> tag has no name.", open)
+            val paramTagEnd = body.indexOf('>', paramNameEnd)
+            if (paramTagEnd < 0) {
+                return Found.Broken("A <param> tag was not closed with '>'.", open)
+            }
+            val paramClose = body.indexOf(PARAM_CLOSE, paramTagEnd + 1)
+            if (paramClose < 0) {
+                return Found.Broken("A <param> block was not closed with </param>.", open)
+            }
+            var value = body.substring(paramTagEnd + 1, paramClose)
+            if (value.startsWith(CDATA_OPEN) && value.endsWith(CDATA_CLOSE)) {
+                value = value.substring(CDATA_OPEN.length, value.length - CDATA_CLOSE.length)
+            }
+            args.put(paramName, value)
+            cursor = paramClose + PARAM_CLOSE.length
+        }
+
+        val obj = JSONObject().put("name", name).put("arguments", args)
+        return Found.Match(obj, open, close + MINICPM5_CLOSE.length)
     }
 
     private fun findTaggedJson(text: String): Found {

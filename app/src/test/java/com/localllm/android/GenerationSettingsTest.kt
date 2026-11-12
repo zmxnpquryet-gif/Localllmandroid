@@ -59,6 +59,15 @@ class GenerationSettingsTest {
     }
 
     @Test
+    fun lowEndToggles_defaultToFullPrompt() {
+        val settings = GenerationSettings()
+        assertTrue(settings.toolCallsEnabled)
+        assertTrue(settings.builtInSystemPromptEnabled)
+        assertFalse(settings.copy(toolCallsEnabled = false).toolCallsEnabled)
+        assertFalse(settings.copy(builtInSystemPromptEnabled = false).builtInSystemPromptEnabled)
+    }
+
+    @Test
     fun memoryControls_defaultToLoadingExactlyWhatIsConfigured() {
         val settings = GenerationSettings()
         assertEquals(KvCacheQuantization.F16, settings.kvCacheQuantization)

@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,7 +47,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.sp
+import com.localllm.android.update.AppUpdateInfo
+import com.localllm.android.update.EngineVersions
 import androidx.core.content.ContextCompat
 import com.localllm.android.R
 import com.localllm.android.model.LlmModel
@@ -87,6 +91,8 @@ fun ChatScreen(
     val isGenerating by viewModel.isGenerating.collectAsStateWithLifecycle()
     val streamingMessage by viewModel.streamingMessage.collectAsStateWithLifecycle()
     val pendingAttachment by viewModel.pendingAttachment.collectAsStateWithLifecycle()
+    val documentLibrary by viewModel.documentLibrary.collectAsStateWithLifecycle()
+    val activeDocumentIds by viewModel.activeDocumentIds.collectAsStateWithLifecycle()
     val voiceState by viewModel.voiceManager.voiceState.collectAsStateWithLifecycle()
     val engineStatus by viewModel.engineStatusMessage.collectAsStateWithLifecycle()
     val isModelLoading by viewModel.isModelLoading.collectAsStateWithLifecycle()
@@ -94,6 +100,7 @@ fun ChatScreen(
     val modelLoadingStage by viewModel.modelLoadingStage.collectAsStateWithLifecycle()
     val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsStateWithLifecycle()
     val apiPort by viewModel.apiServerPort.collectAsStateWithLifecycle()
+    val appUpdate by viewModel.appUpdate.collectAsStateWithLifecycle()
 
     var inputText by remember { mutableStateOf("") }
     var showStatusDetailDialog by remember { mutableStateOf(false) }
@@ -264,6 +271,11 @@ fun ChatScreen(
                     activeModel = activeModel,
                     pendingAttachment = pendingAttachment,
                     onSetAttachment = { viewModel.setPendingAttachment(it) },
+                    onDocumentPicked = { uri, name -> viewModel.importDocument(uri, name) },
+                    indexedDocuments = documentLibrary,
+                    activeDocumentIds = activeDocumentIds,
+                    onToggleDocument = { viewModel.toggleDocumentSelection(it) },
+                    onDeleteDocument = { viewModel.deleteIndexedDocument(it) },
                     reasoningEffort = settings.reasoningEffort,
                     onReasoningEffortChanged = { viewModel.setReasoningEffort(it) },
                     onStartVoiceInput = {
@@ -405,6 +417,13 @@ fun ChatScreen(
                             }
                         }
                     }
+
+                appUpdate?.let { update ->
+                    UpdateBanner(
+                        update = update,
+                        onDismiss = { viewModel.dismissAppUpdate() }
+                    )
+                }
 
                 // Engine Status Pill Banner
                 if (!engineStatus.isNullOrBlank()) {
@@ -863,6 +882,75 @@ private fun EmptyChatPlaceholder(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Release banner: the engines are compiled into the APK, so an engine upgrade ships
+ * as an app upgrade. Tapping opens the GitHub release; the close button remembers
+ * this tag so the same version never nags again.
+ */
+@Composable
+private fun UpdateBanner(
+    update: AppUpdateInfo,
+    onDismiss: () -> Unit
+) {
+    val uriHandler = LocalUriHandler.current
+    val primary = GlassTheme.colors.primary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(primary.copy(alpha = 0.12f))
+            .border(1.dp, primary.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+            .clickable { uriHandler.openUri(update.releaseUrl) }
+            .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        GIcon(
+            imageVector = GIcons.CloudDownload,
+            contentDescription = null,
+            tint = primary,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            GText(
+                text = stringResource(R.string.update_banner_title, update.latestVersion),
+                fontSize = 12.sp,
+                color = GlassTheme.colors.onSurface
+            )
+            GText(
+                text = stringResource(
+                    R.string.update_banner_engine,
+                    EngineVersions.LLAMA_CPP,
+                    EngineVersions.LITERT_LM
+                ),
+                fontSize = 10.sp,
+                color = GlassTheme.colors.onSurfaceVariant
+            )
+        }
+        GText(
+            text = stringResource(R.string.update_banner_action),
+            fontSize = 11.sp,
+            color = primary,
+            modifier = Modifier.padding(horizontal = 6.dp)
+        )
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center
+        ) {
+            GIcon(
+                imageVector = GIcons.Close,
+                contentDescription = stringResource(R.string.update_banner_dismiss),
+                tint = GlassTheme.colors.onSurfaceVariant,
+                modifier = Modifier.size(14.dp)
+            )
         }
     }
 }

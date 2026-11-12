@@ -105,7 +105,9 @@ class ApiServerService : Service() {
                 // Requests served over the API load models through the same engine, so
                 // the memory-mode choices must travel with the serving settings too.
                 kvCacheQuantization = KvCacheQuantization.fromId(prefs.getString("kv_cache_quantization", null)),
-                ignoreMemoryLimits = prefs.getBoolean("ignore_memory_limits", false)
+                ignoreMemoryLimits = prefs.getBoolean("ignore_memory_limits", false),
+                toolCallsEnabled = prefs.getBoolean("tool_calls_enabled", true),
+                builtInSystemPromptEnabled = prefs.getBoolean("built_in_system_prompt_enabled", true)
             )
         }
     }

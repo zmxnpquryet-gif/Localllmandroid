@@ -92,16 +92,15 @@
 
 | 모델 | 파라미터 | 권장 양자화 | 파일 크기 (대략) | 최소 기기 RAM | 런타임 | 비고 |
 | :--- | :---: | :--- | :---: | :---: | :--- | :--- |
-| **Qwen 2.5** | 1.5B | Q4_K_M | ~1.0 GB | 3 GB | llama.cpp | 우수한 품질/크기 비율, 다국어 강점 |
-| **Qwen 2.5** | 3B | Q4_K_M | ~2.0 GB | 4 GB | llama.cpp | 대부분의 8 GB 폰에 맞는 스위트 스팟 |
-| **Qwen 2.5** | 7B | Q4_K_M | ~4.7 GB | 6 GB | llama.cpp | 인앱 최고 품질, 플래그십 또는 12 GB 기기 필요 |
-| **LFM3** | 1.7B | Q4_K_M | ~1.0 GB | 3 GB | llama.cpp | Liquid AI, 262K 컨텍스트 하이브리드 추론 |
-| **LFM3-VL** | 2B | Q4_K_M + mmproj Q8_0 | ~1.3 GB | 3 GB | llama.cpp | Liquid AI 비전 모델, `mmproj` 이미지 입력 |
-| **DeepSeek-R1-Distill** | 1.5B | Q4_K_M | ~1.1 GB | 3 GB | llama.cpp | 추론 모델 — `<​think>` 파싱 내장 |
-| **DeepSeek-R1-Distill** | 7B | Q4_K_M | ~4.7 GB | 6 GB | llama.cpp | 기기 위에서의 사고 연쇄(Chain-of-thought) |
-| **Llama 3.2** | 1B | Q4_K_M | ~0.8 GB | 2.5 GB | llama.cpp | 빠른 초안 작성, 도구 호출 |
-| **Llama 3.2** | 3B | Q4_K_M | ~2.0 GB | 4 GB | llama.cpp | 균형 잡힌 일상용 모델 |
-| **Gemma 2** | 2B | Q4_K_M / `.task` | ~1.8 GB | 3.5 GB | llama.cpp **또는** LiteRT-LM | LiteRT-LM 경로에서 GPU/NPU 델리게이트 활용 |
+| **Gemma 4** | E2B | `.litertlm` | ~2.6 GB | 8 GB | LiteRT-LM | 옴니 — 텍스트·이미지·오디오 입력, 핸즈프리 직접 오디오 |
+| **Gemma 4** | E4B | `.litertlm` | ~3.7 GB | 12 GB | LiteRT-LM | 같은 옴니 입력을 더 큰 용량으로, 플래그십 폰 대상 |
+| **Qwen 3.5** | 0.8B | INT8 `.litertlm` | ~1.0 GB | 4 GB | LiteRT-LM | 하이브리드 어텐션, 컨텍스트가 길어져도 메모리 평탄 |
+| **Qwen 3.5** | 2B | Q4_K_M | ~1.3 GB | 4 GB | llama.cpp | 사고 모드, 하이브리드 어텐션, 다국어 강점 |
+| **LFM3** | 1.7B | Q4_K_M | ~1.1 GB | 3 GB | llama.cpp | Liquid AI, 262K 네이티브 컨텍스트, 엣지에서 빠른 프리필 |
+| **LFM3-VL** | 2B | Q4_K_M + mmproj Q8_0 | ~1.5 GB | 3 GB | llama.cpp | Liquid AI 비전 모델, `mmproj` 이미지 입력 |
+| **MiniCPM5** | 1B / 2B | Q4_K_M | ~0.7 / 1.6 GB | 4 / 6 GB | llama.cpp | 온디바이스 툴 호출·롱컨텍스트, MiniCPM5 전용 턴 포맷 |
+| **LFM3 Omni** | 2B | Q4_K_M + mmproj Q4_K_M | ~1.4 GB | 4 GB | llama.cpp | 텍스트·이미지·영상·오디오 입력, 음성 턴은 아직 STT |
+| **MiniCPM-V** | 1.3B | Q4_K_M + mmproj F16 | ~1.6 GB | 4 GB | llama.cpp | OpenBMB 폰급 비전 모델, `mmproj` 이미지 입력 |
 | **FunctionGemma** | — | 모바일 바이너리 | — | 3 GB | LiteRT-LM | 모바일 최적화 함수 호출 |
 
 > **📋 표에 대한 참고**
@@ -114,7 +113,7 @@
 
 ## 🏛️ 아키텍처
 
-Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Google LiteRT-LM** 두 런타임을 모두 통합 추론 추상화 뒤에 둡니다. 업스트림 llama.cpp 엔진은 v0.8.0(b11960)에 고정된 Git 서브모듈로 포함되어, GGUF 런타임·LFM3 아키텍처·mtmd 비전 지원이 앱과 함께 소스에서 빌드됩니다.
+Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Google LiteRT-LM** 두 런타임을 모두 통합 추론 추상화 뒤에 둡니다. 업스트림 llama.cpp 엔진은 v0.9.0(cd959ba)에 고정된 Git 서브모듈로 포함되어, GGUF 런타임·LFM3 아키텍처·mtmd 비전 지원이 앱과 함께 소스에서 빌드됩니다.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -313,7 +312,7 @@ curl -X POST http://<기기_IP>:11434/api/generate \
 - JDK 17
 - Android SDK 36 (Min SDK 24)
 - Android NDK 27.2 + CMake 3.22 이상 (업스트림 llama.cpp 빌드에 필요)
-- Git 서브모듈: `--recurse-submodules`로 클론하거나 `git submodule update --init --recursive`를 실행하세요. `app/src/main/cpp/llama.cpp`는 LFM3를 지원하는 업스트림 v0.8.0(b11960)에 고정되어 있습니다.
+- Git 서브모듈: `--recurse-submodules`로 클론하거나 `git submodule update --init --recursive`를 실행하세요. `app/src/main/cpp/llama.cpp`는 LFM3 지원을 유지하면서 v0.9의 FP8·통합 KV·Gemma 4 프리필 개선이 포함된 업스트림 v0.9.0(cd959ba)에 고정되어 있습니다.
 - 64비트 ARM 아키텍처(`arm64-v8a`) 또는 `x86_64` 대상 기기
 - 네이티브 의존성 수동 설치 불필요: sherpa-onnx STT AAR(약 50MB)은 저장소에 커밋하지 않고, 빌드 전 Gradle `fetchSherpaAar` 태스크가 버전·SHA-256 고정값으로 자동 다운로드합니다.
 

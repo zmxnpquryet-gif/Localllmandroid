@@ -154,6 +154,30 @@ class LlmEngine(private val context: Context) {
     private fun memorySnapshot(): MemorySnapshot = MemorySnapshot.read(context)
 
     /**
+     * LiteRT reads audio from a file path; a recorded turn is already a cache file,
+     * but a picked content:// URI is copied into the cache first.
+     */
+    private fun materializeAudioForLitert(attachment: ChatAttachment?): File? {
+        if (attachment?.isAudio != true) return null
+        val raw = attachment.uriString
+        val uri = Uri.parse(raw)
+        return when (uri.scheme) {
+            "file" -> uri.path?.let { File(it) }?.takeIf { it.isFile }
+            "content" -> try {
+                val temp = File(context.cacheDir, "litert_audio_${System.currentTimeMillis()}.wav")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    temp.outputStream().use { output -> input.copyTo(output) }
+                }
+                temp.takeIf { it.length() > 0 }
+            } catch (e: Exception) {
+                Log.w(tag, "Failed to cache content URI for LiteRT audio: ${e.message}")
+                null
+            }
+            else -> File(raw).takeIf { it.isFile }
+        }
+    }
+
+    /**
      * mtmd reads images from filesystem paths, while the attachment may be a
      * `content://` URI from the system photo picker. Materialize those into the
      * cache directory for the duration of one request.
@@ -710,14 +734,15 @@ class LlmEngine(private val context: Context) {
         settings: GenerationSettings,
         attachment: ChatAttachment?,
         mcpToolsContext: String? = null,
-        numPredictOverride: Int? = null
+        numPredictOverride: Int? = null,
+        documentContext: String? = null
     ): Flow<GenerationChunk> = flow {
         if (!acquireInferenceLock()) {
             throw IllegalStateException("BUSY_INFERENCE: " + AppStrings.get(R.string.eng_busy))
         }
         try {
             try {
-                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride))
+                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride, documentContext))
             } catch (gpuFailure: LiteRtGpuUnavailableException) {
                 // The GPU backend can load a model and still fail at sampling (the OpenCL
                 // sampler library is not part of the bundled AAR). Remember the failure for
@@ -734,7 +759,7 @@ class LlmEngine(private val context: Context) {
                 )
                 Log.i(tag, "CPU 백엔드 재로드: $reloadStatus")
                 backendNote = AppStrings.get(R.string.eng_sampler_cpu)
-                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride))
+                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride, documentContext))
             }
         } finally {
             clearActiveInferenceState()
@@ -780,13 +805,20 @@ class LlmEngine(private val context: Context) {
         settings: GenerationSettings,
         attachment: ChatAttachment?,
         mcpToolsContext: String?,
-        numPredictOverride: Int?
+        numPredictOverride: Int?,
+        documentContext: String?
     ): Flow<GenerationChunk> = flow {
         val model = activeModel
             ?: throw IllegalStateException(AppStrings.get(R.string.eng_no_selected))
 
         if (!isModelLoaded) {
             throw IllegalStateException(AppStrings.get(R.string.eng_not_loaded, model.name))
+        }
+
+        // The router normally prevents this, but a stale message could still carry
+        // audio: fail with an explanation instead of silently dropping the recording.
+        if (attachment?.isAudio == true && model.runtimeType != ModelRuntimeType.LITE_RT) {
+            throw IllegalStateException(AppStrings.get(R.string.eng_audio_unsupported))
         }
 
         // Construct standard prompt formatted for on-device instruction-tuned model
@@ -807,7 +839,9 @@ class LlmEngine(private val context: Context) {
             history = history,
             userPrompt = promptForFormatting,
             toolsContext = mcpToolsContext,
-            supportsReasoning = model.supportsReasoning
+            supportsReasoning = model.supportsReasoning,
+            includeBuiltInSystemPrompt = settings.builtInSystemPromptEnabled,
+            documentContext = documentContext
         )
 
         val startTime = System.currentTimeMillis()
@@ -851,17 +885,30 @@ class LlmEngine(private val context: Context) {
                 }
             } else null
 
+            val localAudioPath = materializeAudioForLitert(attachment)?.absolutePath
             val hasImage = localImagePath != null
-            Log.d(tag, "Starting LiteRT inference with prompt length: ${formattedPrompt.length}, hasVisionInput: $hasImage")
+            Log.d(
+                tag,
+                "Starting LiteRT inference with prompt length: ${formattedPrompt.length}, " +
+                    "hasVisionInput: $hasImage, hasAudioInput: ${localAudioPath != null}"
+            )
 
-            val contents = if (localImagePath != null) {
-                Log.i(tag, "[LiteRT LM] 올인원 통합 비전 인코더 이미지 연동: $localImagePath")
-                Contents.of(
-                    Content.ImageFile(localImagePath),
-                    Content.Text(formattedPrompt)
-                )
-            } else {
-                Contents.of(Content.Text(formattedPrompt))
+            val contents = when {
+                localAudioPath != null -> {
+                    Log.i(tag, "[LiteRT LM] 옴니 모델 오디오 직접 입력: $localAudioPath")
+                    Contents.of(
+                        Content.AudioFile(localAudioPath),
+                        Content.Text(formattedPrompt)
+                    )
+                }
+                localImagePath != null -> {
+                    Log.i(tag, "[LiteRT LM] 올인원 통합 비전 인코더 이미지 연동: $localImagePath")
+                    Contents.of(
+                        Content.ImageFile(localImagePath),
+                        Content.Text(formattedPrompt)
+                    )
+                }
+                else -> Contents.of(Content.Text(formattedPrompt))
             }
 
             try {

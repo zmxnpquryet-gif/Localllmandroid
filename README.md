@@ -92,16 +92,15 @@ Estimates the real footprint (weights + KV cache + compute buffers) before mappi
 
 | Model | Params | Recommended Quant | File Size (approx.) | Min. Device RAM | Runtime | Notes |
 | :--- | :---: | :--- | :---: | :---: | :--- | :--- |
-| **Qwen 2.5** | 1.5B | Q4_K_M | ~1.0 GB | 3 GB | llama.cpp | Excellent quality/size ratio; strong multilingual |
-| **Qwen 2.5** | 3B | Q4_K_M | ~2.0 GB | 4 GB | llama.cpp | Sweet spot for most 8 GB phones |
-| **Qwen 2.5** | 7B | Q4_K_M | ~4.7 GB | 6 GB | llama.cpp | Best in-app quality; needs a flagship or 12 GB device |
-| **LFM3** | 1.7B | Q4_K_M | ~1.0 GB | 3 GB | llama.cpp | Liquid AI; hybrid reasoning with 262K-context support |
-| **LFM3-VL** | 2B | Q4_K_M + mmproj Q8_0 | ~1.3 GB | 3 GB | llama.cpp | Liquid AI vision model; image input through `mmproj` |
-| **DeepSeek-R1-Distill** | 1.5B | Q4_K_M | ~1.1 GB | 3 GB | llama.cpp | Reasoning model — `<​think>` parsing built in |
-| **DeepSeek-R1-Distill** | 7B | Q4_K_M | ~4.7 GB | 6 GB | llama.cpp | Chain-of-thought on device |
-| **Llama 3.2** | 1B | Q4_K_M | ~0.8 GB | 2.5 GB | llama.cpp | Fast drafts, tool calls |
-| **Llama 3.2** | 3B | Q4_K_M | ~2.0 GB | 4 GB | llama.cpp | Balanced daily driver |
-| **Gemma 2** | 2B | Q4_K_M / `.task` | ~1.8 GB | 3.5 GB | llama.cpp **or** LiteRT-LM | LiteRT-LM path unlocks GPU/NPU delegates |
+| **Gemma 4** | E2B | `.litertlm` | ~2.6 GB | 8 GB | LiteRT-LM | Omni — text, image and audio input; hands-free direct audio |
+| **Gemma 4** | E4B | `.litertlm` | ~3.7 GB | 12 GB | LiteRT-LM | Same omni inputs with more capacity for flagship phones |
+| **Qwen 3.5** | 0.8B | INT8 `.litertlm` | ~1.0 GB | 4 GB | LiteRT-LM | Hybrid attention; memory stays flat as context grows |
+| **Qwen 3.5** | 2B | Q4_K_M | ~1.3 GB | 4 GB | llama.cpp | Thinking mode; hybrid attention; strong multilingual |
+| **LFM3** | 1.7B | Q4_K_M | ~1.1 GB | 3 GB | llama.cpp | Liquid AI; 262K native context, fast prefill on edge |
+| **LFM3-VL** | 2B | Q4_K_M + mmproj Q8_0 | ~1.5 GB | 3 GB | llama.cpp | Liquid AI vision model; image input through `mmproj` |
+| **MiniCPM5** | 1B / 2B | Q4_K_M | ~0.7 / 1.6 GB | 4 / 6 GB | llama.cpp | On-device tool use and long context; native MiniCPM5 turn format |
+| **LFM3 Omni** | 2B | Q4_K_M + mmproj Q4_K_M | ~1.4 GB | 4 GB | llama.cpp | Text, image, video and audio input; voice turns still use STT |
+| **MiniCPM-V** | 1.3B | Q4_K_M + mmproj F16 | ~1.6 GB | 4 GB | llama.cpp | OpenBMB phone-class vision model; image input through `mmproj` |
 | **FunctionGemma** | — | mobile binaries | — | 3 GB | LiteRT-LM | Mobile-optimized function calling |
 
 > **📋 Notes on the table**
@@ -114,7 +113,7 @@ Estimates the real footprint (weights + KV cache + compute buffers) before mappi
 
 ## 🏛️ Architecture
 
-Rather than being tied to a single engine, Local LLM Android integrates both **llama.cpp** and **Google LiteRT-LM** behind a unified inference abstraction. The upstream llama.cpp engine is vendored as a pinned git submodule (v0.8.0 / b11960), so the GGUF runtime, LFM3 architecture, and mtmd vision support build from source with the app.
+Rather than being tied to a single engine, Local LLM Android integrates both **llama.cpp** and **Google LiteRT-LM** behind a unified inference abstraction. The upstream llama.cpp engine is vendored as a pinned git submodule (v0.9.0 / cd959ba), so the GGUF runtime, LFM3 architecture, and mtmd vision support build from source with the app.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -313,7 +312,7 @@ Grab the signed APK from the [**latest release**](https://github.com/zmxnpquryet
 - JDK 17
 - Android SDK 36 (Min SDK 24)
 - Android NDK 27.2 + CMake 3.22+ (required by the upstream llama.cpp build)
-- Git submodule checkout: clone with `--recurse-submodules` or run `git submodule update --init --recursive`. `app/src/main/cpp/llama.cpp` is pinned to upstream v0.8.0 (b11960), the first release with LFM3 support
+- Git submodule checkout: clone with `--recurse-submodules` or run `git submodule update --init --recursive`. `app/src/main/cpp/llama.cpp` is pinned to upstream v0.9.0 (cd959ba), which keeps LFM3 support and adds the v0.9 FP8, unified-KV and Gemma 4 prefill improvements
 - Target device with 64-bit ARM architecture (`arm64-v8a`) or `x86_64`
 - No manual native dependencies: the sherpa-onnx STT AAR (~50 MB) is not committed — Gradle fetches it automatically via the `fetchSherpaAar` task (pinned version + SHA-256) before every build
 

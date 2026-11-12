@@ -252,6 +252,50 @@ fun SettingsScreen(
                         )
                     }
                 }
+
+                // Low-end prompt trimming: both toggles only change what is sent, so
+                // they apply to the next request without reloading the model.
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        GText(stringResource(R.string.settings_tool_calls_title), style = GlassTheme.type.bodyMedium)
+                        GText(
+                            text = stringResource(R.string.settings_tool_calls_desc),
+                            fontSize = 12.sp,
+                            color = GlassTheme.colors.onSurfaceVariant
+                        )
+                    }
+                    GSwitch(
+                        checked = settings.toolCallsEnabled,
+                        onCheckedChange = {
+                            viewModel.updateSettings(settings.copy(toolCallsEnabled = it))
+                        }
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        GText(stringResource(R.string.settings_builtin_prompt_title), style = GlassTheme.type.bodyMedium)
+                        GText(
+                            text = stringResource(R.string.settings_builtin_prompt_desc),
+                            fontSize = 12.sp,
+                            color = GlassTheme.colors.onSurfaceVariant
+                        )
+                    }
+                    GSwitch(
+                        checked = settings.builtInSystemPromptEnabled,
+                        onCheckedChange = {
+                            viewModel.updateSettings(settings.copy(builtInSystemPromptEnabled = it))
+                        }
+                    )
+                }
             }
 
             // 2b. Memory protection (abnormal-exit detection + automatic reduction)
@@ -657,7 +701,30 @@ fun SettingsScreen(
                 }
             }
 
-            // 7. Theme & Dark/Light Mode Personalization
+            // 7. Document library (local RAG index)
+            SettingsCard(
+                title = stringResource(R.string.settings_documents_title),
+                icon = GIcons.Description
+            ) {
+                val documentStats by viewModel.documentStats.collectAsStateWithLifecycle()
+                GText(
+                    text = stringResource(
+                        R.string.settings_documents_summary,
+                        documentStats.documents,
+                        documentStats.chunks
+                    ),
+                    style = GlassTheme.type.bodySmall,
+                    color = GlassTheme.colors.onSurfaceVariant
+                )
+                if (documentStats.chunks > 0) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    GButton(onClick = { viewModel.clearDocumentIndex() }) {
+                        GText(stringResource(R.string.settings_documents_clear))
+                    }
+                }
+            }
+
+            // 8. Theme & Dark/Light Mode Personalization
             SettingsCard(
                 title = stringResource(R.string.settings_theme_section),
                 icon = GIcons.Palette

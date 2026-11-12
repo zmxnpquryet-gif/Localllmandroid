@@ -9,6 +9,9 @@ import androidx.lifecycle.viewModelScope
 import com.localllm.android.data.ModelStorageManager
 import com.localllm.android.data.local.ChatDatabase
 import com.localllm.android.data.repository.ChatRepository
+import com.localllm.android.document.DocumentIndex
+import com.localllm.android.document.DocumentStats
+import com.localllm.android.document.DocumentSummary
 import com.localllm.android.engine.GgufMetadataDetector
 import com.localllm.android.engine.GenerationChunk
 import com.localllm.android.engine.HfSource
@@ -30,6 +33,8 @@ import com.localllm.android.model.ToolCallTemplates
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.MessageRole
 import com.localllm.android.model.ModelCatalog
+import com.localllm.android.update.AppUpdateInfo
+import com.localllm.android.update.UpdateChecker
 import com.localllm.android.model.ModelRuntimeType
 import com.localllm.android.R
 import com.localllm.android.LocalLlmApp
@@ -37,6 +42,10 @@ import com.localllm.android.memory.MemoryGuard
 import com.localllm.android.memory.MemoryGuardStore
 import com.localllm.android.memory.MemorySnapshot
 import com.localllm.android.memory.MemoryWatchdog
+import com.localllm.android.voice.AudioInputRouter
+import com.localllm.android.voice.VoiceAudioDecision
+import com.localllm.android.voice.VoiceAudioReason
+import com.localllm.android.voice.VoiceAudioRoute
 import com.localllm.android.voice.InteractiveVoiceState
 import com.localllm.android.voice.TtsEngineMode
 import com.localllm.android.voice.VoiceManager
@@ -60,6 +69,9 @@ import java.util.Collections
 import java.util.Locale
 import java.util.UUID
 
+private const val DIRECT_AUDIO_PROMPT = "The user sent a spoken message. Answer it directly and concisely."
+private const val MIN_DIRECT_AUDIO_BYTES = 8_000L
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = ChatDatabase.getInstance(application)
@@ -68,6 +80,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val llmEngine = getApplication<LocalLlmApp>().llmEngine
     val voiceManager = VoiceManager(application)
     private val mcpClient = McpClient()
+    private val documentIndex = DocumentIndex(application)
+    private val documentSelectionPrefs = application.getSharedPreferences(
+        "document_selection",
+        android.content.Context.MODE_PRIVATE
+    )
+
+    private val updatePrefs = application.getSharedPreferences(
+        "app_updates",
+        android.content.Context.MODE_PRIVATE
+    )
+    private val _appUpdate = MutableStateFlow<AppUpdateInfo?>(null)
+    val appUpdate: StateFlow<AppUpdateInfo?> = _appUpdate.asStateFlow()
+
+    private val _documentStats = MutableStateFlow(DocumentStats.EMPTY)
+    val documentStats: StateFlow<DocumentStats> = _documentStats.asStateFlow()
+
+    /** Files the user explicitly added to the current conversation (default: none). */
+    private val _activeDocumentIds = MutableStateFlow<Set<String>>(emptySet())
+    val activeDocumentIds: StateFlow<Set<String>> = _activeDocumentIds.asStateFlow()
+
+    /** Every indexed file, shown under "Add from library" in the attachment sheet. */
+    private val _documentLibrary = MutableStateFlow<List<DocumentSummary>>(emptyList())
+    val documentLibrary: StateFlow<List<DocumentSummary>> = _documentLibrary.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _documentStats.value = documentIndex.stats()
+            _documentLibrary.value = documentIndex.documents()
+        }
+        checkForAppUpdate()
+    }
+
+    /**
+     * One silent check per process. The release banner is optional chrome, so a
+     * network failure must not surface as an error.
+     */
+    private fun checkForAppUpdate() {
+        viewModelScope.launch {
+            val update = runCatching { UpdateChecker().latestRelease() }.getOrNull()
+                ?: return@launch
+            if (update.latestVersion == updatePrefs.getString(DISMISSED_UPDATE_KEY, null)) {
+                return@launch
+            }
+            _appUpdate.value = update
+        }
+    }
+
+    fun dismissAppUpdate() {
+        _appUpdate.value?.let { update ->
+            updatePrefs.edit().putString(DISMISSED_UPDATE_KEY, update.latestVersion).apply()
+        }
+        _appUpdate.value = null
+    }
+
+    private fun selectionKey(conversationId: String) = "$SELECTION_KEY_PREFIX$conversationId"
+
+    private fun loadDocumentSelection(conversationId: String): Set<String> =
+        documentSelectionPrefs.getStringSet(selectionKey(conversationId), emptySet())
+            ?.toSet()
+            .orEmpty()
+
+    private fun persistDocumentSelection(conversationId: String, documentIds: Set<String>) {
+        documentSelectionPrefs.edit()
+            .putStringSet(selectionKey(conversationId), documentIds)
+            .apply()
+    }
 
     // Conversations from encrypted SQLite Room
     val conversations: StateFlow<List<Conversation>> = repository.conversations
@@ -116,6 +194,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             hfSource = settingsPrefs.getString("hf_source", "official") ?: "official",
             mcpServerUrl = settingsPrefs.getString("mcp_server_url", "") ?: "",
             isMcpEnabled = settingsPrefs.getBoolean("is_mcp_enabled", false),
+            toolCallsEnabled = settingsPrefs.getBoolean("tool_calls_enabled", true),
+            builtInSystemPromptEnabled = settingsPrefs.getBoolean("built_in_system_prompt_enabled", true),
             kvCacheQuantization = KvCacheQuantization.fromId(settingsPrefs.getString("kv_cache_quantization", null)),
             ignoreMemoryLimits = settingsPrefs.getBoolean("ignore_memory_limits", false)
         )
@@ -182,7 +262,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun refreshMcpToolsContext() {
         val template = _activeToolTemplate.value
         val tools = mcpClient.currentTools()
-        _mcpToolsContext.value = if (template == ToolCallTemplate.NONE || tools.isEmpty()) {
+        _mcpToolsContext.value = if (
+            template == ToolCallTemplate.NONE ||
+            !_settings.value.toolCallsEnabled ||
+            tools.isEmpty()
+        ) {
             null
         } else {
             McpToolProtocol.buildToolsPrompt(mcpServerName, tools, template)
@@ -416,6 +500,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun setCurrentToPending(pending: Conversation) {
         pendingConversation = pending
         _currentConversationId.value = pending.id
+        _activeDocumentIds.value = emptySet()
         messageCollectionJob?.cancel()
         _messages.value = emptyList()
         messageCollectionJob = viewModelScope.launch {
@@ -460,6 +545,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_currentConversationId.value == conversationId && messageCollectionJob != null) return
         stopGeneration()
         _currentConversationId.value = conversationId
+        _activeDocumentIds.value = loadDocumentSelection(conversationId)
         messageCollectionJob?.cancel()
         messageCollectionJob = viewModelScope.launch {
             repository.getMessagesForConversation(conversationId).collect { msgList ->
@@ -509,6 +595,96 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPendingAttachment(attachment: ChatAttachment?) {
         _pendingAttachment.value = attachment
+    }
+
+    /**
+     * Extracts, chunks and embeds a picked document, then keeps it for retrieval on
+     * later messages. The original URI is not stored: text is copied into the index,
+     * so a document deleted from the device remains searchable until the index is
+     * cleared, and no read permission is retained.
+     */
+    fun importDocument(uri: Uri, displayName: String) {
+        viewModelScope.launch {
+            _engineStatusMessage.value = localizedString(R.string.vm_doc_indexing, displayName)
+            val result = runCatching {
+                documentIndex.ingest(uri, displayName, _settings.value.languagePreference)
+            }
+            _documentStats.value = documentIndex.stats()
+            _documentLibrary.value = documentIndex.documents()
+            result.onSuccess { ingested ->
+                if (ingested.chunkCount > 0) enableDocumentForCurrentChat(ingested.documentId)
+            }
+            _engineStatusMessage.value = result.fold(
+                onSuccess = { ingested ->
+                    if (ingested.chunkCount == 0) {
+                        localizedString(R.string.vm_doc_empty, displayName)
+                    } else {
+                        localizedString(R.string.vm_doc_indexed, ingested.chunkCount, displayName)
+                    }
+                },
+                onFailure = { t ->
+                    localizedString(R.string.vm_doc_failed, displayName, t.localizedMessage ?: t.message ?: "")
+                }
+            )
+        }
+    }
+
+    /** Adds or removes a saved file for the current conversation only. */
+    fun toggleDocumentSelection(documentId: String) {
+        val conversationId = _currentConversationId.value ?: ensureConversationId()
+        val current = _activeDocumentIds.value
+        val updated = if (documentId in current) current - documentId else current + documentId
+        _activeDocumentIds.value = updated
+        persistDocumentSelection(conversationId, updated)
+    }
+
+    /**
+     * Deletes one saved file and removes it from every conversation's selection, so a
+     * stale id can never keep a deleted document referenced.
+     */
+    fun deleteIndexedDocument(documentId: String) {
+        val name = _documentLibrary.value.firstOrNull { it.id == documentId }?.name ?: "document"
+        viewModelScope.launch {
+            runCatching { documentIndex.deleteDocument(documentId) }
+            pruneDocumentFromSelections(documentId)
+            _documentLibrary.value = documentIndex.documents()
+            _documentStats.value = documentIndex.stats()
+            _engineStatusMessage.value = localizedString(R.string.vm_doc_deleted, name)
+        }
+    }
+
+    private fun pruneDocumentFromSelections(documentId: String) {
+        documentSelectionPrefs.all.forEach { (key, value) ->
+            if (key.startsWith(SELECTION_KEY_PREFIX) && value is Set<*>) {
+                val ids = value.mapNotNull { it as? String }.toSet()
+                if (documentId in ids) {
+                    documentSelectionPrefs.edit()
+                        .putStringSet(key, ids - documentId)
+                        .apply()
+                }
+            }
+        }
+        _activeDocumentIds.value = _activeDocumentIds.value - documentId
+    }
+
+    private fun enableDocumentForCurrentChat(documentId: String) {
+        // Importing is already an explicit choice for this chat, so the new file is
+        // included here; other conversations still start with nothing selected.
+        val conversationId = _currentConversationId.value ?: return
+        val updated = _activeDocumentIds.value + documentId
+        _activeDocumentIds.value = updated
+        persistDocumentSelection(conversationId, updated)
+    }
+
+    fun clearDocumentIndex() {
+        viewModelScope.launch {
+            runCatching { documentIndex.clear() }
+            documentSelectionPrefs.edit().clear().apply()
+            _activeDocumentIds.value = emptySet()
+            _documentLibrary.value = emptyList()
+            _documentStats.value = documentIndex.stats()
+            _engineStatusMessage.value = localizedString(R.string.vm_doc_cleared)
+        }
     }
 
     fun selectModel(model: LlmModel) {
@@ -659,9 +835,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putString("hf_source", newSettings.hfSource)
             putString("mcp_server_url", newSettings.mcpServerUrl)
             putBoolean("is_mcp_enabled", newSettings.isMcpEnabled)
+            putBoolean("tool_calls_enabled", newSettings.toolCallsEnabled)
+            putBoolean("built_in_system_prompt_enabled", newSettings.builtInSystemPromptEnabled)
             apply()
         }
         if (newSettings.hfToken != previous.hfToken) secrets.put(SecretPrefs.HF_TOKEN, newSettings.hfToken)
+        // The tools block lives in the prompt, not in the weights: rebuild it without
+        // reloading the model when the low-end toggle changes.
+        if (previous.toolCallsEnabled != newSettings.toolCallsEnabled) refreshMcpToolsContext()
         // Re-enabling GPU is an explicit retry: forget the remembered driver failure
         // so LiteRT offers the GPU backend again.
         if (!previous.enableGpuAcceleration && newSettings.enableGpuAcceleration) {
@@ -1267,6 +1448,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isStreaming = true
             )
             val history = currentList.takeLast(6).map { toHistoryPair(it) }
+            // One retrieval per turn, reused by every tool round: the user's question
+            // does not change between rounds, so neither should the excerpts.
+            val documentContext = runCatching {
+                documentIndex.buildContext(trimmed, _activeDocumentIds.value)
+            }.getOrNull()
 
             val previousJob = currentStreamJob
             previousJob?.cancel()
@@ -1279,6 +1465,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // the tools block in the prompt the model has nothing to call.
                 val toolTemplate = _activeToolTemplate.value
                 val toolsActive = _settings.value.isMcpEnabled &&
+                    _settings.value.toolCallsEnabled &&
                     toolTemplate != ToolCallTemplate.NONE &&
                     mcpClient.currentTools().isNotEmpty()
                 var turnPlaceholder = streamPlaceholder
@@ -1296,7 +1483,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             history = turnHistory,
                             settings = _settings.value,
                             attachment = turnAttachment,
-                            mcpToolsContext = if (toolsActive) _mcpToolsContext.value else null
+                            mcpToolsContext = if (toolsActive) _mcpToolsContext.value else null,
+                            documentContext = documentContext
                         ).collect { chunk ->
                             turnText = chunk.currentContentText
                             turnReasoning = chunk.currentReasoningText.ifBlank { null }
@@ -1563,6 +1751,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var voiceSessionJob: Job? = null
 
+    /** How the current hands-free session feeds audio to the model. */
+    private val _voiceAudioDecision = MutableStateFlow<VoiceAudioDecision?>(null)
+    val voiceAudioDecision: StateFlow<VoiceAudioDecision?> = _voiceAudioDecision.asStateFlow()
+    private var emptyAudioTurns = 0
+
     fun stopGeneration() {
         // Stopping while a tool is awaiting approval is a decline, never an approval.
         // An in-flight network call is cancelled through the stream job itself
@@ -1605,11 +1798,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * User speaks -> Local LLM generates response -> TTS speaks back
      */
     fun startInteractiveVoiceSession() {
-        if (_activeModel.value == null || !_activeModel.value!!.isDownloaded) {
+        val model = _activeModel.value
+        if (model == null || !model.isDownloaded) {
             _engineStatusMessage.value = localizedString(R.string.vm_voice_no_model)
             voiceManager.speak(localizedString(R.string.vm_voice_no_model))
             return
         }
+        // Omni models on LiteRT get the audio itself; every other model needs a
+        // recognizer first. The decision is surfaced so the UI can say which one ran.
+        val decision = AudioInputRouter.route(model)
+        _voiceAudioDecision.value = decision
         voiceManager.startListening(
             onResult = { userSpokenText ->
                 // Anti-feedback guard: silence hallucinations and TTS echo would otherwise
@@ -1627,86 +1825,143 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 duplicateVoiceTurns = 0
                 lastVoiceInput = userSpokenText
                 voiceManager.setVoiceState(InteractiveVoiceState.PROCESSING)
-                // Tracked (unlike before): Stop and screen-leave must reach this
-                // coroutine, or its TTS callback re-arms the microphone forever.
-                voiceSessionJob?.cancel()
-                voiceSessionJob = viewModelScope.launch {
-                    try {
-                        // The engine (unlike the chat path) may hold no loaded model
-                        // after a cold start — load on demand instead of crashing.
-                        if (!llmEngine.isModelReady()) {
-                            val target = _activeModel.value
-                            if (target == null || !target.isDownloaded) {
-                                voiceManager.speak(localizedString(R.string.vm_voice_no_model))
-                                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
-                                return@launch
-                            }
-                            _engineStatusMessage.value = localizedString(R.string.vm_status_loading_memory, target.name)
-                            val loadResult = try {
-                                llmEngine.loadModel(target, _settings.value)
-                            } catch (t: Throwable) {
-                                localizedString(R.string.vm_status_model_load_exception, t.localizedMessage ?: t.message)
-                            }
-                            if (!llmEngine.isModelReady()) {
-                                voiceManager.speak(localizedString(R.string.vm_voice_load_failed, loadResult))
-                                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
-                                return@launch
-                            }
-                            _engineStatusMessage.value = loadResult
-                        }
-                        val convId = _currentConversationId.value ?: ensureConversationId()
-                        val userMsg = ChatMessage(conversationId = convId, role = MessageRole.USER, content = userSpokenText)
-                        val voiceDraft = capturePendingDraft(convId)
-                        repository.saveConversationAndMessage(voiceDraft, userMsg)
-                        if (voiceDraft != null) clearPendingDraft(convId)
-
-                        // Stream or generate response
-                        val voiceHistory = _messages.value.takeLast(6).map { toHistoryPair(it) }
-                        beginInferenceGuard()
-                        try {
-                            llmEngine.streamGenerate(
-                                prompt = userSpokenText,
-                                history = voiceHistory,
-                                settings = _settings.value,
-                                attachment = null
-                            ).collect { chunk ->
-                                if (chunk.isComplete) {
-                                    val assistantMsg = ChatMessage(
-                                        conversationId = convId,
-                                        role = MessageRole.ASSISTANT,
-                                        content = chunk.currentContentText,
-                                        reasoning = chunk.currentReasoningText.ifBlank { null },
-                                        tps = chunk.tps,
-                                        promptSpeed = chunk.promptSpeed
-                                    )
-                                    repository.saveMessage(assistantMsg)
-
-                                    // Speak response back
-                                    voiceManager.speak(chunk.currentContentText) {
-                                        // Once done speaking, listen again for natural dialogue
-                                        startInteractiveVoiceSession()
-                                    }
-                                }
-                            }
-                        } finally {
-                            endInferenceGuard()
-                        }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
-                        throw e
-                    } catch (e: Exception) {
-                        android.util.Log.w("MainViewModel", "Voice session error", e)
-                        voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
-                        voiceManager.speak(localizedString(R.string.vm_voice_error))
-                    }
-                }
+                val convId = _currentConversationId.value ?: ensureConversationId()
+                launchVoiceTurn(
+                    conversationId = convId,
+                    userMessage = ChatMessage(
+                        conversationId = convId,
+                        role = MessageRole.USER,
+                        content = userSpokenText
+                    ),
+                    promptText = userSpokenText,
+                    attachment = null
+                )
             },
             onError = { _ ->
                 voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
             },
             // Hands-free: the recorder ends the turn itself when the speaker goes quiet.
-            autoEndpoint = true
+            autoEndpoint = true,
+            onAudio = if (decision.route == VoiceAudioRoute.DIRECT_AUDIO) ::onDirectAudioCaptured else null
         )
+    }
+
+    /**
+     * A direct-audio turn: the recorded WAV is the user message. A recording that is
+     * too short to contain speech re-arms the microphone instead of ending the loop.
+     */
+    private fun onDirectAudioCaptured(file: File) {
+        if (file.length() < MIN_DIRECT_AUDIO_BYTES) {
+            file.delete()
+            emptyAudioTurns++
+            if (emptyAudioTurns < 2) {
+                startInteractiveVoiceSession()
+            } else {
+                emptyAudioTurns = 0
+                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+            }
+            return
+        }
+        emptyAudioTurns = 0
+        voiceManager.setVoiceState(InteractiveVoiceState.PROCESSING)
+        val convId = _currentConversationId.value ?: ensureConversationId()
+        val attachment = ChatAttachment(
+            uriString = "file://${file.absolutePath}",
+            mimeType = "audio/wav",
+            fileName = file.name,
+            isImage = false
+        )
+        launchVoiceTurn(
+            conversationId = convId,
+            userMessage = ChatMessage(
+                conversationId = convId,
+                role = MessageRole.USER,
+                content = localizedString(R.string.voice_audio_message),
+                attachment = attachment
+            ),
+            promptText = DIRECT_AUDIO_PROMPT,
+            attachment = attachment
+        )
+    }
+
+    /** Shared body of a hands-free turn: persist, stream, speak, listen again. */
+    private fun launchVoiceTurn(
+        conversationId: String,
+        userMessage: ChatMessage,
+        promptText: String,
+        attachment: ChatAttachment?
+    ) {
+        voiceSessionJob?.cancel()
+        voiceSessionJob = viewModelScope.launch {
+            try {
+                // The engine (unlike the chat path) may hold no loaded model after a
+                // cold start — load on demand instead of crashing.
+                if (!llmEngine.isModelReady()) {
+                    val target = _activeModel.value
+                    if (target == null || !target.isDownloaded) {
+                        voiceManager.speak(localizedString(R.string.vm_voice_no_model))
+                        voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                        return@launch
+                    }
+                    _engineStatusMessage.value = localizedString(R.string.vm_status_loading_memory, target.name)
+                    val loadResult = try {
+                        llmEngine.loadModel(target, _settings.value)
+                    } catch (t: Throwable) {
+                        localizedString(R.string.vm_status_model_load_exception, t.localizedMessage ?: t.message)
+                    }
+                    if (!llmEngine.isModelReady()) {
+                        voiceManager.speak(localizedString(R.string.vm_voice_load_failed, loadResult))
+                        voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                        return@launch
+                    }
+                    _engineStatusMessage.value = loadResult
+                }
+
+                val voiceDraft = capturePendingDraft(conversationId)
+                repository.saveConversationAndMessage(voiceDraft, userMessage)
+                if (voiceDraft != null) clearPendingDraft(conversationId)
+
+                val voiceHistory = _messages.value.takeLast(6).map { toHistoryPair(it) }
+                val voiceDocumentContext = runCatching {
+                    documentIndex.buildContext(promptText, _activeDocumentIds.value)
+                }.getOrNull()
+                beginInferenceGuard()
+                try {
+                    llmEngine.streamGenerate(
+                        prompt = promptText,
+                        history = voiceHistory,
+                        settings = _settings.value,
+                        attachment = attachment,
+                        documentContext = voiceDocumentContext
+                    ).collect { chunk ->
+                        if (chunk.isComplete) {
+                            val assistantMsg = ChatMessage(
+                                conversationId = conversationId,
+                                role = MessageRole.ASSISTANT,
+                                content = chunk.currentContentText,
+                                reasoning = chunk.currentReasoningText.ifBlank { null },
+                                tps = chunk.tps,
+                                promptSpeed = chunk.promptSpeed
+                            )
+                            repository.saveMessage(assistantMsg)
+                            // Speak the answer, then listen again for natural dialogue.
+                            voiceManager.speak(chunk.currentContentText) {
+                                startInteractiveVoiceSession()
+                            }
+                        }
+                    }
+                } finally {
+                    endInferenceGuard()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Voice session error", e)
+                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                voiceManager.speak(localizedString(R.string.vm_voice_error))
+            }
+        }
     }
 
     /**
@@ -1966,5 +2221,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         /** Guards the encrypted DB and prompt builder against multi-megabyte pastes. */
         const val MAX_USER_MESSAGE_CHARS = 32_768
+
+        /** SharedPreferences prefix for per-conversation document selections. */
+        const val SELECTION_KEY_PREFIX = "selected_documents_"
+
+        /** Release tag the user dismissed; the same version never prompts again. */
+        const val DISMISSED_UPDATE_KEY = "dismissed_update_version"
     }
 }

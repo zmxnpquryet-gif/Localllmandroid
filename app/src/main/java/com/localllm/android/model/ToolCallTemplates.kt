@@ -21,6 +21,10 @@ object ToolCallTemplates {
             listOf("llama-3", "llama3", "llama 3", "llama-4", "llama4", "llama 4")
                 .any { it in haystack } -> ToolCallTemplate.LLAMA3_JSON
 
+            // MiniCPM5 emits XML <function name="..."><param ...>…</param></function>.
+            listOf("minicpm5", "minicpm-5")
+                .any { it in haystack } -> ToolCallTemplate.MINICPM5
+
             // Qwen / Hermes / Nous models are trained on the <tool_call> block.
             listOf("qwen", "hermes", "nous", "functionary")
                 .any { it in haystack } -> ToolCallTemplate.HERMES

@@ -43,6 +43,7 @@ class ToolCallDialectsTest {
         for (template in listOf(
             ToolCallTemplate.AUTO,
             ToolCallTemplate.HERMES,
+            ToolCallTemplate.MINICPM5,
             ToolCallTemplate.LLAMA3_JSON,
             ToolCallTemplate.MISTRAL,
             ToolCallTemplate.PLAIN_JSON
@@ -133,6 +134,7 @@ class ToolCallDialectsTest {
     fun `call echoes round trip through their own dialect`() {
         for (template in listOf(
             ToolCallTemplate.HERMES,
+            ToolCallTemplate.MINICPM5,
             ToolCallTemplate.LLAMA3_JSON,
             ToolCallTemplate.MISTRAL,
             ToolCallTemplate.PLAIN_JSON
@@ -145,6 +147,45 @@ class ToolCallDialectsTest {
             assertEquals("Seoul", JSONObject(parsed.call.argumentsJson).optString("city"))
         }
         assertEquals("", McpToolProtocol.formatCallEcho("add", "{}", ToolCallTemplate.NONE))
+    }
+
+    @Test
+    fun `minicpm5 xml call is parsed with parameters and hidden`() {
+        val text = "Checking.\n<function name=\"get_weather\"><param name=\"city\">Seoul</param></function>"
+        val parsed = McpToolProtocol.parse(text, tools, ToolCallTemplate.MINICPM5)
+        assertTrue(parsed is ToolCallParse.Call)
+        parsed as ToolCallParse.Call
+        assertEquals("get_weather", parsed.call.name)
+        assertEquals("Seoul", JSONObject(parsed.call.argumentsJson).optString("city"))
+        assertEquals("Checking.", parsed.textBefore)
+        assertEquals("Checking.", McpToolProtocol.visibleText(text, ToolCallTemplate.MINICPM5))
+    }
+
+    @Test
+    fun `minicpm5 cdata values survive and the echo round trips`() {
+        val text = "<function name=\"get_weather\"><param name=\"city\"><![CDATA[Seoul <b>]]></param></function>"
+        val parsed = McpToolProtocol.parse(text, tools, ToolCallTemplate.MINICPM5) as ToolCallParse.Call
+        assertEquals("Seoul <b>", JSONObject(parsed.call.argumentsJson).optString("city"))
+
+        val echo = McpToolProtocol.formatCallEcho("get_weather", """{"city":"New\nYork"}""", ToolCallTemplate.MINICPM5)
+        assertTrue(echo.contains("<param name=\"city\"><![CDATA[New\nYork]]></param>"))
+        val echoed = McpToolProtocol.parse(echo, tools, ToolCallTemplate.MINICPM5)
+        assertTrue(echoed is ToolCallParse.Call)
+        assertEquals("New\nYork", JSONObject((echoed as ToolCallParse.Call).call.argumentsJson).optString("city"))
+    }
+
+    @Test
+    fun `minicpm5 rejects unknown tools, truncated blocks and fenced examples`() {
+        assertTrue(
+            McpToolProtocol.parse("<function name=\"nope\"></function>", tools, ToolCallTemplate.MINICPM5)
+                is ToolCallParse.Invalid
+        )
+        assertTrue(
+            McpToolProtocol.parse("<function name=\"add\"><param name=\"a\">1</param>", tools, ToolCallTemplate.MINICPM5)
+                is ToolCallParse.Invalid
+        )
+        val fenced = "Example:\n```\n<function name=\"add\"></function>\n```"
+        assertTrue(McpToolProtocol.parse(fenced, tools, ToolCallTemplate.MINICPM5) is ToolCallParse.None)
     }
 
     @Test

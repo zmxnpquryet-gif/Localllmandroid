@@ -16,7 +16,10 @@ data class ChatAttachment(
     val mimeType: String,
     val fileName: String,
     val isImage: Boolean
-)
+) {
+    /** A recorded turn for models that accept audio directly instead of through STT. */
+    val isAudio: Boolean get() = mimeType.startsWith("audio/")
+}
 
 data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),

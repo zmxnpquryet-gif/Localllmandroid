@@ -994,10 +994,10 @@ private fun FdmAddBundleDialog(
                 ) {
                     GOutlineButton(
                         onClick = {
-                            modelNameInput = "DeepSeek R1 (GGUF)"
+                            modelNameInput = "Qwen 3.5 2B (GGUF)"
                             runtimeChoice = ModelRuntimeType.LLAMA_CPP
-                            mainUrlInput = "https://huggingface.co/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf"
-                            customFileNameInput = "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf"
+                            mainUrlInput = "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+                            customFileNameInput = "Qwen3.5-2B-Q4_K_M.gguf"
                             visionUrlInput = ""
                             mtpUrlInput = ""
                             templateUrlInput = ""
@@ -1006,7 +1006,7 @@ private fun FdmAddBundleDialog(
                         },
                         modifier = Modifier.weight(1f)
                     ) {
-                        GText("DeepSeek R1", fontSize = 11.sp)
+                        GText("Qwen 3.5 2B", fontSize = 11.sp)
                     }
                     GOutlineButton(
                         onClick = {
@@ -1372,16 +1372,6 @@ private fun queryFileName(context: Context, uri: Uri): String? {
 
 /** 目录模型卡片描述按当前语言解析；自定义/导入模型回退到数据字段原文。 */
 private val MODEL_DESC_RES: Map<String, Int> = mapOf(
-    "smollm2-360m-instruct-gguf" to R.string.model_desc_smollm2_360m,
-    "qwen2.5-0.5b-instruct-gguf" to R.string.model_desc_qwen05b,
-    "llama-3.2-1b-instruct-gguf" to R.string.model_desc_llama1b,
-    "deepseek-r1-distill-qwen-1.5b-gguf" to R.string.model_desc_ds_r1_15b,
-    "qwen2.5-1.5b-instruct-gguf" to R.string.model_desc_qwen15b,
-    "smollm2-1.7b-instruct-gguf" to R.string.model_desc_smollm2_17b,
-    "gemma-2-2b-it-gguf" to R.string.model_desc_gemma2_2b,
-    "qwen2-vl-2b-instruct-gguf" to R.string.model_desc_qwen2vl,
-    "qwen2.5-coder-1.5b-litert" to R.string.model_desc_coder_lr,
-    "gemma-3-1b-it-litert" to R.string.model_desc_gemma3_lr,
     "functiongemma-mobile-actions-litert" to R.string.model_desc_funcgemma_lr
 )
 
