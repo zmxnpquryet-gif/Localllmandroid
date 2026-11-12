@@ -4,9 +4,7 @@ import java.util.Locale
 
 enum class ModelRuntimeType(val label: String, val badge: String) {
     LLAMA_CPP("llama.cpp", "GGUF"),
-    LITE_RT("LiteRT LM", "LiteRT"),
-    /** SDengine: first-party experimental engine (TEST — refuses on-device inference). */
-    SD_ENGINE("SDengine (TEST)", "SDengine (TEST)")
+    LITE_RT("LiteRT LM", "LiteRT")
 }
 
 enum class PromptTemplateType(val id: String, val displayName: String) {
@@ -16,6 +14,29 @@ enum class PromptTemplateType(val id: String, val displayName: String) {
     LLAMA3("llama3", "Llama 3 (<|start_header_id|>)"),
     LFM3("lfm3", "LFM3 (<|im_start|>, <think>)"),
     CUSTOM("custom", "Custom / JSON")
+}
+
+/**
+ * Tool-call dialect a model was trained on. The runtime speaks plain text, so the
+ * dialect only decides the block syntax offered in the prompt and then parsed back
+ * — every on-device template can still fall back to [HERMES].
+ */
+enum class ToolCallTemplate(val id: String, val displayName: String, val shortLabel: String) {
+    AUTO("auto", "Auto-detect", "Auto"),
+    HERMES("hermes", "Hermes <tool_call>", "Hermes"),
+    LLAMA3_JSON("llama3_json", "Llama 3 JSON", "Llama 3"),
+    MISTRAL("mistral", "Mistral [TOOL_CALLS]", "Mistral"),
+    PLAIN_JSON("plain_json", "Plain JSON object", "JSON"),
+    NONE("none", "Disabled", "Off");
+
+    companion object {
+        /**
+         * Unknown or legacy ids fall back to auto-detection rather than pinning a
+         * dialect the model may never have been trained on.
+         */
+        fun fromId(id: String?): ToolCallTemplate =
+            entries.firstOrNull { it.id == id } ?: AUTO
+    }
 }
 
 data class LlmModel(
@@ -38,6 +59,14 @@ data class LlmModel(
     val downloadSpeedText: String = "",
     val description: String = "",
     val quantization: String = "Q4_K_M",
+    /** Context length the model is served with at most; 0 = not stated by the catalog. */
+    val maxContextTokens: Int = 0,
+    /** Practical minimum device RAM for a usable load; 0 = not stated by the catalog. */
+    val minDeviceRamMb: Int = 0,
+    /** Native audio input (omni/audio models): hands-free conversation without a separate STT. */
+    val supportsAudioInput: Boolean = false,
+    /** Tool-call dialect this model was trained on; AUTO detects it from the name. */
+    val toolCallTemplate: ToolCallTemplate = ToolCallTemplate.AUTO,
     val localFilePath: String? = null,
     val localMmprojPath: String? = null,
     val localMtpDrafterPath: String? = null,
@@ -60,8 +89,8 @@ data class LlmModel(
     val downloadEtaSeconds: Int = 0,
     val hfToken: String? = null,
     /**
-     * Set when the user picked the runtime by hand. Auto-detection (MoE GGUF → SDengine)
-     * never overwrites an explicit choice, so nobody gets locked into a runtime.
+     * Set when the user picked the runtime by hand. Auto-detection never overwrites
+     * an explicit choice, so nobody gets locked into a runtime.
      */
     val runtimeTypeOverrideByUser: Boolean = false
 ) {
@@ -79,7 +108,6 @@ data class LlmModel(
         get() = when (runtimeType) {
             ModelRuntimeType.LLAMA_CPP -> "llama.cpp (GGUF)"
             ModelRuntimeType.LITE_RT -> "LiteRT"
-            ModelRuntimeType.SD_ENGINE -> "SDengine (TEST)"
         }
 }
 

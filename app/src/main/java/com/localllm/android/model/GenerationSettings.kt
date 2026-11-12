@@ -16,6 +16,12 @@ data class GenerationSettings(
     val enableIndexingAcceleration: Boolean = true, // KV-cache / Prompt cache
     val enableGpuAcceleration: Boolean = true, // Hardware GPU/NPU acceleration
     val gpuLayers: Int = 99, // Offloaded GPU layers for llama.cpp (0 = CPU only, 99 = full offload)
+    val kvCacheQuantization: KvCacheQuantization = KvCacheQuantization.F16, // llama.cpp KV-cache precision
+    /**
+     * Load exactly what is configured: no footprint refusal, no automatic context
+     * reduction, no reduced-context fallback candidates, no watchdog stop.
+     */
+    val ignoreMemoryLimits: Boolean = false,
     val apiServerBindAddress: String = "127.0.0.1", // "127.0.0.1" (secure local) or "0.0.0.0" (LAN)
     val apiServerRequireAuth: Boolean = true, // Require Bearer API key for OllamaApiServer
     val mcpServerUrl: String = "",

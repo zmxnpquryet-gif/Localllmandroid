@@ -329,8 +329,7 @@ fun ModelManagerScreen(
                         onDownload = { viewModel.downloadModel(model.id) },
                         onDelete = { viewModel.deleteModel(model.id) },
                         onToggleVision = { viewModel.toggleModelVision(model.id) },
-                        onToggleDrafter = { viewModel.toggleModelDrafter(model.id) },
-                        onRuntimeChange = { viewModel.setModelRuntime(model.id, it) }
+                        onToggleDrafter = { viewModel.toggleModelDrafter(model.id) }
                     )
                 }
                 item {
@@ -591,8 +590,7 @@ private fun ModelBundleCardItem(
     onDownload: () -> Unit,
     onDelete: () -> Unit,
     onToggleVision: () -> Unit,
-    onToggleDrafter: () -> Unit,
-    onRuntimeChange: (ModelRuntimeType) -> Unit
+    onToggleDrafter: () -> Unit
 ) {
     val borderColor = if (isActive) GlassTheme.colors.primary else GlassTheme.colors.outline.copy(alpha = 0.2f)
 
@@ -655,24 +653,6 @@ private fun ModelBundleCardItem(
             style = GlassTheme.type.bodySmall,
             color = GlassTheme.colors.onSurfaceVariant
         )
-
-        // Runtime override for imported GGUFs: an auto-detected MoE model can always be
-        // sent back to llama.cpp (and a dense model forced onto SDengine) by hand.
-        if (model.id.startsWith("custom-") && model.runtimeType != ModelRuntimeType.LITE_RT) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                RuntimeChoiceChip(
-                    label = "llama.cpp",
-                    selected = model.runtimeType == ModelRuntimeType.LLAMA_CPP,
-                    onClick = { onRuntimeChange(ModelRuntimeType.LLAMA_CPP) }
-                )
-                RuntimeChoiceChip(
-                    label = "SDengine (TEST)",
-                    selected = model.runtimeType == ModelRuntimeType.SD_ENGINE,
-                    onClick = { onRuntimeChange(ModelRuntimeType.SD_ENGINE) }
-                )
-            }
-        }
 
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -1367,21 +1347,6 @@ private fun FdmAddBundleDialog(
             }
         }
     )
-}
-
-@Composable
-private fun RuntimeChoiceChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    GTextButton(onClick = onClick) {
-        GText(
-            text = label,
-            fontSize = 11.sp,
-            color = if (selected) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant
-        )
-    }
 }
 
 private fun queryFileName(context: Context, uri: Uri): String? {

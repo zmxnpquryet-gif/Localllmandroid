@@ -25,4 +25,3 @@ dependencyResolutionManagement {
 rootProject.name = "Local LLM"
 
 include(":app")
-include(":engine")

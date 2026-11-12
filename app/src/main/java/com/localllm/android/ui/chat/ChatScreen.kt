@@ -49,7 +49,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.localllm.android.R
-import com.localllm.android.i18n.SdEngineText
 import com.localllm.android.model.LlmModel
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
@@ -407,45 +406,6 @@ fun ChatScreen(
                         }
                     }
 
-                // SDengine TEST Banner (shows whenever the experimental engine is selected)
-                if (settings.runtime == com.localllm.android.model.ModelRuntimeType.SD_ENGINE) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        GCard(cornerRadius = 16.dp) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(GlassTheme.colors.errorContainer.copy(alpha = 0.45f))
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    GIcon(
-                                        imageVector = GIcons.ErrorOutline,
-                                        contentDescription = null,
-                                        tint = GlassTheme.colors.error,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    GText(
-                                        text = stringResource(R.string.chat_sdengine_banner_prefix) +
-                                                SdEngineText.advisoryText(),
-                                        fontSize = 11.sp,
-                                        color = GlassTheme.colors.onErrorContainer,
-                                        maxLines = 5,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Engine Status Pill Banner
                 if (!engineStatus.isNullOrBlank()) {
                         val isErrorStatus = isEngineErrorStatus(engineStatus)
@@ -673,7 +633,7 @@ fun ChatScreen(
 /** Language-independent error detection for the engine status banner. */
 private fun isEngineErrorStatus(status: String?): Boolean {
     if (status.isNullOrBlank()) return false
-    // A load that succeeded on a fallback backend (GPU/OpenCL → CPU, SDengine → llama.cpp)
+    // A load that succeeded on a fallback backend (GPU/OpenCL → CPU)
     // reports the failure that caused it but is a working state, so it stays a warning.
     val lower = status.lowercase()
     if (status.contains("대체 실행") || status.contains("回退") || status.contains("替代") ||

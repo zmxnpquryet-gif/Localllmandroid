@@ -22,7 +22,7 @@
 <p align="center">
   <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/releases/latest"><img src="https://img.shields.io/github/v/release/zmxnpquryet-gif/Localllmandroid?label=Release%20APK&color=success&logo=android" alt="Release APK" /></a>
   <a href="https://github.com/zmxnpquryet-gif/Localllmandroid/actions/workflows/android.yml"><img src="https://github.com/zmxnpquryet-gif/Localllmandroid/actions/workflows/android.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/Runtime-llama.cpp%20%2B%20LiteRT--LM%20%2B%20SDengine-orange.svg" alt="Dual Engine" />
+  <img src="https://img.shields.io/badge/Runtime-llama.cpp%20%2B%20LiteRT--LM-orange.svg" alt="Dual Engine" />
   <img src="https://img.shields.io/badge/Platform-Android%2024%2B-green.svg" alt="Platform" />
   <img src="https://img.shields.io/badge/Kotlin-2.2-purple.svg" alt="Kotlin" />
   <img src="https://img.shields.io/badge/API-Ollama%20%7C%20OpenAI%20Port%2011434-blueviolet.svg" alt="API" />
@@ -33,7 +33,7 @@
   <img src="https://img.shields.io/badge/UI-EN%20%2F%20KO%20%2F%20ZH%20Switcher-ff69b4.svg" alt="Multilingual" />
 </p>
 
-**Local LLM Android**는 프라이버시를 최우선으로 하는, 완전 오프라인에서 동작하는 안드로이드 온디바이스 LLM(대형 언어 모델) 애플리케이션이자 서버입니다. **llama.cpp**와 **Google LiteRT-LM**을 결합한 **하이브리드 이원 런타임 아키텍처**로 최신 AI 모델을 전부 기기 안에서만 구동합니다 — 기본은 CPU 연산이며, 기기와 런타임이 지원하면 GPU/NPU 가속을 사용하고 자동으로 CPU로 폴백합니다. 클라우드 의존성은 없습니다. UI는 자체 개발 **글래스 디자인 시스템** 위에서 동작하며 **영어/한국어/중국어 실시간 전환**을 지원하고, 채팅은 네이티브 **MCP 클라이언트**로 도구를 호출할 수 있습니다. 또한 자체 MoE 연구 엔진(**SDengine**)이 `:engine` 모듈로 오픈소스로 개발되고 있습니다.
+**Local LLM Android**는 프라이버시를 최우선으로 하는, 완전 오프라인에서 동작하는 안드로이드 온디바이스 LLM(대형 언어 모델) 애플리케이션이자 서버입니다. **llama.cpp**와 **Google LiteRT-LM**을 결합한 **하이브리드 이원 런타임 아키텍처**로 최신 AI 모델을 전부 기기 안에서만 구동합니다 — 기본은 CPU 연산이며, 기기와 런타임이 지원하면 GPU/NPU 가속을 사용하고 자동으로 CPU로 폴백합니다. 클라우드 의존성은 없습니다. UI는 자체 개발 **글래스 디자인 시스템** 위에서 동작하며 **영어/한국어/중국어 실시간 전환**을 지원하고, 채팅은 네이티브 **MCP 클라이언트**로 도구를 호출할 수 있습니다.
 
 ---
 
@@ -55,7 +55,6 @@
 
 - **llama.cpp (GGUF)** — 수만 개의 커뮤니티 양자화 모델(Q4_K_M, Q8_0, K-quants 등), 추론(Reasoning) 모델, 채팅 템플릿, `mmproj` 비전 타워를 Hugging Face에서 바로 실행.
 - **Google LiteRT-LM** — 지원 기기에서 GPU/NPU 델리게이트를 활용하는(자동 CPU 폴백) Google 모바일 최적화 런타임. Snapdragon / MediaTek / Tensor / Exynos SoC에 맞춤.
-- **SDengine** — `:engine` 모듈에서 공개적으로 개발 중인 실험적 자체 MoE 엔진. [🧪 SDengine](#-sdengine--실험적-자체-엔진-engine) 참조.
 
 ### 🌐 온디바이스 Ollama / OpenAI 서버 (포트 11434)
 
@@ -132,24 +131,20 @@ Local LLM Android는 단일 엔진에 종속되지 않고, **llama.cpp**와 **Go
 ┌──────────────────────────────────────────────────────────────────────┐
 │                             LlmEngine                                │
 │       단일 추상화 · 스트리밍 · 토크나이징 · 취소                       │
-└───────┬───────────────────────────┬──────────────────────────┬───────┘
-        ▼                           ▼                          ▼
-┌───────────────────┐   ┌──────────────────────┐   ┌─────────────────────┐
-│  llama.cpp        │   │  Google LiteRT-LM    │   │  SDengine (실험)    │
-│  런타임           │   │  런타임              │   │  :engine 모듈       │
-├───────────────────┤   ├──────────────────────┤   ├─────────────────────┤
-│ • GGUF 양자화     │   │ • Google 모바일      │   │ • MoE 전용 코어     │
-│   (Q4_K_M, Q8_0,  │   │   바이너리           │   │ • 페이징 전문가     │
-│   K-quants)       │   │ • Gemma-2,           │   │   스트리밍          │
-│ • Qwen, DeepSeek, │   │   FunctionGemma      │   │ • Kotlin/JVM +      │
-│   Llama 3, LFM3   │   │ • 지원 기기에서      │   │   C++ JNI 레퍼런스  │
-│ • CPU 멀티스레딩  │   │   GPU/NPU 델리게이트 │   │ • GGUF 리더, BPE,   │
-│   & GPU 레이어    │   │   (자동 CPU 폴백)    │   │   K-quants, RoPE    │
-│   오프로딩        │   │ • 저전력 모바일      │   │                     │
-│ • mmproj 비전     │   │   추론               │   │                     │
-│   (Qwen2/LFM3-VL) │   │                      │   │                     │
-└─────────┬─────────┘   └──────────┬───────────┘   └──────────┬──────────┘
-          ▼                        ▼                          ▼
+└────────────────┬────────────────────────────────────┬────────────────┘
+                 ▼                                    ▼
+┌─────────────────────────────────┐  ┌─────────────────────────────────┐
+│  llama.cpp (GGUF)               │  │  Google LiteRT-LM               │
+├─────────────────────────────────┤  ├─────────────────────────────────┤
+│ • GGUF quants (Q4_K_M, Q8_0,    │  │ • Google mobile binaries        │
+│   K-quants)                     │  │   (Gemma-2, FunctionGemma)      │
+│ • Qwen, DeepSeek, Llama 3, LFM3 │  │ • GPU/NPU delegates where       │
+│ • CPU multi-threading & GPU     │  │   supported (automatic CPU      │
+│   layer offload                 │  │   fallback)                     │
+│ • mmproj vision                 │  │ • low-power mobile inference    │
+│   (Qwen2/LFM3-VL)               │  │                                 │
+└─────────────────┬───────────────┘  └─────────────────┬───────────────┘
+                 ▼                                    ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │                          하드웨어 (SoC)                               │
 │          CPU (멀티스레드) · GPU 델리게이트 · NPU 델리게이트            │
@@ -299,33 +294,6 @@ curl -X POST http://<기기_IP>:11434/api/generate \
 
 ---
 
-## 🧪 SDengine — 실험적 자체 엔진 (`:engine`)
-
-<details>
-<summary><b>범위, 내부 구조, 현재 상태</b></summary>
-
-독립 안드로이드 라이브러리 모듈로 자체 MoE 전용 추론 코어를 오픈소스로 개발하고 있습니다.
-
-**범위(의도된 설계):** 안드로이드에서 동작하는 gated-expert Mixture-of-Experts 전용 (Kotlin/JVM 코어 + 포터블 C++ JNI 레퍼런스, NEON/GPU 커널은 예정). Dense 전용 모델 및 비-MoE 하이브리드는 범위 밖입니다.
-
-**현재 포함된 것:**
-- GGUF 리더 + 메타데이터 감지, BPE 토크나이저, 샘플러, KV 캐시 (`GgufReader`, `BpeTokenizer`, `Sampler`, `KvCache`)
-- 양자화 가중치 디퀀터: Q4_0/Q4_1/Q5_0/Q5_1/Q8_0/Q8_1과 K-quants Q4_K/Q5_K/Q6_K — ggml 레퍼런스 레이아웃에 스펙 벡터로 고정 (`Quant`, `QuantTest`)
-- 페이징 전문가 스트리밍: dense 가중치는 상한 내 상주 디코딩, expert 타일은 스토리지에 두고 `ExpertPager`로 스트리밍 — RAM보다 큰 MoE 모델도 디코딩 가능
-- 아키텍처 매칭 RoPE (llama.cpp의 아키텍처별 표에 따라 NeoX half-split / NORM interleaved 선택, GGUF 아키텍처에서 결정)
-- NDK 27 + CMake 기반 포터블 C++ JNI 레퍼런스 (`arm64-v8a`, `x86_64`): `dot()` 동등성 확인용이며 NEON은 아직 없음 — 실제 연산은 JVM 스칼라 커널
-- 실제 MoE 가중치 기반 수치 검증 (HTTP range 스트리밍, 수동/야간 `RealMoETest` + `LOCALENGINE_MOE_URL`; 일반 CI에서는 실행 안 함)
-- 야간 골든 하네스: 실제 MoE GGUF에서 그리디 생성이 llama.cpp와 토큰 단위로 일치해야 함 (`GoldenLogitTest` + `nightly-real-model.yml`; 야간/예약 전용, 일반 CI 아님)
-- gated-expert GGUF 엔드투엔드 생성 — `SDEngineEndToEndTest`가 합성 MoE 모델로 로드·토큰 스트리밍·중단·상주 상한 거부까지 검증
-
-**상태: TEST BUILD / 실험체 — 실행은 되지만 프로덕션 사용 금지.**
-- 레퍼런스 스칼라 커널로 수학을 검증 중이며, NEON/GPU 커널이 다음 단계입니다. 그래서 실기기에서 실제 MoE 모델은 초당 한 자릿수 토큰 속도로 동작합니다.
-- 가져온 모델의 기본값은 llama.cpp이며 SDengine은 모델별 런타임 오버라이드(모델 관리자)로만 선택하는 opt-in입니다. SDengine 로드가 실패하면 모델 없이 남는 대신 llama.cpp로 한 번 재시도하고, 엔진 어드바이저리(`SDEngine.ADVISORIES`)를 계속 표시합니다.
-
-</details>
-
----
-
 ## 🚀 시작하기
 
 ### 📲 릴리즈 APK 설치
@@ -344,7 +312,7 @@ curl -X POST http://<기기_IP>:11434/api/generate \
 - Android Studio Ladybug (2024.2.1+) 이상
 - JDK 17
 - Android SDK 36 (Min SDK 24)
-- Android NDK 27.2 + CMake 3.22 이상 (`:engine` 모듈과 업스트림 llama.cpp 빌드에 필요)
+- Android NDK 27.2 + CMake 3.22 이상 (업스트림 llama.cpp 빌드에 필요)
 - Git 서브모듈: `--recurse-submodules`로 클론하거나 `git submodule update --init --recursive`를 실행하세요. `app/src/main/cpp/llama.cpp`는 LFM3를 지원하는 업스트림 v0.8.0(b11960)에 고정되어 있습니다.
 - 64비트 ARM 아키텍처(`arm64-v8a`) 또는 `x86_64` 대상 기기
 - 네이티브 의존성 수동 설치 불필요: sherpa-onnx STT AAR(약 50MB)은 저장소에 커밋하지 않고, 빌드 전 Gradle `fetchSherpaAar` 태스크가 버전·SHA-256 고정값으로 자동 다운로드합니다.

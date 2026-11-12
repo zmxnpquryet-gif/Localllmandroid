@@ -42,7 +42,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import com.localllm.android.R
-import com.localllm.android.i18n.SdEngineText
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -57,6 +56,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.localllm.android.model.GenerationSettings
+import com.localllm.android.model.KvCacheQuantization
+import com.localllm.android.model.ToolCallTemplate
 import com.localllm.android.model.ModelRuntimeType
 import com.localllm.android.memory.MemoryGuardStore
 import com.localllm.android.ui.AppScreen
@@ -154,21 +155,6 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f)
                     )
                 }
-                Spacer(modifier = Modifier.height(10.dp))
-                GFilterChip(
-                    selected = settings.runtime == ModelRuntimeType.SD_ENGINE,
-                    onClick = { viewModel.switchRuntime(ModelRuntimeType.SD_ENGINE) },
-                    label = { GText(stringResource(R.string.settings_sdengine_label)) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (settings.runtime == ModelRuntimeType.SD_ENGINE) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    GText(
-                        text = SdEngineText.advisoryText(),
-                        style = GlassTheme.type.bodySmall,
-                        color = GlassTheme.colors.error
-                    )
-                }
             }
 
             // 2. Hardware Acceleration & MTP Options
@@ -241,6 +227,31 @@ fun SettingsScreen(
                         onCheckedChange = { viewModel.updateSettings(settings.copy(enableGpuAcceleration = it)) }
                     )
                 }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                GText(stringResource(R.string.settings_kv_title), style = GlassTheme.type.bodyMedium)
+                GText(
+                    text = stringResource(R.string.settings_kv_desc),
+                    fontSize = 12.sp,
+                    color = GlassTheme.colors.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    KvCacheQuantization.entries.forEach { option ->
+                        GFilterChip(
+                            selected = settings.kvCacheQuantization == option,
+                            onClick = {
+                                viewModel.updateSettings(settings.copy(kvCacheQuantization = option))
+                            },
+                            label = { GText(option.label) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
             }
 
             // 2b. Memory protection (abnormal-exit detection + automatic reduction)
@@ -253,6 +264,35 @@ fun SettingsScreen(
                     style = GlassTheme.type.bodySmall,
                     color = GlassTheme.colors.onSurfaceVariant
                 )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        GText(stringResource(R.string.settings_oom_bypass_title), style = GlassTheme.type.bodyMedium)
+                        GText(
+                            text = stringResource(R.string.settings_oom_bypass_desc),
+                            fontSize = 12.sp,
+                            color = GlassTheme.colors.onSurfaceVariant
+                        )
+                    }
+                    GSwitch(
+                        checked = settings.ignoreMemoryLimits,
+                        onCheckedChange = {
+                            viewModel.updateSettings(settings.copy(ignoreMemoryLimits = it))
+                        }
+                    )
+                }
+                if (settings.ignoreMemoryLimits) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    GText(
+                        text = stringResource(R.string.settings_oom_bypass_warning),
+                        style = GlassTheme.type.bodySmall,
+                        color = GlassTheme.colors.error
+                    )
+                }
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -502,6 +542,49 @@ fun SettingsScreen(
                         fontSize = 12.sp,
                         color = GlassTheme.colors.onSurfaceVariant
                     )
+                }
+
+                // Tool-call dialect for the model that is currently loaded.
+                val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
+                if (activeModel != null) {
+                    val toolTemplate by viewModel.activeToolTemplate.collectAsStateWithLifecycle()
+                    Spacer(modifier = Modifier.height(12.dp))
+                    GText(
+                        text = stringResource(R.string.settings_tool_template_title),
+                        style = GlassTheme.type.bodyMedium
+                    )
+                    GText(
+                        text = stringResource(R.string.settings_tool_template_desc),
+                        fontSize = 12.sp,
+                        color = GlassTheme.colors.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ToolCallTemplate.entries.chunked(3).forEach { chunk ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                chunk.forEach { option ->
+                                    GFilterChip(
+                                        selected = toolTemplate == option,
+                                        onClick = { viewModel.setToolCallTemplate(option) },
+                                        label = {
+                                            GText(
+                                                when (option) {
+                                                    ToolCallTemplate.AUTO -> stringResource(R.string.settings_tool_template_auto)
+                                                    ToolCallTemplate.NONE -> stringResource(R.string.settings_tool_template_off)
+                                                    else -> option.shortLabel
+                                                }
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                repeat(3 - chunk.size) { Spacer(modifier = Modifier.weight(1f)) }
+                            }
+                        }
+                    }
                 }
             }
 

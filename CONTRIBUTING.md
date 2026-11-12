@@ -19,7 +19,7 @@ Use the [feature request template](https://github.com/zmxnpquryet-gif/Localllman
 
 1. Install Android Studio Ladybug or later with JDK 17
 2. Android SDK 36, min SDK 24
-3. Android NDK 27.2 + CMake 3.22 or later (required by the `:engine` native module —
+3. Android NDK 27.2 + CMake 3.22 or later (required by the upstream llama.cpp native build —
    a missing NDK fails the build with a CMake error, not a Kotlin error)
 4. Clone the repo and open it in Android Studio
 5. Generate the throwaway debug keystore once (it is gitignored, so a fresh clone

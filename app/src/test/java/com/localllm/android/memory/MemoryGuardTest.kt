@@ -44,14 +44,14 @@ class MemoryGuardTest {
     @Test
     fun `a kill during inference is detected on the next start`() {
         val guard = store()
-        guard.markInferenceStart("MoE 27B", "SD_ENGINE", 4096, 0, false)
+        guard.markInferenceStart("MoE 27B", "LLAMA_CPP", 4096, 0, false)
         // process dies here: no markInferenceEnd()
 
         val report = guard.onAppStart()
         assertTrue(report.abnormalPreviousRun)
         assertEquals(1, report.level)
         assertNotNull(report.lastIncident)
-        assertTrue(report.lastIncident!!.detail.contains("SD_ENGINE"))
+        assertTrue(report.lastIncident!!.detail.contains("LLAMA_CPP"))
         assertEquals("MoE 27B", report.lastIncident!!.modelName)
 
         // The marker is consumed: a second boot without a new inference is clean.
