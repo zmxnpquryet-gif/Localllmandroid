@@ -201,7 +201,6 @@
     <string name="chat_voice_mic_permission_required">语音输入需要麦克风权限。</string>
     <string name="chat_api_banner_active">API 模式运行中（端口 %1$d）• 点按查看 API 信息</string>
     <string name="chat_api_banner_details">详情 ></string>
-    <string name="chat_sdengine_banner_prefix">"⚠ SDengine（测试版）— 实验性自研引擎（仅支持 MoE，速度很慢）。"</string>
     <string name="chat_status_details_short">[详情]</string>
     <string name="chat_jump_latest_desc">跳到最新回答</string>
     <string name="chat_jump_latest">跟随回答</string>
@@ -217,7 +216,6 @@
     <string name="chat_attach_text_only">纯文本模型</string>
     <string name="chat_attach_document">添加文档与文本文件</string>
     <string name="chat_attach_document_hint">注入 TXT、PDF 和代码文件内容</string>
-    <string name="chat_sdengine_unavailable">实验性自研引擎 • 仅支持 MoE，速度很慢</string>
     <string name="chat_model_download_required">需要下载模型</string>
     <string name="chat_model_manage">下载并管理模型</string>
     <string name="chat_local_models">本地模型</string>
@@ -261,7 +259,6 @@
     <string name="api_curl_example_prompt">你好</string>
 
     <!-- 设置界面（进阶） -->
-    <string name="settings_sdengine_label">⚠ SDengine（测试版）— 实验性自研引擎</string>
     <string name="settings_context_window_value">%1$d 个词元</string>
     <string name="settings_top_p_sampling">Top-P 采样</string>
     <string name="settings_reset">重置</string>
@@ -379,12 +376,16 @@
     <string name="vm_status_memory_stop">内存严重不足 — 已停止生成。下次运行将以降低后的设置启动（级别 %1$d）</string>
     <string name="vm_status_tts_installed">本地韩语 TTS 语音已安装并选中</string>
     <string name="vm_status_runtime_override">%1$s 的运行时已设置为 %2$s</string>
-    <string name="vm_desc_imported_moe_sdengine"> • 检测到 MoE → 使用 llama.cpp 默认引擎（可在模型管理中切换到 SDengine 试用测试引擎）</string>
 
     <string name="settings_gpu_title">GPU 加速</string>
     <string name="settings_gpu_desc">LiteRT GPU（OpenCL）与 llama.cpp GPU 卸载。设备缺少可用的 OpenCL 驱动时会自动跳过。</string>
     <string name="settings_memory_title">内存保护</string>
     <string name="settings_memory_desc">检测异常终止并记录，在下次运行时降低高内存占用设置</string>
+    <string name="settings_kv_title">KV 缓存量化（llama.cpp）</string>
+    <string name="settings_kv_desc">降低精度可缩小 KV 缓存，从而容纳更大的上下文；输出质量可能略有下降。</string>
+    <string name="settings_oom_bypass_title">关闭 OOM 保护</string>
+    <string name="settings_oom_bypass_desc">完全按你设置的上下文与 KV 精度加载，不再自动缩减上下文或拒绝加载。</string>
+    <string name="settings_oom_bypass_warning">与内存不匹配的模型可能在生成过程中被 Android 杀掉，正在生成的回答会丢失。</string>
     <string name="settings_memory_auto">自动降低</string>
     <string name="settings_memory_level">当前级别：%1$d / %2$d</string>
     <string name="settings_memory_level_0">不降低</string>
@@ -408,7 +409,6 @@
     <string name="eng_no_path">找不到模型文件路径。</string>
     <string name="eng_no_file">模型文件在磁盘上不存在或为空：%1$s</string>
     <string name="eng_stage_nomem">可用内存不足</string>
-    <string name="eng_sd_nomem">SDengine 同样内存不足：dense %1$sMB + KV 必须放入 RAM，但可用 RAM 仅 %2$sMB（专家 %3$sMB 从 SSD 流式读取，不占 RAM）。把上下文降到 512 仍不行的话，本设备无法运行。</string>
     <string name="eng_no_mem_model">可用内存不足：加载 %1$s 约需 %2$sMB，但可用 RAM 仅 %3$sMB。请清理后台应用或选择更小的量化版本。</string>
     <string name="eng_mem_guard">内存保护：上下文 %1$s → %2$s 已自动降低（%3$s）</string>
     <string name="eng_stage_verify">正在校验模型完整性…</string>
@@ -437,10 +437,6 @@
     <string name="eng_err_magic">文件头与 GGUF 魔数（\'GGUF\'）不匹配，文件已损坏或无效。</string>
     <string name="eng_stage_integrity">完整性校验失败</string>
     <string name="eng_fmt_err">模型文件格式错误：%1$s</string>
-    <string name="eng_stage_sd_bind">正在绑定 SDengine(TEST) 权重…</string>
-    <string name="eng_sd_loaded">[SDengine][TEST] %1$s 加载完成（layers=%2$s，experts=%3$s，常驻 dense=%4$sMB，专家 %5$sMB 走 SSD 流式，tensors=%6$s）</string>
-    <string name="eng_stage_sd_fallback">SDengine 加载失败 → 回退 llama.cpp 运行</string>
-    <string name="eng_sd_fallback_msg">SDengine 加载失败（%1$s）— 回退 llama.cpp 运行。%2$s</string>
     <string name="eng_stage_llama_ctx">正在创建 llama.cpp 原生上下文…</string>
     <string name="eng_cand1">GPU 加速（%1$s 层）+ mmproj 视觉塔</string>
     <string name="eng_cand2">GPU 加速（%1$s 层，%2$s 上下文）</string>
@@ -450,6 +446,7 @@
     <string name="eng_cand6">直接内存加载（%1$s 上下文）</string>
     <string name="eng_cand7">稳定 mmap 模式（2048 上下文）</string>
     <string name="eng_cand8">省电直接内存模式（1024 上下文）</string>
+    <string name="eng_cand_kv_f16">KV F16 回退（%1$s ctx）</string>
     <string name="eng_stage_try">正在尝试加载 %1$s…</string>
     <string name="eng_ctx_handle_fail">llama.cpp 原生上下文句柄（0）返回失败</string>
     <string name="eng_ctx_create_fail">创建 llama.cpp 原生上下文失败</string>
@@ -461,7 +458,6 @@
     <string name="eng_sampler_cpu">LiteRT GPU（OpenCL）采样器不可用，已切换到 CPU 后端。下次运行将跳过 GPU（在设置中重新打开 GPU 加速可重试）。</string>
     <string name="eng_no_selected">未选择本地模型。请先在模型管理中加载一个模型。</string>
     <string name="eng_not_loaded">模型 %1$s 尚未加载，请先加载。</string>
-    <string name="eng_sd_not_ready">SDengine 未就绪。</string>
     <string name="eng_litert_not_ready">LiteRT 引擎未就绪。</string>
     <string name="eng_session_fail">准备 LiteRT 对话会话失败：%1$s</string>
     <string name="eng_litert_infer_err">LiteRT 推理错误：%1$s</string>
@@ -559,7 +555,7 @@
     <string name="aps_stopped">API 服务器已停止。</string>
     <string name="aps_stop_err">停止服务器时出错：%1$s</string>
     <string name="det_litert_all">LiteRT 一体化统一模型</string>
-    <string name="det_moe">%1$s 个 MoE 专家（可手动切换到 SDengine）</string>
+    <string name="det_moe">%1$s 个 MoE 专家</string>
     <string name="det_vision_integrated">内置视觉塔（视觉编码器）</string>
     <string name="det_drafter_integrated">内置推测解码草稿模型</string>
     <string name="pol_gpu_vision">GPU 加速（视觉联动）</string>
@@ -585,10 +581,6 @@
     <string name="det_vision_detected">检测到视觉塔</string>
     <string name="det_drafter_detected">检测到草稿模型（MTP）</string>
     <string name="mcp_sb_tail">" 提供的工具（实时查询）：</string>
-    <string name="sd_adv_1">测试构建：SDengine 是实验性自研引擎。可以运行，但请勿信任其输出质量。</string>
-    <string name="sd_adv_2">已应用优化内核（融合量化 matvec、RoPE 缓存、暂存复用、top-k 堆）。性能未实测、K-量化 bit-exact 验证尚未完成，速度慢于 llama.cpp 且可能有数值漂移。</string>
-    <string name="sd_adv_3">SDengine 仅支持 MoE。纯稠密模型与非 MoE 混合模型不在范围内；加载失败将回退 llama.cpp。</string>
-    <string name="sd_adv_4">稠密权重以量化形式常驻，专家分片从 SSD 流式读取。RAM 只需容纳 dense+KV（而非整个文件），因此可加载超过内存大小的 MoE；当 dense+KV 超过可用 RAM 时拒绝加载。</string>
     <string name="stt_no_model">没有本地 STT 模型。</string>
     <string name="settings_hf_source_title">模型下载源</string>
     <string name="settings_hf_source_desc">在 Hugging Face 官方站与 hf-mirror.com 镜像之间切换（huggingface.co 无法访问时使用）。</string>
@@ -608,4 +600,12 @@
     <string name="chat_tool_result_title">工具结果</string>
     <string name="model_manager_integrity_verified">SHA-256 已与主机发布的哈希值校验通过</string>
     <string name="model_manager_integrity_unverified">主机未发布哈希值 — 仅格式检查，未校验哈希</string>
+    <string name="chat_artifact_title">工件</string>
+    <string name="chat_artifact_lines">%1$d 行</string>
+    <string name="chat_artifact_expand">展开</string>
+    <string name="chat_artifact_collapse">收起</string>
+    <string name="settings_tool_template_title">工具调用格式</string>
+    <string name="settings_tool_template_desc">用于提示和解析工具调用的格式；自动会按已加载的模型选择。</string>
+    <string name="settings_tool_template_auto">自动</string>
+    <string name="settings_tool_template_off">关闭</string>
 </resources>

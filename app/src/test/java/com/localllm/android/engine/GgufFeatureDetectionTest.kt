@@ -5,10 +5,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Gated-expert (MoE) detection and SDengine candidacy on [GgufFeatureDetection].
+ * MoE detection on [GgufFeatureDetection].
  *
- * isMoe is driven purely by expertCount (> 1); isSdEngineCandidate additionally
- * requires a known, non-deferred architecture.
+ * isMoe is driven purely by expertCount (> 1); the architecture is only reported
+ * for display, never used to route a model to another engine.
  */
 class GgufFeatureDetectionTest {
 
@@ -18,10 +18,6 @@ class GgufFeatureDetectionTest {
         expertCount = expertCount,
         architecture = architecture
     )
-
-    // ------------------------------------------------------------------
-    // isMoe
-    // ------------------------------------------------------------------
 
     @Test
     fun `expert count of one or below is not moe`() {
@@ -36,42 +32,11 @@ class GgufFeatureDetectionTest {
         assertTrue(detection(expertCount = 256, architecture = "deepseek2").isMoe)
     }
 
-    // ------------------------------------------------------------------
-    // isSdEngineCandidate
-    // ------------------------------------------------------------------
-
     @Test
-    fun `supported moe architecture is an sdengine candidate`() {
-        val detected = detection(expertCount = 8, architecture = "qwen2_moe")
-        assertTrue(detected.isMoe)
-        assertTrue(detected.isSdEngineCandidate)
-    }
-
-    @Test
-    fun `deferred architecture is never an sdengine candidate`() {
-        // deepseek2 (MLA/compressed-KV) is deferred: stays on llama.cpp.
-        val deepseek = detection(expertCount = 8, architecture = "deepseek2")
-        assertTrue(deepseek.isMoe)
-        assertFalse(deepseek.isSdEngineCandidate)
-    }
-
-    @Test
-    fun `mamba architecture is never an sdengine candidate`() {
-        val mamba = detection(expertCount = 8, architecture = "mamba")
-        assertTrue(mamba.isMoe)
-        assertFalse(mamba.isSdEngineCandidate)
-    }
-
-    @Test
-    fun `dense model is never an sdengine candidate`() {
-        assertFalse(detection(expertCount = 1, architecture = "qwen2_moe").isSdEngineCandidate)
-        assertFalse(detection(expertCount = 0, architecture = "qwen2_moe").isSdEngineCandidate)
-    }
-
-    @Test
-    fun `missing architecture is never an sdengine candidate`() {
-        val detected = detection(expertCount = 8, architecture = null)
-        assertTrue(detected.isMoe)
-        assertFalse(detected.isSdEngineCandidate)
+    fun `moe detection does not depend on a known architecture`() {
+        // The architecture is informational: a MoE is a MoE whether or not the app
+        // recognizes the family, and runtime routing stays container-based.
+        assertTrue(detection(expertCount = 8, architecture = null).isMoe)
+        assertTrue(detection(expertCount = 8, architecture = "mamba").isMoe)
     }
 }

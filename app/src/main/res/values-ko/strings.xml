@@ -201,7 +201,6 @@
     <string name="chat_voice_mic_permission_required">음성 입력을 위해 마이크 권한이 필요합니다.</string>
     <string name="chat_api_banner_active">API 모드 실행 중 (포트 %1$d) • 탭하여 API 정보 확인</string>
     <string name="chat_api_banner_details">상세보기 ></string>
-    <string name="chat_sdengine_banner_prefix">"⚠ SDengine (TEST) — 자체 엔진 실험체 (MoE 전용, 매우 느림). "</string>
     <string name="chat_status_details_short">[상세]</string>
     <string name="chat_jump_latest_desc">최신 답변으로 이동</string>
     <string name="chat_jump_latest">답변 따라가기</string>
@@ -217,7 +216,6 @@
     <string name="chat_attach_text_only">텍스트 전용 모델</string>
     <string name="chat_attach_document">문서 및 텍스트 파일 첨부</string>
     <string name="chat_attach_document_hint">TXT, PDF, 코드 파일 콘텍스트 주입</string>
-    <string name="chat_sdengine_unavailable">자체 엔진 실험체 • MoE 전용, 매우 느림</string>
     <string name="chat_model_download_required">모델 다운로드 필요</string>
     <string name="chat_model_manage">모델 다운로드 및 관리</string>
     <string name="chat_local_models">로컬 모델 목록</string>
@@ -261,7 +259,6 @@
     <string name="api_curl_example_prompt">안녕하세요</string>
 
     <!-- Settings screen -->
-    <string name="settings_sdengine_label">⚠ SDengine (TEST) — 자체 엔진 실험체</string>
     <string name="settings_context_window_value">%1$d 토큰</string>
     <string name="settings_top_p_sampling">Top-P 샘플링</string>
     <string name="settings_reset">초기화</string>
@@ -393,12 +390,16 @@
     <string name="vm_status_memory_stop">메모리가 부족해 생성을 중단했습니다. 다음 실행은 낮춘 설정으로 시작합니다 (레벨 %1$d)</string>
     <string name="vm_status_tts_installed">로컬 한국어 TTS 음성을 설치하고 선택했습니다</string>
     <string name="vm_status_runtime_override">%1$s의 런타임을 %2$s(으)로 설정했습니다</string>
-    <string name="vm_desc_imported_moe_sdengine"> • MoE 감지 → llama.cpp 기본 (TEST 엔진 사용은 모델 관리자에서 SDengine으로 전환)</string>
 
     <string name="settings_gpu_title">GPU 가속</string>
     <string name="settings_gpu_desc">LiteRT GPU(OpenCL) 및 llama.cpp GPU 오프로드. OpenCL 드라이버가 없거나 초기화에 실패하면 자동으로 건너뜁니다.</string>
     <string name="settings_memory_title">메모리 보호</string>
     <string name="settings_memory_desc">비정상 종료를 감지·기록하고 다음 실행에서 메모리 사용이 큰 설정을 자동으로 낮춥니다</string>
+    <string name="settings_kv_title">KV 캐시 양자화 (llama.cpp)</string>
+    <string name="settings_kv_desc">정밀도를 낮추면 KV 캐시가 줄어 더 큰 컨텍스트를 올릴 수 있습니다. 출력 품질은 조금 떨어질 수 있습니다.</string>
+    <string name="settings_oom_bypass_title">OOM 방어 끄기</string>
+    <string name="settings_oom_bypass_desc">설정한 컨텍스트와 KV 정밀도를 그대로 로딩합니다. 컨텍스트 자동 축소나 로드 거부가 없습니다.</string>
+    <string name="settings_oom_bypass_warning">메모리에 맞지 않는 모델은 생성 도중 Android에 의해 종료되어 진행 중인 답변이 유실될 수 있습니다.</string>
     <string name="settings_memory_auto">자동 감축</string>
     <string name="settings_memory_level">현재 레벨: %1$d / %2$d</string>
     <string name="settings_memory_level_0">감축 없음</string>
@@ -422,7 +423,6 @@
     <string name="eng_no_path">모델 파일 경로를 찾을 수 없습니다.</string>
     <string name="eng_no_file">모델 파일이 디스크에 존재하지 않거나 빈 파일입니다: %1$s</string>
     <string name="eng_stage_nomem">가용 메모리 부족</string>
-    <string name="eng_sd_nomem">SDengine으로도 메모리 부족: dense %1$sMB + KV가 RAM에 들어가야 하지만 가용 RAM이 %2$sMB입니다 (expert %3$sMB는 SSD 스트리밍 대상이라 RAM과 무관). 컨텍스트를 512까지 낮춰도 안 되면 이 기기에서는 무리입니다.</string>
     <string name="eng_no_mem_model">가용 메모리 부족: %1$s 로드에 약 %2$sMB가 필요하지만 가용 RAM이 %3$sMB입니다. 백그라운드 앱을 정리하거나 더 작은 양자화 모델을 선택하세요.</string>
     <string name="eng_mem_guard">메모리 보호: 컨텍스트 %1$s → %2$s 자동 하향 (%3$s)</string>
     <string name="eng_stage_verify">모델 무결성 검증 중…</string>
@@ -451,10 +451,6 @@
     <string name="eng_err_magic">파일 헤더가 GGUF 매직넘버(\'GGUF\')와 일치하지 않습니다. 손상되었거나 유효하지 않은 파일입니다.</string>
     <string name="eng_stage_integrity">무결성 검증 실패</string>
     <string name="eng_fmt_err">모델 파일 형식 오류: %1$s</string>
-    <string name="eng_stage_sd_bind">SDengine(TEST) 가중치 바인딩 중…</string>
-    <string name="eng_sd_loaded">[SDengine][TEST] %1$s 로드 완료 (layers=%2$s, experts=%3$s, resident dense=%4$sMB, experts %5$sMB SSD 스트리밍, tensors=%6$s)</string>
-    <string name="eng_stage_sd_fallback">SDengine 로드 실패 → llama.cpp 대체 실행</string>
-    <string name="eng_sd_fallback_msg">SDengine 로드 실패(%1$s) — llama.cpp 대체 실행. %2$s</string>
     <string name="eng_stage_llama_ctx">llama.cpp 네이티브 컨텍스트 생성 중…</string>
     <string name="eng_cand1">GPU 가속 (%1$sL) + mmproj 비전타워</string>
     <string name="eng_cand2">GPU 가속 (%1$sL, %2$s ctx)</string>
@@ -464,6 +460,7 @@
     <string name="eng_cand6">직접 메모리 로드 (%1$s ctx)</string>
     <string name="eng_cand7">안정화 mmap 모드 (2048 ctx)</string>
     <string name="eng_cand8">절전 직접 메모리 모드 (1024 ctx)</string>
+    <string name="eng_cand_kv_f16">KV F16 대체 로드 (%1$s ctx)</string>
     <string name="eng_stage_try">%1$s 로드 시도 중…</string>
     <string name="eng_ctx_handle_fail">llama.cpp 네이티브 컨텍스트 핸들(0) 반환 실패</string>
     <string name="eng_ctx_create_fail">llama.cpp 네이티브 컨텍스트 생성 실패</string>
@@ -475,7 +472,6 @@
     <string name="eng_sampler_cpu">LiteRT GPU(OpenCL) 샘플러를 사용할 수 없어 CPU 백엔드로 전환했습니다. 다음 실행부터는 GPU를 건너뜁니다 (설정에서 GPU 가속을 다시 켜면 재시도).</string>
     <string name="eng_no_selected">선택된 로컬 모델이 없습니다. 모델 관리자에서 모델을 먼저 로드하세요.</string>
     <string name="eng_not_loaded">%1$s 모델이 아직 로드되지 않았습니다. 모델을 먼저 로드해 주세요.</string>
-    <string name="eng_sd_not_ready">SDengine이 준비되지 않았습니다.</string>
     <string name="eng_litert_not_ready">LiteRT 엔진이 준비되지 않았습니다.</string>
     <string name="eng_session_fail">LiteRT 대화 세션을 준비하지 못했습니다: %1$s</string>
     <string name="eng_litert_infer_err">LiteRT 추론 오류: %1$s</string>
@@ -573,7 +569,7 @@
     <string name="aps_stopped">API 서버가 중지되었습니다.</string>
     <string name="aps_stop_err">서버 중지 중 오류: %1$s</string>
     <string name="det_litert_all">LiteRT 올인원 통합 모델</string>
-    <string name="det_moe">MoE 전문가 %1$s개 (SDengine 수동 전환 가능)</string>
+    <string name="det_moe">MoE 전문가 %1$s개</string>
     <string name="det_vision_integrated">통합 비전타워(Vision Encoder) 내장</string>
     <string name="det_drafter_integrated">통합 추측 디코딩 드래프터 내장</string>
     <string name="pol_gpu_vision">GPU 가속 (비전 연동)</string>
@@ -599,13 +595,17 @@
     <string name="det_vision_detected">비전타워 내장 감지</string>
     <string name="det_drafter_detected">드래프터(MTP) 내장 감지</string>
     <string name="mcp_sb_tail">" 제공 도구 (실시간 조회됨):</string>
-    <string name="sd_adv_1">TEST 빌드: SDengine은 실험 단계의 자체 추론엔진입니다. 실행은 되지만 출력 품질을 신뢰하지 마세요.</string>
-    <string name="sd_adv_2">최적화 커널(융합 양자화 matvec, RoPE 캐시, 스크래치 재사용, top-k 힙)이 적용되었습니다. 성능 미측정, K-퀀트 bit-exact 검증은 pending이라 llama.cpp보다 느리고 수치 오차가 있을 수 있습니다.</string>
-    <string name="sd_adv_3">SDengine은 MoE 전용입니다. Dense 전용 모델과 MoE가 아닌 하이브리드는 범위 밖이며, 로드에 실패하면 llama.cpp로 대체 실행됩니다.</string>
-    <string name="sd_adv_4">dense 가중치는 양자화 그대로 상주하고 expert 타일은 SSD에서 스트리밍됩니다. 파일 전체가 아닌 dense+KV만 RAM에 들어가면 되므로, 메모리보다 큰 MoE도 로드할 수 있습니다. dense+KV가 가용 RAM을 넘으면 로드가 거부됩니다.</string>
     <string name="stt_no_model">로컬 STT 모델이 없습니다.</string>
     <string name="settings_hf_source_title">모델 다운로드 소스</string>
     <string name="settings_hf_source_desc">Hugging Face 공식과 hf-mirror.com 미러 사이를 전환합니다 (huggingface.co 접속이 불가할 때 유용).</string>
     <string name="settings_hf_source_official">Hugging Face 공식</string>
     <string name="settings_hf_source_mirror">hf-mirror.com 미러</string>
+    <string name="chat_artifact_title">아티팩트</string>
+    <string name="chat_artifact_lines">%1$d줄</string>
+    <string name="chat_artifact_expand">펼치기</string>
+    <string name="chat_artifact_collapse">접기</string>
+    <string name="settings_tool_template_title">툴 콜 형식</string>
+    <string name="settings_tool_template_desc">툴 호출을 안내하고 해석하는 형식입니다. 자동은 로드된 모델에 맞춰 선택합니다.</string>
+    <string name="settings_tool_template_auto">자동</string>
+    <string name="settings_tool_template_off">끔</string>
 </resources>

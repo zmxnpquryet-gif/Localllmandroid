@@ -7,6 +7,7 @@ import com.localllm.android.data.crypto.ChatCrypto
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelCatalog
 import com.localllm.android.model.ModelRuntimeType
+import com.localllm.android.model.ToolCallTemplate
 import com.localllm.android.engine.GgufMetadataDetector
 import org.json.JSONArray
 import org.json.JSONObject
@@ -122,11 +123,8 @@ class ModelStorageManager(private val context: Context) {
         val effectiveHasMmproj = model.hasMmproj || (detected?.hasVisionTower == true)
         val effectiveSupportsMtp = model.supportsMtp || (detected?.hasDrafter == true)
 
-        // Imported models always default to llama.cpp, even gated-expert MoE:
-        // SDengine is strictly opt-in via the per-model runtime override in
-        // Model Manager (or the global runtime switch). Auto-detection never
-        // flips a model to SDengine on its own, so nobody gets locked into
-        // the experimental engine by surprise.
+        // Imported models always default to llama.cpp unless the container is a
+        // LiteRT bundle. Auto-detection never changes a runtime the user picked.
         val effectiveRuntime = resolveDefaultRuntime(
             detected = detected,
             isCustom = model.id.startsWith("custom-"),
@@ -316,6 +314,10 @@ class ModelStorageManager(private val context: Context) {
         obj.put("downloadStatus", m.downloadStatus)
         obj.put("description", m.description)
         obj.put("quantization", m.quantization)
+        obj.put("maxContextTokens", m.maxContextTokens)
+        obj.put("minDeviceRamMb", m.minDeviceRamMb)
+        obj.put("supportsAudioInput", m.supportsAudioInput)
+        obj.put("toolCallTemplate", m.toolCallTemplate.id)
         obj.put("localFilePath", m.localFilePath ?: "")
         obj.put("localMmprojPath", m.localMmprojPath ?: "")
         obj.put("localMtpDrafterPath", m.localMtpDrafterPath ?: "")
@@ -360,6 +362,10 @@ class ModelStorageManager(private val context: Context) {
             downloadStatus = obj.optString("downloadStatus", "IDLE"),
             description = obj.optString("description", ""),
             quantization = obj.optString("quantization", "Q4_K_M"),
+            maxContextTokens = obj.optInt("maxContextTokens", 0),
+            minDeviceRamMb = obj.optInt("minDeviceRamMb", 0),
+            supportsAudioInput = obj.optBoolean("supportsAudioInput", false),
+            toolCallTemplate = ToolCallTemplate.fromId(obj.optString("toolCallTemplate", "")),
             localFilePath = obj.optString("localFilePath", "").ifBlank { null },
             localMmprojPath = obj.optString("localMmprojPath", "").ifBlank { null },
             localMtpDrafterPath = obj.optString("localMtpDrafterPath", "").ifBlank { null },

@@ -86,30 +86,7 @@ fun ChatTopBar(
             contentAlignment = Alignment.Center
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (currentRuntime == ModelRuntimeType.SD_ENGINE) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            GText(
-                                text = "⚠ SDengine (TEST)",
-                                style = GlassTheme.type.titleSmall,
-                                color = GlassTheme.colors.error
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            GIcon(
-                                imageVector = GIcons.ArrowDown,
-                                contentDescription = null,
-                                tint = GlassTheme.colors.error,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                        GText(
-                            text = stringResource(R.string.chat_sdengine_unavailable),
-                            style = GlassTheme.type.labelSmall,
-                            color = GlassTheme.colors.error,
-                            fontSize = 10.sp
-                        )
-                    }
-                } else if (activeModel != null) {
+                if (activeModel != null) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             GText(
@@ -325,8 +302,7 @@ fun ChatTopBar(
                         onClick = {
                             val next = when (currentRuntime) {
                                 ModelRuntimeType.LLAMA_CPP -> ModelRuntimeType.LITE_RT
-                                ModelRuntimeType.LITE_RT -> ModelRuntimeType.SD_ENGINE
-                                ModelRuntimeType.SD_ENGINE -> ModelRuntimeType.LLAMA_CPP
+                                ModelRuntimeType.LITE_RT -> ModelRuntimeType.LLAMA_CPP
                             }
                             onSwitchRuntime(next)
                             isMoreMenuExpanded = false

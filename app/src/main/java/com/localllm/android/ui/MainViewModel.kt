@@ -13,7 +13,6 @@ import com.localllm.android.engine.GgufMetadataDetector
 import com.localllm.android.engine.GenerationChunk
 import com.localllm.android.engine.HfSource
 import com.localllm.android.i18n.AppStrings
-import com.localllm.android.i18n.SdEngineText
 import com.localllm.android.engine.LlmEngine
 import com.localllm.android.data.crypto.SecretPrefs
 import com.localllm.android.engine.McpClient
@@ -25,6 +24,9 @@ import com.localllm.android.model.ChatAttachment
 import com.localllm.android.model.ChatMessage
 import com.localllm.android.model.Conversation
 import com.localllm.android.model.GenerationSettings
+import com.localllm.android.model.KvCacheQuantization
+import com.localllm.android.model.ToolCallTemplate
+import com.localllm.android.model.ToolCallTemplates
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.MessageRole
 import com.localllm.android.model.ModelCatalog
@@ -113,7 +115,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             languagePreference = settingsPrefs.getString("language_preference", "system") ?: "system",
             hfSource = settingsPrefs.getString("hf_source", "official") ?: "official",
             mcpServerUrl = settingsPrefs.getString("mcp_server_url", "") ?: "",
-            isMcpEnabled = settingsPrefs.getBoolean("is_mcp_enabled", false)
+            isMcpEnabled = settingsPrefs.getBoolean("is_mcp_enabled", false),
+            kvCacheQuantization = KvCacheQuantization.fromId(settingsPrefs.getString("kv_cache_quantization", null)),
+            ignoreMemoryLimits = settingsPrefs.getBoolean("ignore_memory_limits", false)
         )
     )
     val settings: StateFlow<GenerationSettings> = _settings.asStateFlow()
@@ -142,6 +146,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _activeModel = MutableStateFlow<LlmModel?>(null)
     val activeModel: StateFlow<LlmModel?> = _activeModel.asStateFlow()
+
+    /** Dialect used to offer and parse tool calls for the active model. */
+    private val _activeToolTemplate = MutableStateFlow(ToolCallTemplate.NONE)
+    val activeToolTemplate: StateFlow<ToolCallTemplate> = _activeToolTemplate.asStateFlow()
+    private var mcpServerName: String = "MCP"
+
+    private fun toolTemplatePrefKey(modelId: String) = "tool_call_template_$modelId"
+
+    /**
+     * Single entry point for activating a model, so the tool dialect and the tools
+     * block in the prompt always follow whatever is loaded.
+     */
+    private fun setActiveModel(model: LlmModel?) {
+        _activeModel.value = model
+        _activeToolTemplate.value = model?.let { active ->
+            ToolCallTemplates.resolve(
+                active,
+                settingsPrefs.getString(toolTemplatePrefKey(active.id), null)
+            )
+        } ?: ToolCallTemplate.NONE
+        refreshMcpToolsContext()
+    }
+
+    /** User choice for the active model. AUTO clears the override. */
+    fun setToolCallTemplate(template: ToolCallTemplate) {
+        val model = _activeModel.value ?: return
+        val editor = settingsPrefs.edit()
+        if (template == ToolCallTemplate.AUTO) editor.remove(toolTemplatePrefKey(model.id))
+        else editor.putString(toolTemplatePrefKey(model.id), template.id)
+        editor.apply()
+        setActiveModel(model)
+    }
+
+    private fun refreshMcpToolsContext() {
+        val template = _activeToolTemplate.value
+        val tools = mcpClient.currentTools()
+        _mcpToolsContext.value = if (template == ToolCallTemplate.NONE || tools.isEmpty()) {
+            null
+        } else {
+            McpToolProtocol.buildToolsPrompt(mcpServerName, tools, template)
+        }
+    }
 
     // Active screen: "chat", "models", "settings", "voice_mode"
     private val _currentScreen = MutableStateFlow(AppScreen.CHAT)
@@ -222,23 +268,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var messageCollectionJob: Job? = null
 
     init {
-        // One-time stale-prefs migration (P1-1): versions with MoE auto-assign
-        // persisted runtime=SD_ENGINE into prefs via selectModel. After the
-        // default-to-llama.cpp change that stale value would silently route every
-        // GGUF through the TEST engine. Runs once against the RAW stored value
-        // (before active-model restoration overwrites _settings) and never touches
-        // an intentional global choice again (adversarial review finding).
+        // One-time stale-prefs migration (P1-1): builds before the SDengine removal
+        // could persist runtime=SD_ENGINE. That runtime no longer exists, so the raw
+        // stored value is rewritten instead of relying on the parser's fallback.
         if (!settingsPrefs.getBoolean("migrated_sd_engine_prefs_v1", false)) {
-            if (settingsPrefs.getString("runtime", null) == ModelRuntimeType.SD_ENGINE.name) {
-                val explicitSd = _models.value.any {
-                    it.isDownloaded && it.runtimeType == ModelRuntimeType.SD_ENGINE && it.runtimeTypeOverrideByUser
-                }
-                if (!explicitSd) {
-                    settingsPrefs.edit().putString("runtime", ModelRuntimeType.LLAMA_CPP.name).apply()
-                    if (_settings.value.runtime == ModelRuntimeType.SD_ENGINE) {
-                        _settings.value = _settings.value.copy(runtime = ModelRuntimeType.LLAMA_CPP)
-                    }
-                }
+            if (settingsPrefs.getString("runtime", null) == "SD_ENGINE") {
+                settingsPrefs.edit().putString("runtime", ModelRuntimeType.LLAMA_CPP.name).apply()
+                _settings.value = _settings.value.copy(runtime = ModelRuntimeType.LLAMA_CPP)
             }
             settingsPrefs.edit().putBoolean("migrated_sd_engine_prefs_v1", true).apply()
         }
@@ -248,21 +284,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ?: _models.value.firstOrNull { it.isDownloaded }
 
         if (restoredModel != null) {
-            _activeModel.value = restoredModel
+            setActiveModel(restoredModel)
             _settings.value = _settings.value.copy(
                 runtime = restoredModel.runtimeType,
                 enableMtp = if (restoredModel.supportsMtp) true else _settings.value.enableMtp
             )
             _engineStatusMessage.value = localizedString(R.string.vm_status_model_restored, restoredModel.name)
         } else {
-            _activeModel.value = null
+            setActiveModel(null)
             _engineStatusMessage.value = localizedString(R.string.vm_status_no_default_model)
         }
 
         // Memory protection: apply the degradation ladder accumulated by previous
         // abnormal runs (OOM kill / native crash mid-inference) before the first load.
         memoryGuard?.let { guard ->
-            if (guard.isEnabled() && guard.level() > 0) {
+            if (guard.isEnabled() && !_settings.value.ignoreMemoryLimits && guard.level() > 0) {
                 _settings.value = guard.applyLevel(_settings.value)
             }
             val report = LocalLlmApp.consumeStartupReport()
@@ -490,15 +526,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _modelLoadingProgress.value = 0.05f
             _modelLoadingStage.value = localizedString(R.string.vm_stage_preparing_load)
 
-            // Sync runtime type and auto-apply MTP if model supports it. A user-chosen
-            // runtime wins: picking an SDengine model must not silently fall back to
-            // llama.cpp, and vice versa.
-            val isGguf = model.runtimeType != ModelRuntimeType.LITE_RT
-            val runtimeToApply = when {
-                model.runtimeTypeOverrideByUser -> model.runtimeType
-                _settings.value.runtime == ModelRuntimeType.SD_ENGINE && isGguf -> ModelRuntimeType.SD_ENGINE
-                else -> model.runtimeType
-            }
+            // Sync runtime type and auto-apply MTP if model supports it. The model's
+            // own runtime (which carries any explicit user override) is authoritative.
+            val runtimeToApply = model.runtimeType
             _settings.value = _settings.value.copy(
                 runtime = runtimeToApply,
                 enableMtp = if (model.supportsMtp) true else _settings.value.enableMtp
@@ -522,14 +552,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 if (llmEngine.isModelReady()) {
-                    _activeModel.value = model
+                    setActiveModel(model)
                     _modelLoadingProgress.value = 1.0f
                     _modelLoadingStage.value = localizedString(R.string.vm_stage_load_complete)
                     _engineStatusMessage.value = status
                     modelStorageManager.saveActiveModelId(model.id)
                     delay(400)
                 } else {
-                    _activeModel.value = null
+                    setActiveModel(null)
                     _modelLoadingProgress.value = 0f
                     _modelLoadingStage.value = localizedString(R.string.vm_stage_load_failed)
                     _engineStatusMessage.value = status
@@ -537,7 +567,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (t: Throwable) {
                 android.util.Log.e("MainViewModel", "Model loading error", t)
-                _activeModel.value = null
+                setActiveModel(null)
                 _modelLoadingProgress.value = 0f
                 _modelLoadingStage.value = localizedString(R.string.vm_stage_load_failed)
                 _engineStatusMessage.value = localizedString(R.string.vm_status_model_load_exception, t.localizedMessage ?: t.message)
@@ -555,18 +585,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun switchRuntime(runtime: ModelRuntimeType) {
         _settings.value = _settings.value.copy(runtime = runtime)
         settingsPrefs.edit().putString("runtime", runtime.name).apply()
-        // SDengine runs GGUF containers, so any downloaded GGUF is a candidate; the
-        // other runtimes match on their own model type.
-        val downloadedMatch = when (runtime) {
-            ModelRuntimeType.SD_ENGINE -> _models.value.firstOrNull {
-                it.isDownloaded && it.runtimeType != ModelRuntimeType.LITE_RT
-            }
-            else -> _models.value.firstOrNull { it.runtimeType == runtime && it.isDownloaded }
-        }
+        val downloadedMatch = _models.value.firstOrNull { it.runtimeType == runtime && it.isDownloaded }
         if (downloadedMatch != null) {
             selectModel(downloadedMatch)
         } else {
-            _activeModel.value = null
+            setActiveModel(null)
             viewModelScope.launch {
                 try {
                     llmEngine.loadModel(null, _settings.value)
@@ -577,7 +600,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _engineStatusMessage.value = when (runtime) {
                 ModelRuntimeType.LLAMA_CPP -> localizedString(R.string.vm_status_no_llamacpp_model)
                 ModelRuntimeType.LITE_RT -> localizedString(R.string.vm_status_no_litert_model)
-                ModelRuntimeType.SD_ENGINE -> SdEngineText.advisoryText()
             }
         }
     }
@@ -628,6 +650,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putBoolean("enable_gpu", newSettings.enableGpuAcceleration)
             putInt("gpu_layers", newSettings.gpuLayers)
             putString("runtime", newSettings.runtime.name)
+            putString("kv_cache_quantization", newSettings.kvCacheQuantization.id)
+            putBoolean("ignore_memory_limits", newSettings.ignoreMemoryLimits)
             putBoolean("show_metrics", newSettings.showPerformanceMetrics)
             putString("api_server_bind_address", newSettings.apiServerBindAddress)
             putBoolean("api_server_require_auth", newSettings.apiServerRequireAuth)
@@ -649,7 +673,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val needsReload = previous.runtime != newSettings.runtime ||
                 previous.contextWindow != newSettings.contextWindow ||
                 previous.enableGpuAcceleration != newSettings.enableGpuAcceleration ||
-                previous.gpuLayers != newSettings.gpuLayers
+                previous.gpuLayers != newSettings.gpuLayers ||
+                previous.kvCacheQuantization != newSettings.kvCacheQuantization
         if (!needsReload) return
         viewModelScope.launch {
             try {
@@ -796,7 +821,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val result = mcpClient.connectServer(url, token)
             if (result.isSuccess) {
                 _mcpTools.value = result.tools
-                _mcpToolsContext.value = McpToolProtocol.buildToolsPrompt(result.serverName, result.tools)
+                mcpServerName = result.serverName
+                refreshMcpToolsContext()
                 settingsPrefs.edit().putString("mcp_last_host", host).apply()
                 _mcpTokenSaved.value = !secrets.get(SecretPrefs.MCP_TOKEN).isNullOrBlank()
                 _mcpStatusText.value = localizedString(R.string.vm_mcp_connected, result.serverName, result.latencyMs, result.tools.size) +
@@ -949,7 +975,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (nextDownloaded != null) {
                 selectModel(nextDownloaded)
             } else {
-                _activeModel.value = null
+                setActiveModel(null)
                 modelStorageManager.saveActiveModelId(null)
                 viewModelScope.launch {
                     llmEngine.loadModel(null, _settings.value)
@@ -973,7 +999,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _activeModel.value?.let { active ->
             if (active.id == modelId) {
                 val updated = _models.value.first { it.id == modelId }
-                _activeModel.value = updated
+                setActiveModel(updated)
                 _engineStatusMessage.value = localizedString(
                     R.string.vm_status_vision_toggle,
                     updated.name,
@@ -997,7 +1023,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _activeModel.value?.let { active ->
             if (active.id == modelId) {
                 val updated = _models.value.first { it.id == modelId }
-                _activeModel.value = updated
+                setActiveModel(updated)
                 _engineStatusMessage.value = localizedString(
                     R.string.vm_status_drafter_toggle,
                     updated.name,
@@ -1251,7 +1277,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 beginInferenceGuard()
                 // Tool use only when MCP is on AND the server really exposes tools: without
                 // the tools block in the prompt the model has nothing to call.
-                val toolsActive = _settings.value.isMcpEnabled && mcpClient.currentTools().isNotEmpty()
+                val toolTemplate = _activeToolTemplate.value
+                val toolsActive = _settings.value.isMcpEnabled &&
+                    toolTemplate != ToolCallTemplate.NONE &&
+                    mcpClient.currentTools().isNotEmpty()
                 var turnPlaceholder = streamPlaceholder
                 var turnPrompt = trimmed
                 var turnHistory = history
@@ -1272,7 +1301,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             turnText = chunk.currentContentText
                             turnReasoning = chunk.currentReasoningText.ifBlank { null }
                             // While a tool block is streaming, show only the prose before it.
-                            val shown = if (toolsActive) McpToolProtocol.visibleText(turnText) else turnText
+                            val shown = if (toolsActive) McpToolProtocol.visibleText(turnText, toolTemplate) else turnText
                             _streamingMessage.value = turnPlaceholder.copy(
                                 content = shown,
                                 reasoning = turnReasoning,
@@ -1285,18 +1314,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
 
                         val parsed = if (toolsActive && round < McpToolProtocol.MAX_TOOL_ROUNDS) {
-                            McpToolProtocol.parse(turnText, mcpClient.currentTools())
+                            McpToolProtocol.parse(turnText, mcpClient.currentTools(), toolTemplate)
                         } else {
                             ToolCallParse.None
                         }
 
                         // Persist this assistant turn (prose only when it carried a tool block).
                         val savedContent = if (parsed is ToolCallParse.None && toolsActive) {
-                            McpToolProtocol.visibleText(turnText).ifBlank { turnText }
+                            McpToolProtocol.visibleText(turnText, toolTemplate).ifBlank { turnText }
                         } else if (parsed is ToolCallParse.None) {
                             turnText
                         } else {
-                            McpToolProtocol.visibleText(turnText)
+                            McpToolProtocol.visibleText(turnText, toolTemplate)
                         }
                         val savedAssistant = (_streamingMessage.value ?: turnPlaceholder).copy(
                             content = savedContent,
@@ -1386,7 +1415,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         // Next turn: the model continues from the tool result. The call that
                         // produced it is kept in the history so the model sees its own request.
                         val callEcho = (parsed as? ToolCallParse.Call)?.let {
-                            "${McpToolProtocol.OPEN}{\"name\":\"${it.call.name}\",\"arguments\":${it.call.argumentsJson}}${McpToolProtocol.CLOSE}"
+                            McpToolProtocol.formatCallEcho(
+                                it.call.name,
+                                it.call.argumentsJson,
+                                toolTemplate
+                            )
                         } ?: turnText
                         turnHistory = (turnHistory + (MessageRole.USER.name to turnPrompt) +
                             (MessageRole.ASSISTANT.name to callEcho)).takeLast(8)
@@ -1475,7 +1508,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             gpuLayers = current.gpuLayers,
             gpuAcceleration = current.enableGpuAcceleration
         )
-        memoryWatchdog.start()
+        // The in-flight marker above is still written for diagnostics, but the watchdog
+        // is disabled while OOM protection is bypassed: it would otherwise stop a run
+        // the user explicitly asked to load as configured.
+        if (!current.ignoreMemoryLimits) memoryWatchdog.start()
     }
 
     private fun endInferenceGuard() {
@@ -1489,6 +1525,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * the OS kill the app with no chance to write anything down.
      */
     private fun onMemoryCritical(snapshot: MemorySnapshot) {
+        // Defensive: the watchdog is not started while protection is bypassed.
+        if (_settings.value.ignoreMemoryLimits) return
         android.util.Log.w(
             "MainViewModel",
             "Critical memory during inference: avail=${snapshot.availMb}MB total=${snapshot.totalMb}MB low=${snapshot.lowMemory}"
@@ -1700,7 +1738,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // First-party engine peek (additive only): verify the container with the
                 // new GGUF reader. Never overrides the shipping detector on failure.
                 val engineNote = try {
-                    com.localllm.engine.GgufReader.open(destFile).use { reader ->
+                    com.localllm.android.engine.gguf.GgufReader.open(destFile).use { reader ->
                         localizedString(R.string.vm_desc_engine_note, reader.tensors.size)
                     }
                 } catch (_: Throwable) {
@@ -1716,14 +1754,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .replace("-", " ")
                     .replace("_", " ")
 
-                val sdEngineCandidate = !isLiteRt && detected.isSdEngineCandidate
                 val customModel = LlmModel(
                     id = "custom-${UUID.randomUUID()}",
                     name = cleanName,
                     repoId = if (isLiteRt) "local/litert-imported" else "local/imported",
                     fileName = targetFileName,
-                    // Default is always llama.cpp for GGUF (even MoE): SDengine
-                    // is opt-in via Model Manager's per-model runtime override.
                     runtimeType = detected.detectedRuntime,
                     sizeBytes = destFile.length(),
                     isDownloaded = true,
@@ -1739,7 +1774,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             append(localizedString(R.string.vm_desc_imported_gguf))
                             if (hasVision) append(localizedString(R.string.vm_desc_imported_gguf_vision))
                             if (hasDrafter) append(localizedString(R.string.vm_desc_imported_gguf_drafter))
-                            if (sdEngineCandidate) append(localizedString(R.string.vm_desc_imported_moe_sdengine))
                         }
                         if (engineNote != null) append(" • $engineNote")
                     },
