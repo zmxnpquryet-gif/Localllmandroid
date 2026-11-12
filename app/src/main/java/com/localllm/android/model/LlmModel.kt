@@ -4,9 +4,7 @@ import java.util.Locale
 
 enum class ModelRuntimeType(val label: String, val badge: String) {
     LLAMA_CPP("llama.cpp", "GGUF"),
-    LITE_RT("LiteRT LM", "LiteRT"),
-    /** SDengine: first-party experimental engine (TEST — refuses on-device inference). */
-    SD_ENGINE("SDengine (TEST)", "SDengine (TEST)")
+    LITE_RT("LiteRT LM", "LiteRT")
 }
 
 enum class PromptTemplateType(val id: String, val displayName: String) {
@@ -15,7 +13,32 @@ enum class PromptTemplateType(val id: String, val displayName: String) {
     PHI("phi", "Phi-4 (<|user|>)"),
     LLAMA3("llama3", "Llama 3 (<|start_header_id|>)"),
     LFM3("lfm3", "LFM3 (<|im_start|>, <think>)"),
+    MINICPM5("minicpm5", "MiniCPM5 (<|im_start|> + <function>)"),
     CUSTOM("custom", "Custom / JSON")
+}
+
+/**
+ * Tool-call dialect a model was trained on. The runtime speaks plain text, so the
+ * dialect only decides the block syntax offered in the prompt and then parsed back
+ * — every on-device template can still fall back to [HERMES].
+ */
+enum class ToolCallTemplate(val id: String, val displayName: String, val shortLabel: String) {
+    AUTO("auto", "Auto-detect", "Auto"),
+    HERMES("hermes", "Hermes <tool_call>", "Hermes"),
+    LLAMA3_JSON("llama3_json", "Llama 3 JSON", "Llama 3"),
+    MISTRAL("mistral", "Mistral [TOOL_CALLS]", "Mistral"),
+    PLAIN_JSON("plain_json", "Plain JSON object", "JSON"),
+    MINICPM5("minicpm5", "MiniCPM5 XML <function>", "MiniCPM5"),
+    NONE("none", "Disabled", "Off");
+
+    companion object {
+        /**
+         * Unknown or legacy ids fall back to auto-detection rather than pinning a
+         * dialect the model may never have been trained on.
+         */
+        fun fromId(id: String?): ToolCallTemplate =
+            entries.firstOrNull { it.id == id } ?: AUTO
+    }
 }
 
 data class LlmModel(
@@ -38,6 +61,14 @@ data class LlmModel(
     val downloadSpeedText: String = "",
     val description: String = "",
     val quantization: String = "Q4_K_M",
+    /** Context length the model is served with at most; 0 = not stated by the catalog. */
+    val maxContextTokens: Int = 0,
+    /** Practical minimum device RAM for a usable load; 0 = not stated by the catalog. */
+    val minDeviceRamMb: Int = 0,
+    /** Native audio input (omni/audio models): hands-free conversation without a separate STT. */
+    val supportsAudioInput: Boolean = false,
+    /** Tool-call dialect this model was trained on; AUTO detects it from the name. */
+    val toolCallTemplate: ToolCallTemplate = ToolCallTemplate.AUTO,
     val localFilePath: String? = null,
     val localMmprojPath: String? = null,
     val localMtpDrafterPath: String? = null,
@@ -60,8 +91,8 @@ data class LlmModel(
     val downloadEtaSeconds: Int = 0,
     val hfToken: String? = null,
     /**
-     * Set when the user picked the runtime by hand. Auto-detection (MoE GGUF → SDengine)
-     * never overwrites an explicit choice, so nobody gets locked into a runtime.
+     * Set when the user picked the runtime by hand. Auto-detection never overwrites
+     * an explicit choice, so nobody gets locked into a runtime.
      */
     val runtimeTypeOverrideByUser: Boolean = false
 ) {
@@ -79,7 +110,6 @@ data class LlmModel(
         get() = when (runtimeType) {
             ModelRuntimeType.LLAMA_CPP -> "llama.cpp (GGUF)"
             ModelRuntimeType.LITE_RT -> "LiteRT"
-            ModelRuntimeType.SD_ENGINE -> "SDengine (TEST)"
         }
 }
 
@@ -89,144 +119,6 @@ data class LlmModel(
  */
 object ModelCatalog {
     val defaultModels = listOf(
-        LlmModel(
-            id = "smollm2-360m-instruct-gguf",
-            name = "SmolLM2 360M Instruct",
-            repoId = "bartowski/SmolLM2-360M-Instruct-GGUF",
-            fileName = "SmolLM2-360M-Instruct-Q4_K_M.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            promptTemplateType = PromptTemplateType.CHATML,
-            sizeBytes = 270_590_880L,
-            supportsMtp = false,
-            supportsReasoning = false,
-            hasMmproj = false,
-            mainModelUrl = "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf",
-            isBundledModel = false,
-            isDownloaded = false,
-            description = "Ultra-light 360M model. Downloads very fast and runs snappily on any device.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "qwen2.5-0.5b-instruct-gguf",
-            name = "Qwen 2.5 0.5B Instruct",
-            repoId = "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
-            fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            promptTemplateType = PromptTemplateType.CHATML,
-            sizeBytes = 491_400_032L,
-            supportsMtp = false,
-            supportsReasoning = false,
-            hasMmproj = false,
-            mainModelUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-            isBundledModel = false,
-            isDownloaded = false,
-            description = "0.5B ultra-light model with Korean and multilingual support. Lightweight with fast responses.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "llama-3.2-1b-instruct-gguf",
-            name = "Llama 3.2 1B Instruct",
-            repoId = "bartowski/Llama-3.2-1B-Instruct-GGUF",
-            fileName = "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            promptTemplateType = PromptTemplateType.LLAMA3,
-            sizeBytes = 807_694_464L,
-            supportsMtp = false,
-            supportsReasoning = false,
-            hasMmproj = false,
-            mainModelUrl = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-            isBundledModel = false,
-            isDownloaded = false,
-            description = "Meta Llama 3.2 1B lightweight high-performance on-device assistant model.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "deepseek-r1-distill-qwen-1.5b-gguf",
-            name = "DeepSeek-R1 Distill 1.5B",
-            repoId = "bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
-            fileName = "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            promptTemplateType = PromptTemplateType.CHATML,
-            sizeBytes = 1_117_320_800L,
-            supportsMtp = false,
-            supportsReasoning = true,
-            hasMmproj = false,
-            mainModelUrl = "https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
-            isBundledModel = false,
-            isDownloaded = false,
-            description = "Deep reasoning (CoT) model that generates its own thinking process (<think>) on-device.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "qwen2.5-1.5b-instruct-gguf",
-            name = "Qwen 2.5 1.5B Instruct",
-            repoId = "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
-            fileName = "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            promptTemplateType = PromptTemplateType.CHATML,
-            sizeBytes = 1_117_320_736L,
-            supportsMtp = false,
-            supportsReasoning = false,
-            hasMmproj = false,
-            mainModelUrl = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
-            isBundledModel = false,
-            isDownloaded = false,
-            description = "1.5B model with high-quality dialogue, coding, and summarization capabilities.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "smollm2-1.7b-instruct-gguf",
-            name = "SmolLM2 1.7B Instruct",
-            repoId = "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
-            fileName = "smollm2-1.7b-instruct-q4_k_m.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            promptTemplateType = PromptTemplateType.CHATML,
-            sizeBytes = 1_055_609_536L,
-            supportsMtp = false,
-            supportsReasoning = false,
-            hasMmproj = false,
-            mainModelUrl = "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf",
-            isBundledModel = false,
-            isDownloaded = false,
-            description = "Mobile-optimized 1.7B model with strong reasoning and instruction-following abilities.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "gemma-2-2b-it-gguf",
-            name = "Gemma 2 2B Instruct (GGUF)",
-            repoId = "bartowski/gemma-2-2b-it-GGUF",
-            fileName = "gemma-2-2b-it-Q4_K_M.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            promptTemplateType = PromptTemplateType.GEMMA,
-            sizeBytes = 1_708_582_752L,
-            supportsMtp = false,
-            supportsReasoning = false,
-            hasMmproj = false,
-            mainModelUrl = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
-            isBundledModel = false,
-            isDownloaded = false,
-            description = "High-performance Google Gemma 2 2B model with full support for the official Gemma template.",
-            quantization = "Q4_K_M"
-        ),
-        LlmModel(
-            id = "qwen2-vl-2b-instruct-gguf",
-            name = "Qwen2-VL 2B",
-            repoId = "bartowski/Qwen2-VL-2B-Instruct-GGUF",
-            fileName = "Qwen2-VL-2B-Instruct-Q4_K_M.gguf",
-            runtimeType = ModelRuntimeType.LLAMA_CPP,
-            promptTemplateType = PromptTemplateType.CHATML,
-            sizeBytes = 986_047_232L,
-            supportsMtp = false,
-            supportsReasoning = false,
-            hasMmproj = true,
-            mmprojFileName = "mmproj-Qwen2-VL-2B-Instruct-f16.gguf",
-            mainModelUrl = "https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/main/Qwen2-VL-2B-Instruct-Q4_K_M.gguf",
-            visionTowerUrl = "https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/main/mmproj-Qwen2-VL-2B-Instruct-f16.gguf",
-            isBundledModel = true,
-            isDownloaded = false,
-            description = "Official Qwen2-VL multimodal vision model with image input and analysis support.",
-            quantization = "Q4_K_M"
-        ),
         LlmModel(
             id = "lfm3-1.7b-gguf",
             name = "LFM3 1.7B",
@@ -264,42 +156,6 @@ object ModelCatalog {
             quantization = "Q4_K_M"
         ),
         LlmModel(
-            id = "qwen2.5-coder-1.5b-litert",
-            name = "Qwen 2.5 Coder 1.5B (LiteRT)",
-            repoId = "4ntoine/Qwen2.5-Coder-1.5B-Instruct-LiteRTLM",
-            fileName = "model.litertlm",
-            runtimeType = ModelRuntimeType.LITE_RT,
-            promptTemplateType = PromptTemplateType.CHATML,
-            sizeBytes = 1_567_489_440L,
-            supportsMtp = false,
-            supportsReasoning = false,
-            hasMmproj = false,
-            templateFileUrl = "https://huggingface.co/itme-brain/Qwen-chat_template.jinja/raw/main/chat_template.jinja",
-            templateFileName = "chat_template.jinja",
-            mainModelUrl = "https://huggingface.co/4ntoine/Qwen2.5-Coder-1.5B-Instruct-LiteRTLM/resolve/main/model.litertlm",
-            isBundledModel = false,
-            isDownloaded = false,
-            description = "Qwen 2.5 Coder 1.5B for the Google LiteRT LM engine, with full official Jinja prompt template (chat_template.jinja) support.",
-            quantization = "INT4"
-        ),
-        LlmModel(
-            id = "gemma-3-1b-it-litert",
-            name = "Gemma 3 1B IT (LiteRT LM)",
-            repoId = "lotapa/gemma3-1b-it-int4.litertlm",
-            fileName = "gemma3-1b-it-int4.litertlm",
-            runtimeType = ModelRuntimeType.LITE_RT,
-            promptTemplateType = PromptTemplateType.GEMMA,
-            sizeBytes = 584_417_280L,
-            supportsMtp = false,
-            supportsReasoning = false,
-            hasMmproj = false,
-            isBundledModel = false,
-            isDownloaded = false,
-            mainModelUrl = "https://huggingface.co/lotapa/gemma3-1b-it-int4.litertlm/resolve/main/gemma3-1b-it-int4.litertlm",
-            description = "Google official LiteRT-LM Gemma 3 1B IT on-device model with ultra-light 584MB INT4 quantization.",
-            quantization = "INT4"
-        ),
-        LlmModel(
             id = "functiongemma-mobile-actions-litert",
             name = "FunctionGemma Mobile (LiteRT)",
             repoId = "litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm",
@@ -315,6 +171,175 @@ object ModelCatalog {
             mainModelUrl = "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm/resolve/main/mobile-actions_q8_ekv1024.litertlm",
             description = "Google official LiteRT Community ultra-light 284MB model for mobile actions and function calling.",
             quantization = "Q8"
+        ),
+        LlmModel(
+            id = "gemma-4-e2b-it-litert",
+            name = "Gemma 4 E2B IT (LiteRT LM, omni)",
+            repoId = "litert-community/gemma-4-E2B-it-litert-lm",
+            fileName = "gemma-4-E2B-it.litertlm",
+            runtimeType = ModelRuntimeType.LITE_RT,
+            promptTemplateType = PromptTemplateType.GEMMA,
+            sizeBytes = 2_588_147_712L,
+            supportsMtp = false,
+            supportsReasoning = false,
+            hasMmproj = false,
+            isBundledModel = false,
+            isDownloaded = false,
+            // Omni model: audio and vision encoders are loaded on demand, so a
+            // hands-free turn can go straight in without a speech recognizer.
+            supportsAudioInput = true,
+            maxContextTokens = 32_768,
+            minDeviceRamMb = 8_192,
+            mainModelUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
+            description = "Google official Gemma 4 E2B omni model for LiteRT-LM (2.6GB). Text, image and audio input in one file, with the audio encoder loaded on demand for hands-free conversation.",
+            quantization = "INT2/4/8"
+        ),
+        LlmModel(
+            id = "qwen3.5-0.8b-litert",
+            name = "Qwen 3.5 0.8B (LiteRT)",
+            repoId = "litert-community/Qwen3.5-0.8B",
+            fileName = "Qwen3.5-0.8B_int8.litertlm",
+            runtimeType = ModelRuntimeType.LITE_RT,
+            promptTemplateType = PromptTemplateType.CHATML,
+            sizeBytes = 964_566_992L,
+            supportsMtp = false,
+            supportsReasoning = false,
+            hasMmproj = false,
+            maxContextTokens = 4_096,
+            minDeviceRamMb = 4_096,
+            isBundledModel = false,
+            isDownloaded = false,
+            mainModelUrl = "https://huggingface.co/litert-community/Qwen3.5-0.8B/resolve/main/Qwen3.5-0.8B_int8.litertlm",
+            // Hybrid gated-delta attention: only six layers keep a KV cache (the
+            // bundle budgets 4K tokens), so memory stays nearly flat as the chat grows.
+            description = "Alibaba Qwen 3.5 0.8B hybrid model in LiteRT-LM form (963MB, text only). Its gated-delta attention keeps memory nearly flat with context, which suits low-RAM phones.",
+            quantization = "INT8"
+        ),
+        LlmModel(
+            id = "qwen3.5-2b-gguf",
+            name = "Qwen 3.5 2B",
+            repoId = "unsloth/Qwen3.5-2B-GGUF",
+            fileName = "Qwen3.5-2B-Q4_K_M.gguf",
+            runtimeType = ModelRuntimeType.LLAMA_CPP,
+            promptTemplateType = PromptTemplateType.CHATML,
+            sizeBytes = 1_280_835_840L,
+            supportsMtp = false,
+            supportsReasoning = true,
+            hasMmproj = false,
+            maxContextTokens = 32_768,
+            minDeviceRamMb = 4_096,
+            isBundledModel = false,
+            isDownloaded = false,
+            mainModelUrl = "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf",
+            // Hybrid gated-delta attention keeps the recurrent state constant-size, so
+            // long chats cost far less memory than a same-size dense model.
+            description = "Alibaba Qwen 3.5 2B GGUF (1.3GB). Hybrid attention keeps memory flat as context grows, with a thinking mode for harder prompts.",
+            quantization = "Q4_K_M"
+        ),
+        LlmModel(
+            id = "gemma-4-e4b-it-litert",
+            name = "Gemma 4 E4B IT (LiteRT LM, omni)",
+            repoId = "litert-community/gemma-4-E4B-it-litert-lm",
+            fileName = "gemma-4-E4B-it.litertlm",
+            runtimeType = ModelRuntimeType.LITE_RT,
+            promptTemplateType = PromptTemplateType.GEMMA,
+            sizeBytes = 3_659_530_240L,
+            supportsMtp = false,
+            supportsReasoning = false,
+            hasMmproj = false,
+            supportsAudioInput = true,
+            maxContextTokens = 32_768,
+            minDeviceRamMb = 12_288,
+            isBundledModel = false,
+            isDownloaded = false,
+            mainModelUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm",
+            description = "Google Gemma 4 E4B omni model for LiteRT-LM (3.7GB). Same text, image and audio input as E2B with more capacity for flagship phones.",
+            quantization = "INT2/4/8"
+        ),
+        LlmModel(
+            id = "lfm3-omni-2b-gguf",
+            name = "LFM3 Omni 2B",
+            repoId = "LiquidAI/LFM3-Omni-2B-GGUF",
+            fileName = "LFM3-Omni-2B-Q4_K_M.gguf",
+            runtimeType = ModelRuntimeType.LLAMA_CPP,
+            promptTemplateType = PromptTemplateType.LFM3,
+            sizeBytes = 1_099_630_080L,
+            supportsMtp = false,
+            supportsReasoning = false,
+            hasMmproj = true,
+            mmprojFileName = "mmproj-LFM3-Omni-2B-Q4_K_M.gguf",
+            maxContextTokens = 32_768,
+            minDeviceRamMb = 4_096,
+            isBundledModel = false,
+            isDownloaded = false,
+            mainModelUrl = "https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF/resolve/main/LFM3-Omni-2B-Q4_K_M.gguf",
+            visionTowerUrl = "https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF/resolve/main/mmproj-LFM3-Omni-2B-Q4_K_M.gguf",
+            // The projector also carries the audio encoder, but this app only feeds
+            // audio to LiteRT models today, so voice turns still use speech-to-text.
+            description = "Liquid AI LFM3 Omni 2B (1.4GB with projector). Text, image, video and audio in one model; images use the projector and voice turns currently run through speech-to-text.",
+            quantization = "Q4_K_M"
+        ),
+        LlmModel(
+            id = "minicpm-v-4.6-gguf",
+            name = "MiniCPM-V 4.6 (vision)",
+            repoId = "openbmb/MiniCPM-V-4.6-gguf",
+            fileName = "MiniCPM-V-4_6-Q4_K_M.gguf",
+            runtimeType = ModelRuntimeType.LLAMA_CPP,
+            promptTemplateType = PromptTemplateType.CHATML,
+            sizeBytes = 529_101_504L,
+            supportsMtp = false,
+            supportsReasoning = false,
+            hasMmproj = true,
+            mmprojFileName = "mmproj-model-f16.gguf",
+            maxContextTokens = 32_768,
+            minDeviceRamMb = 4_096,
+            isBundledModel = false,
+            isDownloaded = false,
+            mainModelUrl = "https://huggingface.co/openbmb/MiniCPM-V-4.6-gguf/resolve/main/MiniCPM-V-4_6-Q4_K_M.gguf",
+            visionTowerUrl = "https://huggingface.co/openbmb/MiniCPM-V-4.6-gguf/resolve/main/mmproj-model-f16.gguf",
+            // Built on Qwen 3.5 0.8B, so the Qwen/ChatML turn format applies as-is.
+            description = "OpenBMB MiniCPM-V 4.6 (0.5GB + 1.1GB projector), the phone-class vision model with official Android demos. Images go through the projector; text uses ChatML.",
+            quantization = "Q4_K_M"
+        ),
+        LlmModel(
+            id = "minicpm5-1b-gguf",
+            name = "MiniCPM5 1B",
+            repoId = "openbmb/MiniCPM5-1B-GGUF",
+            fileName = "MiniCPM5-1B-Q4_K_M.gguf",
+            runtimeType = ModelRuntimeType.LLAMA_CPP,
+            promptTemplateType = PromptTemplateType.MINICPM5,
+            sizeBytes = 688_065_920L,
+            supportsMtp = false,
+            supportsReasoning = true,
+            hasMmproj = false,
+            maxContextTokens = 32_768,
+            minDeviceRamMb = 4_096,
+            isBundledModel = false,
+            isDownloaded = false,
+            toolCallTemplate = ToolCallTemplate.MINICPM5,
+            mainModelUrl = "https://huggingface.co/openbmb/MiniCPM5-1B-GGUF/resolve/main/MiniCPM5-1B-Q4_K_M.gguf",
+            description = "OpenBMB MiniCPM5 1B (0.7GB), an on-device model with native tool calling and a switchable thinking mode. Uses the MiniCPM5 turn format.",
+            quantization = "Q4_K_M"
+        ),
+        LlmModel(
+            id = "minicpm5-2b-gguf",
+            name = "MiniCPM5 2B",
+            repoId = "openbmb/MiniCPM5-2B-GGUF",
+            fileName = "MiniCPM5-2B-Q4_K_M.gguf",
+            runtimeType = ModelRuntimeType.LLAMA_CPP,
+            promptTemplateType = PromptTemplateType.MINICPM5,
+            sizeBytes = 1_561_318_368L,
+            supportsMtp = false,
+            supportsReasoning = true,
+            hasMmproj = false,
+            maxContextTokens = 32_768,
+            minDeviceRamMb = 6_144,
+            isBundledModel = false,
+            isDownloaded = false,
+            toolCallTemplate = ToolCallTemplate.MINICPM5,
+            mainModelUrl = "https://huggingface.co/openbmb/MiniCPM5-2B-GGUF/resolve/main/MiniCPM5-2B-Q4_K_M.gguf",
+            description = "OpenBMB MiniCPM5 2B (1.6GB), a 2B-class model tuned for tool use and long context on phones, with a switchable thinking mode.",
+            quantization = "Q4_K_M"
         )
     )
 }

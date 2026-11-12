@@ -1,5 +1,8 @@
 package com.localllm.android.ui.chat
 
+import android.net.Uri
+import android.provider.OpenableColumns
+import com.localllm.android.document.DocumentSummary
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -13,7 +16,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -56,6 +62,11 @@ fun ChatInputBar(
     activeModel: LlmModel?,
     pendingAttachment: ChatAttachment?,
     onSetAttachment: (ChatAttachment?) -> Unit,
+    onDocumentPicked: (Uri, String) -> Unit,
+    indexedDocuments: List<DocumentSummary>,
+    activeDocumentIds: Set<String>,
+    onToggleDocument: (String) -> Unit,
+    onDeleteDocument: (String) -> Unit,
     reasoningEffort: Float,
     onReasoningEffortChanged: (Float) -> Unit,
     onStartVoiceInput: () -> Unit,
@@ -64,6 +75,7 @@ fun ChatInputBar(
 ) {
     var showAttachmentSheet by remember { mutableStateOf(false) }
     var showReasoningSlider by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     // Photo Picker contract (Zero permission required)
     val imagePicker = rememberLauncherForActivityResult(
@@ -87,15 +99,14 @@ fun ChatInputBar(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            val fileName = uri.path?.substringAfterLast('/') ?: "document.txt"
-            onSetAttachment(
-                ChatAttachment(
-                    uriString = uri.toString(),
-                    mimeType = "application/octet-stream",
-                    fileName = fileName,
-                    isImage = false
-                )
-            )
+            val displayName = runCatching {
+                context.contentResolver.query(
+                    uri,
+                    arrayOf(OpenableColumns.DISPLAY_NAME),
+                    null, null, null
+                )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            }.getOrNull() ?: uri.lastPathSegment ?: "document"
+            onDocumentPicked(uri, displayName)
         }
         showAttachmentSheet = false
     }
@@ -320,6 +331,70 @@ fun ChatInputBar(
             style = GlassTheme.type.titleMedium,
             color = GlassTheme.colors.onSurface
         )
+
+        if (indexedDocuments.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(14.dp))
+            GText(
+                text = stringResource(R.string.chat_library_title),
+                style = GlassTheme.type.labelSmall,
+                color = GlassTheme.colors.onSurfaceVariant
+            )
+            GText(
+                text = stringResource(R.string.chat_library_hint),
+                style = GlassTheme.type.labelSmall,
+                color = GlassTheme.colors.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 220.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                indexedDocuments.forEach { document ->
+                    val included = document.id in activeDocumentIds
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(GlassTheme.colors.surfaceVariant.copy(alpha = 0.55f))
+                            .clickable { onToggleDocument(document.id) }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GIcon(
+                            imageVector = if (included) GIcons.CheckCircle else GIcons.Description,
+                            contentDescription = null,
+                            tint = if (included) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            GText(
+                                text = document.name,
+                                style = GlassTheme.type.bodyMedium
+                            )
+                            GText(
+                                text = stringResource(R.string.chat_library_chunks, document.chunks),
+                                style = GlassTheme.type.labelSmall,
+                                color = if (included) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant
+                            )
+                        }
+                        GIconButton(
+                            onClick = { onDeleteDocument(document.id) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            GIcon(
+                                imageVector = GIcons.Close,
+                                contentDescription = stringResource(R.string.chat_library_delete),
+                                tint = GlassTheme.colors.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 

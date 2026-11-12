@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 import kotlin.math.log10
 import kotlin.math.max
@@ -179,11 +180,19 @@ class VoiceManager(private val context: Context) {
     fun startListening(
         onResult: (String) -> Unit,
         onError: (String) -> Unit,
-        autoEndpoint: Boolean = false
+        autoEndpoint: Boolean = false,
+        onAudio: ((File) -> Unit)? = null
     ) {
         if (isRecording) return
+        if (onAudio != null) {
+            // Direct-audio models consume the capture itself: no recognizer runs, and
+            // the local STT model does not need to be installed.
+            _lastSttEngine.value = null
+            startLocalRecording(onResult, onError, autoEndpoint, onAudio)
+            return
+        }
         if (localStt.isModelDownloaded()) {
-            startLocalRecording(onResult, onError, autoEndpoint)
+            startLocalRecording(onResult, onError, autoEndpoint, null)
             return
         }
         startSystemListening(onResult, onError)
@@ -194,7 +203,8 @@ class VoiceManager(private val context: Context) {
     private fun startLocalRecording(
         onResult: (String) -> Unit,
         onError: (String) -> Unit,
-        autoEndpoint: Boolean
+        autoEndpoint: Boolean,
+        onAudio: ((File) -> Unit)?
     ) {
         val sampleRate = LocalSttEngine.SAMPLE_RATE
         val channelConfig = AudioFormat.CHANNEL_IN_MONO
@@ -306,7 +316,7 @@ class VoiceManager(private val context: Context) {
                 val tail = min(flat.size, speechEndSample + sampleRate * TRIM_TAIL_MS / 1000)
                 if (tail > head) flat = flat.copyOfRange(head, tail)
             }
-            finishLocalRecording(flat, onResult, onError, session)
+            finishLocalRecording(flat, onResult, onError, session, onAudio)
         }, "LocalSttRecord")
         recordingThread = thread
         thread.start()
@@ -316,13 +326,42 @@ class VoiceManager(private val context: Context) {
         samples: FloatArray,
         onResult: (String) -> Unit,
         onError: (String) -> Unit,
-        session: Int
+        session: Int,
+        onAudio: ((File) -> Unit)?
     ) {
         mainHandler.post {
             if (session == recordingSession.get()) {
                 _audioAmplitude.value = 0f
                 _voiceState.value = InteractiveVoiceState.PROCESSING
             }
+        }
+        if (onAudio != null) {
+            ioScope.launch {
+                val audioFile = File(context.cacheDir, "voice_turn_${System.currentTimeMillis()}.wav")
+                try {
+                    if (samples.size < LocalSttEngine.SAMPLE_RATE / 4) {
+                        throw IllegalStateException(AppStrings.get(R.string.vmgr_too_short))
+                    }
+                    WavWriter.write(audioFile, samples, LocalSttEngine.SAMPLE_RATE)
+                    withContext(Dispatchers.Main) {
+                        if (session != recordingSession.get()) {
+                            audioFile.delete()
+                            return@withContext
+                        }
+                        _voiceState.value = InteractiveVoiceState.IDLE
+                        onAudio(audioFile)
+                    }
+                } catch (e: Exception) {
+                    audioFile.delete()
+                    android.util.Log.w(TAG, "Direct audio capture failed", e)
+                    withContext(Dispatchers.Main) {
+                        if (session != recordingSession.get()) return@withContext
+                        _voiceState.value = InteractiveVoiceState.IDLE
+                        onError(e.localizedMessage ?: AppStrings.get(R.string.vmgr_stt_fail))
+                    }
+                }
+            }
+            return
         }
         ioScope.launch {
             try {

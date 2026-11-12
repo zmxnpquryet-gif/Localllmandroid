@@ -192,14 +192,14 @@ fun ChatMessageItem(
                         )
                     }
 
-                    // Main Text Content
+                    // Main Text Content (markdown, streamed token by token)
                     if (message.content.isNotBlank()) {
-                        GText(
-                            text = message.content,
-                            style = GlassTheme.type.bodyLarge.copy(
-                                lineHeight = 24.sp,
-                                color = GlassTheme.colors.onBackground
-                            )
+                        AssistantMarkdown(
+                            markdown = message.content,
+                            isStreaming = message.isStreaming,
+                            modifier = Modifier.fillMaxWidth(),
+                            style = GlassTheme.type.bodyLarge.copy(lineHeight = 24.sp),
+                            color = GlassTheme.colors.onBackground
                         )
                     } else if (message.isStreaming && !message.isReasoningStreaming) {
                         // Pulsing cursor

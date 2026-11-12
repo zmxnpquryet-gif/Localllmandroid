@@ -9,11 +9,13 @@ import androidx.lifecycle.viewModelScope
 import com.localllm.android.data.ModelStorageManager
 import com.localllm.android.data.local.ChatDatabase
 import com.localllm.android.data.repository.ChatRepository
+import com.localllm.android.document.DocumentIndex
+import com.localllm.android.document.DocumentStats
+import com.localllm.android.document.DocumentSummary
 import com.localllm.android.engine.GgufMetadataDetector
 import com.localllm.android.engine.GenerationChunk
 import com.localllm.android.engine.HfSource
 import com.localllm.android.i18n.AppStrings
-import com.localllm.android.i18n.SdEngineText
 import com.localllm.android.engine.LlmEngine
 import com.localllm.android.data.crypto.SecretPrefs
 import com.localllm.android.engine.McpClient
@@ -25,9 +27,14 @@ import com.localllm.android.model.ChatAttachment
 import com.localllm.android.model.ChatMessage
 import com.localllm.android.model.Conversation
 import com.localllm.android.model.GenerationSettings
+import com.localllm.android.model.KvCacheQuantization
+import com.localllm.android.model.ToolCallTemplate
+import com.localllm.android.model.ToolCallTemplates
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.MessageRole
 import com.localllm.android.model.ModelCatalog
+import com.localllm.android.update.AppUpdateInfo
+import com.localllm.android.update.UpdateChecker
 import com.localllm.android.model.ModelRuntimeType
 import com.localllm.android.R
 import com.localllm.android.LocalLlmApp
@@ -35,6 +42,10 @@ import com.localllm.android.memory.MemoryGuard
 import com.localllm.android.memory.MemoryGuardStore
 import com.localllm.android.memory.MemorySnapshot
 import com.localllm.android.memory.MemoryWatchdog
+import com.localllm.android.voice.AudioInputRouter
+import com.localllm.android.voice.VoiceAudioDecision
+import com.localllm.android.voice.VoiceAudioReason
+import com.localllm.android.voice.VoiceAudioRoute
 import com.localllm.android.voice.InteractiveVoiceState
 import com.localllm.android.voice.TtsEngineMode
 import com.localllm.android.voice.VoiceManager
@@ -58,6 +69,9 @@ import java.util.Collections
 import java.util.Locale
 import java.util.UUID
 
+private const val DIRECT_AUDIO_PROMPT = "The user sent a spoken message. Answer it directly and concisely."
+private const val MIN_DIRECT_AUDIO_BYTES = 8_000L
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = ChatDatabase.getInstance(application)
@@ -66,6 +80,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val llmEngine = getApplication<LocalLlmApp>().llmEngine
     val voiceManager = VoiceManager(application)
     private val mcpClient = McpClient()
+    private val documentIndex = DocumentIndex(application)
+    private val documentSelectionPrefs = application.getSharedPreferences(
+        "document_selection",
+        android.content.Context.MODE_PRIVATE
+    )
+
+    private val updatePrefs = application.getSharedPreferences(
+        "app_updates",
+        android.content.Context.MODE_PRIVATE
+    )
+    private val _appUpdate = MutableStateFlow<AppUpdateInfo?>(null)
+    val appUpdate: StateFlow<AppUpdateInfo?> = _appUpdate.asStateFlow()
+
+    private val _documentStats = MutableStateFlow(DocumentStats.EMPTY)
+    val documentStats: StateFlow<DocumentStats> = _documentStats.asStateFlow()
+
+    /** Files the user explicitly added to the current conversation (default: none). */
+    private val _activeDocumentIds = MutableStateFlow<Set<String>>(emptySet())
+    val activeDocumentIds: StateFlow<Set<String>> = _activeDocumentIds.asStateFlow()
+
+    /** Every indexed file, shown under "Add from library" in the attachment sheet. */
+    private val _documentLibrary = MutableStateFlow<List<DocumentSummary>>(emptyList())
+    val documentLibrary: StateFlow<List<DocumentSummary>> = _documentLibrary.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _documentStats.value = documentIndex.stats()
+            _documentLibrary.value = documentIndex.documents()
+        }
+        checkForAppUpdate()
+    }
+
+    /**
+     * One silent check per process. The release banner is optional chrome, so a
+     * network failure must not surface as an error.
+     */
+    private fun checkForAppUpdate() {
+        viewModelScope.launch {
+            val update = runCatching { UpdateChecker().latestRelease() }.getOrNull()
+                ?: return@launch
+            if (update.latestVersion == updatePrefs.getString(DISMISSED_UPDATE_KEY, null)) {
+                return@launch
+            }
+            _appUpdate.value = update
+        }
+    }
+
+    fun dismissAppUpdate() {
+        _appUpdate.value?.let { update ->
+            updatePrefs.edit().putString(DISMISSED_UPDATE_KEY, update.latestVersion).apply()
+        }
+        _appUpdate.value = null
+    }
+
+    private fun selectionKey(conversationId: String) = "$SELECTION_KEY_PREFIX$conversationId"
+
+    private fun loadDocumentSelection(conversationId: String): Set<String> =
+        documentSelectionPrefs.getStringSet(selectionKey(conversationId), emptySet())
+            ?.toSet()
+            .orEmpty()
+
+    private fun persistDocumentSelection(conversationId: String, documentIds: Set<String>) {
+        documentSelectionPrefs.edit()
+            .putStringSet(selectionKey(conversationId), documentIds)
+            .apply()
+    }
 
     // Conversations from encrypted SQLite Room
     val conversations: StateFlow<List<Conversation>> = repository.conversations
@@ -113,7 +193,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             languagePreference = settingsPrefs.getString("language_preference", "system") ?: "system",
             hfSource = settingsPrefs.getString("hf_source", "official") ?: "official",
             mcpServerUrl = settingsPrefs.getString("mcp_server_url", "") ?: "",
-            isMcpEnabled = settingsPrefs.getBoolean("is_mcp_enabled", false)
+            isMcpEnabled = settingsPrefs.getBoolean("is_mcp_enabled", false),
+            toolCallsEnabled = settingsPrefs.getBoolean("tool_calls_enabled", true),
+            builtInSystemPromptEnabled = settingsPrefs.getBoolean("built_in_system_prompt_enabled", true),
+            kvCacheQuantization = KvCacheQuantization.fromId(settingsPrefs.getString("kv_cache_quantization", null)),
+            ignoreMemoryLimits = settingsPrefs.getBoolean("ignore_memory_limits", false)
         )
     )
     val settings: StateFlow<GenerationSettings> = _settings.asStateFlow()
@@ -142,6 +226,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _activeModel = MutableStateFlow<LlmModel?>(null)
     val activeModel: StateFlow<LlmModel?> = _activeModel.asStateFlow()
+
+    /** Dialect used to offer and parse tool calls for the active model. */
+    private val _activeToolTemplate = MutableStateFlow(ToolCallTemplate.NONE)
+    val activeToolTemplate: StateFlow<ToolCallTemplate> = _activeToolTemplate.asStateFlow()
+    private var mcpServerName: String = "MCP"
+
+    private fun toolTemplatePrefKey(modelId: String) = "tool_call_template_$modelId"
+
+    /**
+     * Single entry point for activating a model, so the tool dialect and the tools
+     * block in the prompt always follow whatever is loaded.
+     */
+    private fun setActiveModel(model: LlmModel?) {
+        _activeModel.value = model
+        _activeToolTemplate.value = model?.let { active ->
+            ToolCallTemplates.resolve(
+                active,
+                settingsPrefs.getString(toolTemplatePrefKey(active.id), null)
+            )
+        } ?: ToolCallTemplate.NONE
+        refreshMcpToolsContext()
+    }
+
+    /** User choice for the active model. AUTO clears the override. */
+    fun setToolCallTemplate(template: ToolCallTemplate) {
+        val model = _activeModel.value ?: return
+        val editor = settingsPrefs.edit()
+        if (template == ToolCallTemplate.AUTO) editor.remove(toolTemplatePrefKey(model.id))
+        else editor.putString(toolTemplatePrefKey(model.id), template.id)
+        editor.apply()
+        setActiveModel(model)
+    }
+
+    private fun refreshMcpToolsContext() {
+        val template = _activeToolTemplate.value
+        val tools = mcpClient.currentTools()
+        _mcpToolsContext.value = if (
+            template == ToolCallTemplate.NONE ||
+            !_settings.value.toolCallsEnabled ||
+            tools.isEmpty()
+        ) {
+            null
+        } else {
+            McpToolProtocol.buildToolsPrompt(mcpServerName, tools, template)
+        }
+    }
 
     // Active screen: "chat", "models", "settings", "voice_mode"
     private val _currentScreen = MutableStateFlow(AppScreen.CHAT)
@@ -222,23 +352,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var messageCollectionJob: Job? = null
 
     init {
-        // One-time stale-prefs migration (P1-1): versions with MoE auto-assign
-        // persisted runtime=SD_ENGINE into prefs via selectModel. After the
-        // default-to-llama.cpp change that stale value would silently route every
-        // GGUF through the TEST engine. Runs once against the RAW stored value
-        // (before active-model restoration overwrites _settings) and never touches
-        // an intentional global choice again (adversarial review finding).
+        // One-time stale-prefs migration (P1-1): builds before the SDengine removal
+        // could persist runtime=SD_ENGINE. That runtime no longer exists, so the raw
+        // stored value is rewritten instead of relying on the parser's fallback.
         if (!settingsPrefs.getBoolean("migrated_sd_engine_prefs_v1", false)) {
-            if (settingsPrefs.getString("runtime", null) == ModelRuntimeType.SD_ENGINE.name) {
-                val explicitSd = _models.value.any {
-                    it.isDownloaded && it.runtimeType == ModelRuntimeType.SD_ENGINE && it.runtimeTypeOverrideByUser
-                }
-                if (!explicitSd) {
-                    settingsPrefs.edit().putString("runtime", ModelRuntimeType.LLAMA_CPP.name).apply()
-                    if (_settings.value.runtime == ModelRuntimeType.SD_ENGINE) {
-                        _settings.value = _settings.value.copy(runtime = ModelRuntimeType.LLAMA_CPP)
-                    }
-                }
+            if (settingsPrefs.getString("runtime", null) == "SD_ENGINE") {
+                settingsPrefs.edit().putString("runtime", ModelRuntimeType.LLAMA_CPP.name).apply()
+                _settings.value = _settings.value.copy(runtime = ModelRuntimeType.LLAMA_CPP)
             }
             settingsPrefs.edit().putBoolean("migrated_sd_engine_prefs_v1", true).apply()
         }
@@ -248,21 +368,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ?: _models.value.firstOrNull { it.isDownloaded }
 
         if (restoredModel != null) {
-            _activeModel.value = restoredModel
+            setActiveModel(restoredModel)
             _settings.value = _settings.value.copy(
                 runtime = restoredModel.runtimeType,
                 enableMtp = if (restoredModel.supportsMtp) true else _settings.value.enableMtp
             )
             _engineStatusMessage.value = localizedString(R.string.vm_status_model_restored, restoredModel.name)
         } else {
-            _activeModel.value = null
+            setActiveModel(null)
             _engineStatusMessage.value = localizedString(R.string.vm_status_no_default_model)
         }
 
         // Memory protection: apply the degradation ladder accumulated by previous
         // abnormal runs (OOM kill / native crash mid-inference) before the first load.
         memoryGuard?.let { guard ->
-            if (guard.isEnabled() && guard.level() > 0) {
+            if (guard.isEnabled() && !_settings.value.ignoreMemoryLimits && guard.level() > 0) {
                 _settings.value = guard.applyLevel(_settings.value)
             }
             val report = LocalLlmApp.consumeStartupReport()
@@ -380,6 +500,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun setCurrentToPending(pending: Conversation) {
         pendingConversation = pending
         _currentConversationId.value = pending.id
+        _activeDocumentIds.value = emptySet()
         messageCollectionJob?.cancel()
         _messages.value = emptyList()
         messageCollectionJob = viewModelScope.launch {
@@ -424,6 +545,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_currentConversationId.value == conversationId && messageCollectionJob != null) return
         stopGeneration()
         _currentConversationId.value = conversationId
+        _activeDocumentIds.value = loadDocumentSelection(conversationId)
         messageCollectionJob?.cancel()
         messageCollectionJob = viewModelScope.launch {
             repository.getMessagesForConversation(conversationId).collect { msgList ->
@@ -475,6 +597,96 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _pendingAttachment.value = attachment
     }
 
+    /**
+     * Extracts, chunks and embeds a picked document, then keeps it for retrieval on
+     * later messages. The original URI is not stored: text is copied into the index,
+     * so a document deleted from the device remains searchable until the index is
+     * cleared, and no read permission is retained.
+     */
+    fun importDocument(uri: Uri, displayName: String) {
+        viewModelScope.launch {
+            _engineStatusMessage.value = localizedString(R.string.vm_doc_indexing, displayName)
+            val result = runCatching {
+                documentIndex.ingest(uri, displayName, _settings.value.languagePreference)
+            }
+            _documentStats.value = documentIndex.stats()
+            _documentLibrary.value = documentIndex.documents()
+            result.onSuccess { ingested ->
+                if (ingested.chunkCount > 0) enableDocumentForCurrentChat(ingested.documentId)
+            }
+            _engineStatusMessage.value = result.fold(
+                onSuccess = { ingested ->
+                    if (ingested.chunkCount == 0) {
+                        localizedString(R.string.vm_doc_empty, displayName)
+                    } else {
+                        localizedString(R.string.vm_doc_indexed, ingested.chunkCount, displayName)
+                    }
+                },
+                onFailure = { t ->
+                    localizedString(R.string.vm_doc_failed, displayName, t.localizedMessage ?: t.message ?: "")
+                }
+            )
+        }
+    }
+
+    /** Adds or removes a saved file for the current conversation only. */
+    fun toggleDocumentSelection(documentId: String) {
+        val conversationId = _currentConversationId.value ?: ensureConversationId()
+        val current = _activeDocumentIds.value
+        val updated = if (documentId in current) current - documentId else current + documentId
+        _activeDocumentIds.value = updated
+        persistDocumentSelection(conversationId, updated)
+    }
+
+    /**
+     * Deletes one saved file and removes it from every conversation's selection, so a
+     * stale id can never keep a deleted document referenced.
+     */
+    fun deleteIndexedDocument(documentId: String) {
+        val name = _documentLibrary.value.firstOrNull { it.id == documentId }?.name ?: "document"
+        viewModelScope.launch {
+            runCatching { documentIndex.deleteDocument(documentId) }
+            pruneDocumentFromSelections(documentId)
+            _documentLibrary.value = documentIndex.documents()
+            _documentStats.value = documentIndex.stats()
+            _engineStatusMessage.value = localizedString(R.string.vm_doc_deleted, name)
+        }
+    }
+
+    private fun pruneDocumentFromSelections(documentId: String) {
+        documentSelectionPrefs.all.forEach { (key, value) ->
+            if (key.startsWith(SELECTION_KEY_PREFIX) && value is Set<*>) {
+                val ids = value.mapNotNull { it as? String }.toSet()
+                if (documentId in ids) {
+                    documentSelectionPrefs.edit()
+                        .putStringSet(key, ids - documentId)
+                        .apply()
+                }
+            }
+        }
+        _activeDocumentIds.value = _activeDocumentIds.value - documentId
+    }
+
+    private fun enableDocumentForCurrentChat(documentId: String) {
+        // Importing is already an explicit choice for this chat, so the new file is
+        // included here; other conversations still start with nothing selected.
+        val conversationId = _currentConversationId.value ?: return
+        val updated = _activeDocumentIds.value + documentId
+        _activeDocumentIds.value = updated
+        persistDocumentSelection(conversationId, updated)
+    }
+
+    fun clearDocumentIndex() {
+        viewModelScope.launch {
+            runCatching { documentIndex.clear() }
+            documentSelectionPrefs.edit().clear().apply()
+            _activeDocumentIds.value = emptySet()
+            _documentLibrary.value = emptyList()
+            _documentStats.value = documentIndex.stats()
+            _engineStatusMessage.value = localizedString(R.string.vm_doc_cleared)
+        }
+    }
+
     fun selectModel(model: LlmModel) {
         if (!model.isDownloaded) {
             _engineStatusMessage.value = localizedString(R.string.vm_status_model_not_downloaded, model.name)
@@ -490,15 +702,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _modelLoadingProgress.value = 0.05f
             _modelLoadingStage.value = localizedString(R.string.vm_stage_preparing_load)
 
-            // Sync runtime type and auto-apply MTP if model supports it. A user-chosen
-            // runtime wins: picking an SDengine model must not silently fall back to
-            // llama.cpp, and vice versa.
-            val isGguf = model.runtimeType != ModelRuntimeType.LITE_RT
-            val runtimeToApply = when {
-                model.runtimeTypeOverrideByUser -> model.runtimeType
-                _settings.value.runtime == ModelRuntimeType.SD_ENGINE && isGguf -> ModelRuntimeType.SD_ENGINE
-                else -> model.runtimeType
-            }
+            // Sync runtime type and auto-apply MTP if model supports it. The model's
+            // own runtime (which carries any explicit user override) is authoritative.
+            val runtimeToApply = model.runtimeType
             _settings.value = _settings.value.copy(
                 runtime = runtimeToApply,
                 enableMtp = if (model.supportsMtp) true else _settings.value.enableMtp
@@ -522,14 +728,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 if (llmEngine.isModelReady()) {
-                    _activeModel.value = model
+                    setActiveModel(model)
                     _modelLoadingProgress.value = 1.0f
                     _modelLoadingStage.value = localizedString(R.string.vm_stage_load_complete)
                     _engineStatusMessage.value = status
                     modelStorageManager.saveActiveModelId(model.id)
                     delay(400)
                 } else {
-                    _activeModel.value = null
+                    setActiveModel(null)
                     _modelLoadingProgress.value = 0f
                     _modelLoadingStage.value = localizedString(R.string.vm_stage_load_failed)
                     _engineStatusMessage.value = status
@@ -537,7 +743,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (t: Throwable) {
                 android.util.Log.e("MainViewModel", "Model loading error", t)
-                _activeModel.value = null
+                setActiveModel(null)
                 _modelLoadingProgress.value = 0f
                 _modelLoadingStage.value = localizedString(R.string.vm_stage_load_failed)
                 _engineStatusMessage.value = localizedString(R.string.vm_status_model_load_exception, t.localizedMessage ?: t.message)
@@ -555,18 +761,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun switchRuntime(runtime: ModelRuntimeType) {
         _settings.value = _settings.value.copy(runtime = runtime)
         settingsPrefs.edit().putString("runtime", runtime.name).apply()
-        // SDengine runs GGUF containers, so any downloaded GGUF is a candidate; the
-        // other runtimes match on their own model type.
-        val downloadedMatch = when (runtime) {
-            ModelRuntimeType.SD_ENGINE -> _models.value.firstOrNull {
-                it.isDownloaded && it.runtimeType != ModelRuntimeType.LITE_RT
-            }
-            else -> _models.value.firstOrNull { it.runtimeType == runtime && it.isDownloaded }
-        }
+        val downloadedMatch = _models.value.firstOrNull { it.runtimeType == runtime && it.isDownloaded }
         if (downloadedMatch != null) {
             selectModel(downloadedMatch)
         } else {
-            _activeModel.value = null
+            setActiveModel(null)
             viewModelScope.launch {
                 try {
                     llmEngine.loadModel(null, _settings.value)
@@ -577,7 +776,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _engineStatusMessage.value = when (runtime) {
                 ModelRuntimeType.LLAMA_CPP -> localizedString(R.string.vm_status_no_llamacpp_model)
                 ModelRuntimeType.LITE_RT -> localizedString(R.string.vm_status_no_litert_model)
-                ModelRuntimeType.SD_ENGINE -> SdEngineText.advisoryText()
             }
         }
     }
@@ -628,6 +826,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putBoolean("enable_gpu", newSettings.enableGpuAcceleration)
             putInt("gpu_layers", newSettings.gpuLayers)
             putString("runtime", newSettings.runtime.name)
+            putString("kv_cache_quantization", newSettings.kvCacheQuantization.id)
+            putBoolean("ignore_memory_limits", newSettings.ignoreMemoryLimits)
             putBoolean("show_metrics", newSettings.showPerformanceMetrics)
             putString("api_server_bind_address", newSettings.apiServerBindAddress)
             putBoolean("api_server_require_auth", newSettings.apiServerRequireAuth)
@@ -635,9 +835,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putString("hf_source", newSettings.hfSource)
             putString("mcp_server_url", newSettings.mcpServerUrl)
             putBoolean("is_mcp_enabled", newSettings.isMcpEnabled)
+            putBoolean("tool_calls_enabled", newSettings.toolCallsEnabled)
+            putBoolean("built_in_system_prompt_enabled", newSettings.builtInSystemPromptEnabled)
             apply()
         }
         if (newSettings.hfToken != previous.hfToken) secrets.put(SecretPrefs.HF_TOKEN, newSettings.hfToken)
+        // The tools block lives in the prompt, not in the weights: rebuild it without
+        // reloading the model when the low-end toggle changes.
+        if (previous.toolCallsEnabled != newSettings.toolCallsEnabled) refreshMcpToolsContext()
         // Re-enabling GPU is an explicit retry: forget the remembered driver failure
         // so LiteRT offers the GPU backend again.
         if (!previous.enableGpuAcceleration && newSettings.enableGpuAcceleration) {
@@ -649,7 +854,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val needsReload = previous.runtime != newSettings.runtime ||
                 previous.contextWindow != newSettings.contextWindow ||
                 previous.enableGpuAcceleration != newSettings.enableGpuAcceleration ||
-                previous.gpuLayers != newSettings.gpuLayers
+                previous.gpuLayers != newSettings.gpuLayers ||
+                previous.kvCacheQuantization != newSettings.kvCacheQuantization
         if (!needsReload) return
         viewModelScope.launch {
             try {
@@ -796,7 +1002,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val result = mcpClient.connectServer(url, token)
             if (result.isSuccess) {
                 _mcpTools.value = result.tools
-                _mcpToolsContext.value = McpToolProtocol.buildToolsPrompt(result.serverName, result.tools)
+                mcpServerName = result.serverName
+                refreshMcpToolsContext()
                 settingsPrefs.edit().putString("mcp_last_host", host).apply()
                 _mcpTokenSaved.value = !secrets.get(SecretPrefs.MCP_TOKEN).isNullOrBlank()
                 _mcpStatusText.value = localizedString(R.string.vm_mcp_connected, result.serverName, result.latencyMs, result.tools.size) +
@@ -949,7 +1156,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (nextDownloaded != null) {
                 selectModel(nextDownloaded)
             } else {
-                _activeModel.value = null
+                setActiveModel(null)
                 modelStorageManager.saveActiveModelId(null)
                 viewModelScope.launch {
                     llmEngine.loadModel(null, _settings.value)
@@ -973,7 +1180,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _activeModel.value?.let { active ->
             if (active.id == modelId) {
                 val updated = _models.value.first { it.id == modelId }
-                _activeModel.value = updated
+                setActiveModel(updated)
                 _engineStatusMessage.value = localizedString(
                     R.string.vm_status_vision_toggle,
                     updated.name,
@@ -997,7 +1204,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _activeModel.value?.let { active ->
             if (active.id == modelId) {
                 val updated = _models.value.first { it.id == modelId }
-                _activeModel.value = updated
+                setActiveModel(updated)
                 _engineStatusMessage.value = localizedString(
                     R.string.vm_status_drafter_toggle,
                     updated.name,
@@ -1241,6 +1448,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isStreaming = true
             )
             val history = currentList.takeLast(6).map { toHistoryPair(it) }
+            // One retrieval per turn, reused by every tool round: the user's question
+            // does not change between rounds, so neither should the excerpts.
+            val documentContext = runCatching {
+                documentIndex.buildContext(trimmed, _activeDocumentIds.value)
+            }.getOrNull()
 
             val previousJob = currentStreamJob
             previousJob?.cancel()
@@ -1251,7 +1463,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 beginInferenceGuard()
                 // Tool use only when MCP is on AND the server really exposes tools: without
                 // the tools block in the prompt the model has nothing to call.
-                val toolsActive = _settings.value.isMcpEnabled && mcpClient.currentTools().isNotEmpty()
+                val toolTemplate = _activeToolTemplate.value
+                val toolsActive = _settings.value.isMcpEnabled &&
+                    _settings.value.toolCallsEnabled &&
+                    toolTemplate != ToolCallTemplate.NONE &&
+                    mcpClient.currentTools().isNotEmpty()
                 var turnPlaceholder = streamPlaceholder
                 var turnPrompt = trimmed
                 var turnHistory = history
@@ -1267,12 +1483,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             history = turnHistory,
                             settings = _settings.value,
                             attachment = turnAttachment,
-                            mcpToolsContext = if (toolsActive) _mcpToolsContext.value else null
+                            mcpToolsContext = if (toolsActive) _mcpToolsContext.value else null,
+                            documentContext = documentContext
                         ).collect { chunk ->
                             turnText = chunk.currentContentText
                             turnReasoning = chunk.currentReasoningText.ifBlank { null }
                             // While a tool block is streaming, show only the prose before it.
-                            val shown = if (toolsActive) McpToolProtocol.visibleText(turnText) else turnText
+                            val shown = if (toolsActive) McpToolProtocol.visibleText(turnText, toolTemplate) else turnText
                             _streamingMessage.value = turnPlaceholder.copy(
                                 content = shown,
                                 reasoning = turnReasoning,
@@ -1285,18 +1502,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
 
                         val parsed = if (toolsActive && round < McpToolProtocol.MAX_TOOL_ROUNDS) {
-                            McpToolProtocol.parse(turnText, mcpClient.currentTools())
+                            McpToolProtocol.parse(turnText, mcpClient.currentTools(), toolTemplate)
                         } else {
                             ToolCallParse.None
                         }
 
                         // Persist this assistant turn (prose only when it carried a tool block).
                         val savedContent = if (parsed is ToolCallParse.None && toolsActive) {
-                            McpToolProtocol.visibleText(turnText).ifBlank { turnText }
+                            McpToolProtocol.visibleText(turnText, toolTemplate).ifBlank { turnText }
                         } else if (parsed is ToolCallParse.None) {
                             turnText
                         } else {
-                            McpToolProtocol.visibleText(turnText)
+                            McpToolProtocol.visibleText(turnText, toolTemplate)
                         }
                         val savedAssistant = (_streamingMessage.value ?: turnPlaceholder).copy(
                             content = savedContent,
@@ -1386,7 +1603,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         // Next turn: the model continues from the tool result. The call that
                         // produced it is kept in the history so the model sees its own request.
                         val callEcho = (parsed as? ToolCallParse.Call)?.let {
-                            "${McpToolProtocol.OPEN}{\"name\":\"${it.call.name}\",\"arguments\":${it.call.argumentsJson}}${McpToolProtocol.CLOSE}"
+                            McpToolProtocol.formatCallEcho(
+                                it.call.name,
+                                it.call.argumentsJson,
+                                toolTemplate
+                            )
                         } ?: turnText
                         turnHistory = (turnHistory + (MessageRole.USER.name to turnPrompt) +
                             (MessageRole.ASSISTANT.name to callEcho)).takeLast(8)
@@ -1475,7 +1696,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             gpuLayers = current.gpuLayers,
             gpuAcceleration = current.enableGpuAcceleration
         )
-        memoryWatchdog.start()
+        // The in-flight marker above is still written for diagnostics, but the watchdog
+        // is disabled while OOM protection is bypassed: it would otherwise stop a run
+        // the user explicitly asked to load as configured.
+        if (!current.ignoreMemoryLimits) memoryWatchdog.start()
     }
 
     private fun endInferenceGuard() {
@@ -1489,6 +1713,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * the OS kill the app with no chance to write anything down.
      */
     private fun onMemoryCritical(snapshot: MemorySnapshot) {
+        // Defensive: the watchdog is not started while protection is bypassed.
+        if (_settings.value.ignoreMemoryLimits) return
         android.util.Log.w(
             "MainViewModel",
             "Critical memory during inference: avail=${snapshot.availMb}MB total=${snapshot.totalMb}MB low=${snapshot.lowMemory}"
@@ -1524,6 +1750,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var voiceSessionJob: Job? = null
+
+    /** How the current hands-free session feeds audio to the model. */
+    private val _voiceAudioDecision = MutableStateFlow<VoiceAudioDecision?>(null)
+    val voiceAudioDecision: StateFlow<VoiceAudioDecision?> = _voiceAudioDecision.asStateFlow()
+    private var emptyAudioTurns = 0
 
     fun stopGeneration() {
         // Stopping while a tool is awaiting approval is a decline, never an approval.
@@ -1567,11 +1798,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * User speaks -> Local LLM generates response -> TTS speaks back
      */
     fun startInteractiveVoiceSession() {
-        if (_activeModel.value == null || !_activeModel.value!!.isDownloaded) {
+        val model = _activeModel.value
+        if (model == null || !model.isDownloaded) {
             _engineStatusMessage.value = localizedString(R.string.vm_voice_no_model)
             voiceManager.speak(localizedString(R.string.vm_voice_no_model))
             return
         }
+        // Omni models on LiteRT get the audio itself; every other model needs a
+        // recognizer first. The decision is surfaced so the UI can say which one ran.
+        val decision = AudioInputRouter.route(model)
+        _voiceAudioDecision.value = decision
         voiceManager.startListening(
             onResult = { userSpokenText ->
                 // Anti-feedback guard: silence hallucinations and TTS echo would otherwise
@@ -1589,86 +1825,143 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 duplicateVoiceTurns = 0
                 lastVoiceInput = userSpokenText
                 voiceManager.setVoiceState(InteractiveVoiceState.PROCESSING)
-                // Tracked (unlike before): Stop and screen-leave must reach this
-                // coroutine, or its TTS callback re-arms the microphone forever.
-                voiceSessionJob?.cancel()
-                voiceSessionJob = viewModelScope.launch {
-                    try {
-                        // The engine (unlike the chat path) may hold no loaded model
-                        // after a cold start — load on demand instead of crashing.
-                        if (!llmEngine.isModelReady()) {
-                            val target = _activeModel.value
-                            if (target == null || !target.isDownloaded) {
-                                voiceManager.speak(localizedString(R.string.vm_voice_no_model))
-                                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
-                                return@launch
-                            }
-                            _engineStatusMessage.value = localizedString(R.string.vm_status_loading_memory, target.name)
-                            val loadResult = try {
-                                llmEngine.loadModel(target, _settings.value)
-                            } catch (t: Throwable) {
-                                localizedString(R.string.vm_status_model_load_exception, t.localizedMessage ?: t.message)
-                            }
-                            if (!llmEngine.isModelReady()) {
-                                voiceManager.speak(localizedString(R.string.vm_voice_load_failed, loadResult))
-                                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
-                                return@launch
-                            }
-                            _engineStatusMessage.value = loadResult
-                        }
-                        val convId = _currentConversationId.value ?: ensureConversationId()
-                        val userMsg = ChatMessage(conversationId = convId, role = MessageRole.USER, content = userSpokenText)
-                        val voiceDraft = capturePendingDraft(convId)
-                        repository.saveConversationAndMessage(voiceDraft, userMsg)
-                        if (voiceDraft != null) clearPendingDraft(convId)
-
-                        // Stream or generate response
-                        val voiceHistory = _messages.value.takeLast(6).map { toHistoryPair(it) }
-                        beginInferenceGuard()
-                        try {
-                            llmEngine.streamGenerate(
-                                prompt = userSpokenText,
-                                history = voiceHistory,
-                                settings = _settings.value,
-                                attachment = null
-                            ).collect { chunk ->
-                                if (chunk.isComplete) {
-                                    val assistantMsg = ChatMessage(
-                                        conversationId = convId,
-                                        role = MessageRole.ASSISTANT,
-                                        content = chunk.currentContentText,
-                                        reasoning = chunk.currentReasoningText.ifBlank { null },
-                                        tps = chunk.tps,
-                                        promptSpeed = chunk.promptSpeed
-                                    )
-                                    repository.saveMessage(assistantMsg)
-
-                                    // Speak response back
-                                    voiceManager.speak(chunk.currentContentText) {
-                                        // Once done speaking, listen again for natural dialogue
-                                        startInteractiveVoiceSession()
-                                    }
-                                }
-                            }
-                        } finally {
-                            endInferenceGuard()
-                        }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
-                        throw e
-                    } catch (e: Exception) {
-                        android.util.Log.w("MainViewModel", "Voice session error", e)
-                        voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
-                        voiceManager.speak(localizedString(R.string.vm_voice_error))
-                    }
-                }
+                val convId = _currentConversationId.value ?: ensureConversationId()
+                launchVoiceTurn(
+                    conversationId = convId,
+                    userMessage = ChatMessage(
+                        conversationId = convId,
+                        role = MessageRole.USER,
+                        content = userSpokenText
+                    ),
+                    promptText = userSpokenText,
+                    attachment = null
+                )
             },
             onError = { _ ->
                 voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
             },
             // Hands-free: the recorder ends the turn itself when the speaker goes quiet.
-            autoEndpoint = true
+            autoEndpoint = true,
+            onAudio = if (decision.route == VoiceAudioRoute.DIRECT_AUDIO) ::onDirectAudioCaptured else null
         )
+    }
+
+    /**
+     * A direct-audio turn: the recorded WAV is the user message. A recording that is
+     * too short to contain speech re-arms the microphone instead of ending the loop.
+     */
+    private fun onDirectAudioCaptured(file: File) {
+        if (file.length() < MIN_DIRECT_AUDIO_BYTES) {
+            file.delete()
+            emptyAudioTurns++
+            if (emptyAudioTurns < 2) {
+                startInteractiveVoiceSession()
+            } else {
+                emptyAudioTurns = 0
+                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+            }
+            return
+        }
+        emptyAudioTurns = 0
+        voiceManager.setVoiceState(InteractiveVoiceState.PROCESSING)
+        val convId = _currentConversationId.value ?: ensureConversationId()
+        val attachment = ChatAttachment(
+            uriString = "file://${file.absolutePath}",
+            mimeType = "audio/wav",
+            fileName = file.name,
+            isImage = false
+        )
+        launchVoiceTurn(
+            conversationId = convId,
+            userMessage = ChatMessage(
+                conversationId = convId,
+                role = MessageRole.USER,
+                content = localizedString(R.string.voice_audio_message),
+                attachment = attachment
+            ),
+            promptText = DIRECT_AUDIO_PROMPT,
+            attachment = attachment
+        )
+    }
+
+    /** Shared body of a hands-free turn: persist, stream, speak, listen again. */
+    private fun launchVoiceTurn(
+        conversationId: String,
+        userMessage: ChatMessage,
+        promptText: String,
+        attachment: ChatAttachment?
+    ) {
+        voiceSessionJob?.cancel()
+        voiceSessionJob = viewModelScope.launch {
+            try {
+                // The engine (unlike the chat path) may hold no loaded model after a
+                // cold start — load on demand instead of crashing.
+                if (!llmEngine.isModelReady()) {
+                    val target = _activeModel.value
+                    if (target == null || !target.isDownloaded) {
+                        voiceManager.speak(localizedString(R.string.vm_voice_no_model))
+                        voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                        return@launch
+                    }
+                    _engineStatusMessage.value = localizedString(R.string.vm_status_loading_memory, target.name)
+                    val loadResult = try {
+                        llmEngine.loadModel(target, _settings.value)
+                    } catch (t: Throwable) {
+                        localizedString(R.string.vm_status_model_load_exception, t.localizedMessage ?: t.message)
+                    }
+                    if (!llmEngine.isModelReady()) {
+                        voiceManager.speak(localizedString(R.string.vm_voice_load_failed, loadResult))
+                        voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                        return@launch
+                    }
+                    _engineStatusMessage.value = loadResult
+                }
+
+                val voiceDraft = capturePendingDraft(conversationId)
+                repository.saveConversationAndMessage(voiceDraft, userMessage)
+                if (voiceDraft != null) clearPendingDraft(conversationId)
+
+                val voiceHistory = _messages.value.takeLast(6).map { toHistoryPair(it) }
+                val voiceDocumentContext = runCatching {
+                    documentIndex.buildContext(promptText, _activeDocumentIds.value)
+                }.getOrNull()
+                beginInferenceGuard()
+                try {
+                    llmEngine.streamGenerate(
+                        prompt = promptText,
+                        history = voiceHistory,
+                        settings = _settings.value,
+                        attachment = attachment,
+                        documentContext = voiceDocumentContext
+                    ).collect { chunk ->
+                        if (chunk.isComplete) {
+                            val assistantMsg = ChatMessage(
+                                conversationId = conversationId,
+                                role = MessageRole.ASSISTANT,
+                                content = chunk.currentContentText,
+                                reasoning = chunk.currentReasoningText.ifBlank { null },
+                                tps = chunk.tps,
+                                promptSpeed = chunk.promptSpeed
+                            )
+                            repository.saveMessage(assistantMsg)
+                            // Speak the answer, then listen again for natural dialogue.
+                            voiceManager.speak(chunk.currentContentText) {
+                                startInteractiveVoiceSession()
+                            }
+                        }
+                    }
+                } finally {
+                    endInferenceGuard()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Voice session error", e)
+                voiceManager.setVoiceState(InteractiveVoiceState.IDLE)
+                voiceManager.speak(localizedString(R.string.vm_voice_error))
+            }
+        }
     }
 
     /**
@@ -1700,7 +1993,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // First-party engine peek (additive only): verify the container with the
                 // new GGUF reader. Never overrides the shipping detector on failure.
                 val engineNote = try {
-                    com.localllm.engine.GgufReader.open(destFile).use { reader ->
+                    com.localllm.android.engine.gguf.GgufReader.open(destFile).use { reader ->
                         localizedString(R.string.vm_desc_engine_note, reader.tensors.size)
                     }
                 } catch (_: Throwable) {
@@ -1716,14 +2009,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .replace("-", " ")
                     .replace("_", " ")
 
-                val sdEngineCandidate = !isLiteRt && detected.isSdEngineCandidate
                 val customModel = LlmModel(
                     id = "custom-${UUID.randomUUID()}",
                     name = cleanName,
                     repoId = if (isLiteRt) "local/litert-imported" else "local/imported",
                     fileName = targetFileName,
-                    // Default is always llama.cpp for GGUF (even MoE): SDengine
-                    // is opt-in via Model Manager's per-model runtime override.
                     runtimeType = detected.detectedRuntime,
                     sizeBytes = destFile.length(),
                     isDownloaded = true,
@@ -1739,7 +2029,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             append(localizedString(R.string.vm_desc_imported_gguf))
                             if (hasVision) append(localizedString(R.string.vm_desc_imported_gguf_vision))
                             if (hasDrafter) append(localizedString(R.string.vm_desc_imported_gguf_drafter))
-                            if (sdEngineCandidate) append(localizedString(R.string.vm_desc_imported_moe_sdengine))
                         }
                         if (engineNote != null) append(" • $engineNote")
                     },
@@ -1932,5 +2221,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         /** Guards the encrypted DB and prompt builder against multi-megabyte pastes. */
         const val MAX_USER_MESSAGE_CHARS = 32_768
+
+        /** SharedPreferences prefix for per-conversation document selections. */
+        const val SELECTION_KEY_PREFIX = "selected_documents_"
+
+        /** Release tag the user dismissed; the same version never prompts again. */
+        const val DISMISSED_UPDATE_KEY = "dismissed_update_version"
     }
 }

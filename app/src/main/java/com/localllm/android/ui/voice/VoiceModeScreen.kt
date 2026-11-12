@@ -68,6 +68,7 @@ import com.localllm.android.R
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
 import com.localllm.android.voice.InteractiveVoiceState
+import com.localllm.android.voice.VoiceAudioReason
 import java.util.Locale
 
 @Composable
@@ -146,6 +147,19 @@ fun VoiceModeScreen(
         InteractiveVoiceState.PROCESSING -> stringResource(R.string.voice_state_local_thinking)
         InteractiveVoiceState.SPEAKING -> stringResource(R.string.voice_state_speaking_answer)
         InteractiveVoiceState.IDLE -> stringResource(R.string.voice_state_idle_hint)
+    }
+
+    // Say which path the microphone takes: omni models get audio directly, the rest
+    // go through a recognizer first.
+    val audioDecision by viewModel.voiceAudioDecision.collectAsStateWithLifecycle()
+    val audioRouteText = audioDecision?.let { decision ->
+        stringResource(
+            when (decision.reason) {
+                VoiceAudioReason.MODEL_ACCEPTS_AUDIO -> R.string.voice_route_direct
+                VoiceAudioReason.MODEL_NEEDS_STT -> R.string.voice_route_stt
+                VoiceAudioReason.RUNTIME_CANNOT_DECODE_AUDIO -> R.string.voice_route_runtime_stt
+            }
+        )
     }
 
     Box(
@@ -266,6 +280,15 @@ fun VoiceModeScreen(
                 style = GlassTheme.type.titleMedium,
                 color = Color.White.copy(alpha = 0.9f)
             )
+
+            audioRouteText?.let { routeLabel ->
+                Spacer(modifier = Modifier.height(6.dp))
+                GText(
+                    text = routeLabel,
+                    style = GlassTheme.type.labelSmall,
+                    color = Color.White.copy(alpha = 0.55f)
+                )
+            }
 
             if (recognizedText.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))

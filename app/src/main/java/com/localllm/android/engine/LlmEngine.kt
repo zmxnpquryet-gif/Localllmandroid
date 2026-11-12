@@ -2,7 +2,6 @@ package com.localllm.android.engine
 
 import com.localllm.android.R
 import com.localllm.android.i18n.AppStrings
-import com.localllm.android.i18n.SdEngineText
 
 import android.content.Context
 import android.net.Uri
@@ -15,6 +14,7 @@ import com.localllm.android.memory.MemoryGuardStore
 import com.localllm.android.memory.MemorySnapshot
 import com.localllm.android.model.ChatAttachment
 import com.localllm.android.model.GenerationSettings
+import com.localllm.android.model.KvCacheQuantization
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelRuntimeType
 import com.google.ai.edge.litertlm.Backend
@@ -26,8 +26,6 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.SamplerConfig
-import com.localllm.engine.SDEngine
-import com.localllm.engine.SampleConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -89,12 +87,6 @@ class LlmEngine(private val context: Context) {
     private var litertEngine: Engine? = null
     private var litertConversation: Conversation? = null
 
-    private var sdEngine: SDEngine? = null
-
-    @Volatile
-    private var sdStopRequested = false
-    private var activeSdJob: Job? = null
-
     /**
      * Backend the LiteRT engine was actually loaded with, e.g. "GPU 가속 (4096 ctx)".
      * LiteRT-LM's GPU path can load a model and still fail at sampling time when the
@@ -151,14 +143,39 @@ class LlmEngine(private val context: Context) {
      */
     private fun memoryDecision(
         modelFile: File,
-        requestedContextWindow: Int
+        requestedContextWindow: Int,
+        kvBytesPerElement: Double
     ): Pair<MemorySnapshot, MemoryEstimator.Decision?> {
         val snapshot = memorySnapshot()
-        val estimate = MemoryEstimator.estimate(modelFile, requestedContextWindow)
+        val estimate = MemoryEstimator.estimate(modelFile, requestedContextWindow, kvBytesPerElement)
         return snapshot to estimate?.let { MemoryEstimator.decide(it, snapshot, requestedContextWindow) }
     }
 
     private fun memorySnapshot(): MemorySnapshot = MemorySnapshot.read(context)
+
+    /**
+     * LiteRT reads audio from a file path; a recorded turn is already a cache file,
+     * but a picked content:// URI is copied into the cache first.
+     */
+    private fun materializeAudioForLitert(attachment: ChatAttachment?): File? {
+        if (attachment?.isAudio != true) return null
+        val raw = attachment.uriString
+        val uri = Uri.parse(raw)
+        return when (uri.scheme) {
+            "file" -> uri.path?.let { File(it) }?.takeIf { it.isFile }
+            "content" -> try {
+                val temp = File(context.cacheDir, "litert_audio_${System.currentTimeMillis()}.wav")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    temp.outputStream().use { output -> input.copyTo(output) }
+                }
+                temp.takeIf { it.length() > 0 }
+            } catch (e: Exception) {
+                Log.w(tag, "Failed to cache content URI for LiteRT audio: ${e.message}")
+                null
+            }
+            else -> File(raw).takeIf { it.isFile }
+        }
+    }
 
     /**
      * mtmd reads images from filesystem paths, while the attachment may be a
@@ -196,14 +213,10 @@ class LlmEngine(private val context: Context) {
     }
 
     /**
-     * Loads a model into memory from local disk (LiteRT, llama.cpp GGUF or SDengine).
+     * Loads a model into memory from local disk (llama.cpp GGUF or LiteRT).
      *
      * Holds [inferenceMutex] for the whole swap so a generation can never run
      * against a half-released native context.
-     *
-     * SDengine loads run through the first-party MoE runtime and keep their TEST
-     * advisories attached to the status message. A failed SDengine load retries
-     * once through llama.cpp instead of leaving the user without a working model.
      */
     suspend fun loadModel(
         model: LlmModel?,
@@ -263,49 +276,24 @@ class LlmEngine(private val context: Context) {
         }
 
         var effectiveContext = settings.contextWindow
-        // SDengine gate: experts stream from SSD, so only dense + KV must fit RAM.
-        // The generic file-size gate would refuse every MoE larger than memory and
-        // make expert paging pointless — exactly the reported failure. When GGUF
-        // metadata is unreadable we fall back to the generic gate (safe side).
-        var sdEstimate: SDEngine.ResidentEstimate? = null
-        var sdCapBytes: Long = 0L
-        if (settings.runtime == ModelRuntimeType.SD_ENGINE) {
-            sdEstimate = try {
-                SDEngine().estimateResident(modelFile)
-            } catch (t: Throwable) {
-                Log.w(tag, "SDengine estimate unavailable, using generic gate: ${t.message}")
-                null
-            }
-        }
-        val (snapshot, decision) = if (sdEstimate != null) {
-            val est = MemoryEstimator.sdResidentEstimate(
-                denseBytes = sdEstimate.denseFileBytes,
-                nLayers = sdEstimate.nLayers,
-                kvHeads = sdEstimate.kvHeads,
-                headDim = sdEstimate.headDim,
-                contextWindow = settings.contextWindow
-            )
-            val snap = memorySnapshot()
-            snap to MemoryEstimator.decide(est, snap, settings.contextWindow)
+        // Memory-guard bypass: load exactly the configured context and KV precision —
+        // no footprint refusal, no automatic shrink. The estimate is skipped entirely
+        // so nothing downstream can resize the load.
+        val (snapshot, decision) = if (settings.ignoreMemoryLimits) {
+            memorySnapshot() to null
         } else {
-            memoryDecision(modelFile, settings.contextWindow)
+            memoryDecision(
+                modelFile,
+                settings.contextWindow,
+                settings.kvCacheQuantization.bytesPerElement
+            )
         }
         if (decision?.estimate != null) {
-            if (sdEstimate != null) {
-                Log.i(
-                    tag,
-                    "SDengine 메모리 추정: 상주 dense=${sdEstimate.denseFileBytes / MemorySnapshot.MB}MB + " +
-                            "KV=${decision.estimate.kvBytes / MemorySnapshot.MB}MB " +
-                            "(expert ${sdEstimate.expertFileBytes / MemorySnapshot.MB}MB SSD 스트리밍), " +
-                            "가용=${snapshot.availMb}MB/${snapshot.totalMb}MB, 판정=${decision.status}"
-                )
-            } else {
-                Log.i(
-                    tag,
-                    "메모리 추정: 필요=${decision.estimate.totalMb()}MB (가중치=${decision.estimate.fileBytes / MemorySnapshot.MB}MB, " +
-                            "KV=${decision.estimate.kvBytes / MemorySnapshot.MB}MB), 가용=${snapshot.availMb}MB/${snapshot.totalMb}MB, 판정=${decision.status}"
-                )
-            }
+            Log.i(
+                tag,
+                "메모리 추정: 필요=${decision.estimate.totalMb()}MB (가중치=${decision.estimate.fileBytes / MemorySnapshot.MB}MB, " +
+                        "KV=${decision.estimate.kvBytes / MemorySnapshot.MB}MB), 가용=${snapshot.availMb}MB/${snapshot.totalMb}MB, 판정=${decision.status}"
+            )
         }
         when (decision?.status) {
             MemoryEstimator.Status.REFUSED -> {
@@ -316,11 +304,6 @@ class LlmEngine(private val context: Context) {
                     detail = "${modelFile.name}: ${decision.reason}",
                     modelName = model.name
                 )
-                if (sdEstimate != null) {
-                    val denseMb = sdEstimate.denseFileBytes / MemorySnapshot.MB
-                    val expertMb = sdEstimate.expertFileBytes / MemorySnapshot.MB
-                    return@withContext AppStrings.get(R.string.eng_sd_nomem, denseMb, snapshot.availMb, expertMb)
-                }
                 return@withContext AppStrings.get(R.string.eng_no_mem_model, model.name, decision.estimate?.totalMb(), snapshot.availMb)
             }
             MemoryEstimator.Status.REDUCED -> {
@@ -332,21 +315,6 @@ class LlmEngine(private val context: Context) {
                 Log.w(tag, "컨텍스트 자동 하향: ${decision.reason}")
             }
             else -> onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_verify), 0.10f)
-        }
-        // Approved envelope for the SDengine resident cap: dense + KV + overhead at
-        // the effective context. The loader counts dense raw bytes only, so this cap
-        // guards runaway growth without refusing an approved load.
-        if (sdEstimate != null && decision?.estimate != null) {
-            sdCapBytes = decision.estimate.copy(
-                kvBytes = MemoryEstimator.kvBytes(
-                    sdEstimate.nLayers,
-                    sdEstimate.kvHeads,
-                    sdEstimate.headDim,
-                    effectiveContext,
-                    decision.estimate.kvBytesPerElement
-                ),
-                contextWindow = effectiveContext
-            ).totalBytes
         }
         val effectiveSettings =
             if (effectiveContext == settings.contextWindow) settings else settings.copy(contextWindow = effectiveContext)
@@ -537,51 +505,6 @@ class LlmEngine(private val context: Context) {
             return@withContext AppStrings.get(R.string.eng_fmt_err, errorReason)
         }
 
-        if (effectiveSettings.runtime == ModelRuntimeType.SD_ENGINE) {
-            unloadCurrentModel()
-            onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_sd_bind), 0.30f)
-            val guard = MemoryGuard.get()
-            val residentCap = if (sdCapBytes > 0) {
-                minOf(sdCapBytes, 3L * 1024L * 1024L * 1024L)
-            } else {
-                val availMb = memorySnapshot().availMb.takeIf { it > 0 } ?: 2048L
-                minOf((availMb * 0.4).toLong() * MemorySnapshot.MB, 3L * 1024L * 1024L * 1024L)
-            }
-            try {
-                val engine = SDEngine()
-                val info = engine.openModel(
-                    modelFile,
-                    residentCapBytes = residentCap,
-                    contextLimit = effectiveSettings.contextWindow
-                )
-                sdEngine = engine
-                activeModel = model
-                isModelLoaded = true
-                isVisionTowerLoaded = false
-                val resultMsg = AppStrings.get(R.string.eng_sd_loaded, model.name, info.nLayers, info.nExperts, info.denseResidentBytes / MemorySnapshot.MB, info.expertBytes / MemorySnapshot.MB, info.tensorCount) + " · " + SdEngineText.advisoryText()
-                Log.i(tag, resultMsg)
-                onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_loaded), 1.0f)
-                return@withContext resultMsg
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                unloadCurrentModel()
-                val reason = (t.localizedMessage ?: t.message ?: t.javaClass.simpleName).take(200)
-                Log.e(tag, "SDengine 로드 실패: $reason", t)
-                guard?.record(
-                    cause = MemoryGuardStore.Cause.MANUAL,
-                    detail = "SDengine load failed: $reason",
-                    modelName = model.name
-                )
-                onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_sd_fallback), 0.30f)
-                val fallbackStatus = loadModelLocked(
-                    model,
-                    effectiveSettings.copy(runtime = ModelRuntimeType.LLAMA_CPP),
-                    onStageUpdate
-                )
-                return@withContext AppStrings.get(R.string.eng_sd_fallback_msg, reason, fallbackStatus)
-            }
-        }
-
         // Check mmproj if present (support external mmproj file only)
         val mmprojPath = if (model.hasMmproj) {
             val externalFile = if (!model.localMmprojPath.isNullOrBlank()) {
@@ -604,13 +527,21 @@ class LlmEngine(private val context: Context) {
         val contextWindow = effectiveSettings.contextWindow.coerceIn(512, 16384)
         val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
         val targetGpuLayers = if (effectiveSettings.enableGpuAcceleration) effectiveSettings.gpuLayers.coerceIn(0, 99) else 0
+        Log.i(
+            tag,
+            "KV 캐시 양자화: ${effectiveSettings.kvCacheQuantization.id} " +
+                    "(type_k/type_v=${effectiveSettings.kvCacheQuantization.ggmlTypeId}), " +
+                    "OOM 방어 우회=${effectiveSettings.ignoreMemoryLimits}"
+        )
 
         data class GgufInitCandidate(
             val desc: String,
             val useMmap: Boolean,
             val useMmproj: Boolean,
             val ctxLength: Int,
-            val gpuLayers: Int
+            val gpuLayers: Int,
+            /** 0 = use the configured KV precision; otherwise an explicit ggml_type id. */
+            val kvType: Int = 0
         )
 
         val candidates = mutableListOf<GgufInitCandidate>()
@@ -631,10 +562,29 @@ class LlmEngine(private val context: Context) {
         candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand5, contextWindow), useMmap = true, useMmproj = false, ctxLength = contextWindow, gpuLayers = 0))
         candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand6, contextWindow), useMmap = false, useMmproj = false, ctxLength = contextWindow, gpuLayers = 0))
 
-        // 3. Fallback to reduced context if large context fails
-        if (contextWindow > 2048) {
+        // 3. Fallback to reduced context if large context fails.
+        //    Skipped when memory protection is disabled: the configured context is
+        //    loaded as-is instead of being silently shrunk.
+        if (!effectiveSettings.ignoreMemoryLimits && contextWindow > 2048) {
             candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand7), useMmap = true, useMmproj = false, ctxLength = 2048, gpuLayers = 0))
             candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand8), useMmap = false, useMmproj = false, ctxLength = 1024, gpuLayers = 0))
+        }
+
+        // 4. Last resort for a quantized V cache: some llama.cpp builds reject it
+        //    without flash attention. Retry once at F16 with the SAME context so the
+        //    model still loads (the status line reports the fallback) instead of
+        //    failing outright.
+        if (effectiveSettings.kvCacheQuantization != KvCacheQuantization.F16) {
+            candidates.add(
+                GgufInitCandidate(
+                    AppStrings.get(R.string.eng_cand_kv_f16, contextWindow),
+                    useMmap = true,
+                    useMmproj = mmprojPath != null,
+                    ctxLength = contextWindow,
+                    gpuLayers = targetGpuLayers,
+                    kvType = KvCacheQuantization.F16.ggmlTypeId
+                )
+            )
         }
 
         var newLlamaContext: LlamaContext? = null
@@ -648,6 +598,8 @@ class LlmEngine(private val context: Context) {
             Log.d(tag, "GGUF 로드 시도 (${idx + 1}/${candidates.size}): ${cand.desc}")
 
             val candidateMmprojPath = if (cand.useMmproj) mmprojPath else null
+            val candidateKvType =
+                if (cand.kvType != 0) cand.kvType else effectiveSettings.kvCacheQuantization.ggmlTypeId
 
             try {
                 val params = mutableMapOf<String, Any>(
@@ -660,7 +612,9 @@ class LlmEngine(private val context: Context) {
                     "n_batch" to 512,
                     "n_threads" to threadCount,
                     "n_gpu_layers" to cand.gpuLayers,
-                    "vocab_only" to false
+                    "vocab_only" to false,
+                    "type_k" to candidateKvType,
+                    "type_v" to candidateKvType
                 )
 
                 if (candidateMmprojPath != null) {
@@ -724,15 +678,6 @@ class LlmEngine(private val context: Context) {
         litertConversation = null
         litertBackendName = ""
 
-        try {
-            sdEngine?.close()
-        } catch (e: Throwable) {
-            Log.w(tag, "Error releasing SDengine: ${e.message}")
-        }
-        sdEngine = null
-        sdStopRequested = false
-        activeSdJob = null
-
         activeModel = null
         isModelLoaded = false
         isVisionTowerLoaded = false
@@ -789,14 +734,15 @@ class LlmEngine(private val context: Context) {
         settings: GenerationSettings,
         attachment: ChatAttachment?,
         mcpToolsContext: String? = null,
-        numPredictOverride: Int? = null
+        numPredictOverride: Int? = null,
+        documentContext: String? = null
     ): Flow<GenerationChunk> = flow {
         if (!acquireInferenceLock()) {
             throw IllegalStateException("BUSY_INFERENCE: " + AppStrings.get(R.string.eng_busy))
         }
         try {
             try {
-                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride))
+                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride, documentContext))
             } catch (gpuFailure: LiteRtGpuUnavailableException) {
                 // The GPU backend can load a model and still fail at sampling (the OpenCL
                 // sampler library is not part of the bundled AAR). Remember the failure for
@@ -813,7 +759,7 @@ class LlmEngine(private val context: Context) {
                 )
                 Log.i(tag, "CPU 백엔드 재로드: $reloadStatus")
                 backendNote = AppStrings.get(R.string.eng_sampler_cpu)
-                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride))
+                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride, documentContext))
             }
         } finally {
             clearActiveInferenceState()
@@ -838,16 +784,6 @@ class LlmEngine(private val context: Context) {
             completion.cancel()
         }
 
-        val sdJob = activeSdJob
-        activeSdJob = null
-        sdStopRequested = true
-        if (sdJob != null) {
-            sdJob.cancel()
-            withContext(NonCancellable) {
-                withTimeoutOrNull(INFERENCE_UNWIND_GRACE_MS) { sdJob.join() }
-            }
-        }
-
         val conv = activeLitertConversation
         activeLitertConversation = null
         if (conv != null) {
@@ -869,13 +805,20 @@ class LlmEngine(private val context: Context) {
         settings: GenerationSettings,
         attachment: ChatAttachment?,
         mcpToolsContext: String?,
-        numPredictOverride: Int?
+        numPredictOverride: Int?,
+        documentContext: String?
     ): Flow<GenerationChunk> = flow {
         val model = activeModel
             ?: throw IllegalStateException(AppStrings.get(R.string.eng_no_selected))
 
         if (!isModelLoaded) {
             throw IllegalStateException(AppStrings.get(R.string.eng_not_loaded, model.name))
+        }
+
+        // The router normally prevents this, but a stale message could still carry
+        // audio: fail with an explanation instead of silently dropping the recording.
+        if (attachment?.isAudio == true && model.runtimeType != ModelRuntimeType.LITE_RT) {
+            throw IllegalStateException(AppStrings.get(R.string.eng_audio_unsupported))
         }
 
         // Construct standard prompt formatted for on-device instruction-tuned model
@@ -886,8 +829,7 @@ class LlmEngine(private val context: Context) {
         // prepending it when a caller did not do this.
         val usesLlamaVision = settings.runtime != ModelRuntimeType.LITE_RT &&
             attachment?.isImage == true &&
-            isVisionTowerLoaded &&
-            !(settings.runtime == ModelRuntimeType.SD_ENGINE && sdEngine != null)
+            isVisionTowerLoaded
         val promptForFormatting =
             if (usesLlamaVision) MEDIA_MARKER + "\n" + prompt else prompt
         val formattedPrompt = PromptFormatter.formatPrompt(
@@ -897,7 +839,9 @@ class LlmEngine(private val context: Context) {
             history = history,
             userPrompt = promptForFormatting,
             toolsContext = mcpToolsContext,
-            supportsReasoning = model.supportsReasoning
+            supportsReasoning = model.supportsReasoning,
+            includeBuiltInSystemPrompt = settings.builtInSystemPromptEnabled,
+            documentContext = documentContext
         )
 
         val startTime = System.currentTimeMillis()
@@ -905,92 +849,6 @@ class LlmEngine(private val context: Context) {
         var totalTokens = 0
 
         val reasoningParser = ReasoningStreamParser()
-
-        if (settings.runtime == ModelRuntimeType.SD_ENGINE && sdEngine != null) {
-            val engine = sdEngine
-                ?: throw IllegalStateException(AppStrings.get(R.string.eng_sd_not_ready))
-            val maxNewTokens = numPredictOverride?.coerceIn(1, 16384) ?: 256
-            sdStopRequested = false
-            val tokenChannel = Channel<String>(Channel.UNLIMITED)
-            val workerFailure = CompletableDeferred<Throwable?>()
-            val worker = scope.launch(Dispatchers.IO) {
-                var failure: Throwable? = null
-                try {
-                    val stats = engine.generate(
-                        prompt = formattedPrompt,
-                        maxTokens = maxNewTokens,
-                        sample = SampleConfig(
-                            temperature = settings.temperature,
-                            topK = settings.topK,
-                            topP = settings.topP,
-                            seed = 0L
-                        ),
-                        shouldStop = { sdStopRequested },
-                        onToken = { tokenChannel.trySend(it) }
-                    )
-                    Log.i(
-                        tag,
-                        "SDengine 생성 완료: ${stats.generatedTokens}토큰 / ${stats.ms}ms " +
-                                "(stopped=${stats.stopped}, expertHits=${stats.expertHits}, " +
-                                "streamed=${stats.expertBytesStreamed / (1024 * 1024)}MB)"
-                    )
-                } catch (t: CancellationException) {
-                    failure = t
-                    throw t
-                } catch (t: Throwable) {
-                    failure = t
-                    Log.e(tag, "SDengine 추론 오류", t)
-                } finally {
-                    workerFailure.complete(failure)
-                    tokenChannel.close()
-                }
-            }
-            activeSdJob = worker
-            try {
-                for (rawWord in tokenChannel) {
-                    val now = System.currentTimeMillis()
-                    val firstAt = firstTokenTime ?: now.also { firstTokenTime = it }
-                    totalTokens++
-                    val elapsedSec = ((now - firstAt) / 1000f).coerceAtLeast(0.001f)
-                    reasoningParser.processChunk(rawWord)
-                    emit(
-                        GenerationChunk(
-                            token = rawWord,
-                            isReasoning = reasoningParser.isInReasoningMode,
-                            currentReasoningText = reasoningParser.reasoningBuffer.toString(),
-                            currentContentText = reasoningParser.contentBuffer.toString(),
-                            tps = totalTokens / elapsedSec,
-                            promptSpeed = 0f,
-                            totalTokens = totalTokens,
-                            isComplete = false
-                        )
-                    )
-                }
-                workerFailure.await()?.let { throw it }
-                reasoningParser.finish()
-                val finalElapsedSec =
-                    ((System.currentTimeMillis() - (firstTokenTime ?: startTime)) / 1000f).coerceAtLeast(0.001f)
-                emit(
-                    GenerationChunk(
-                        token = "",
-                        isReasoning = false,
-                        currentReasoningText = reasoningParser.reasoningBuffer.toString(),
-                        currentContentText = reasoningParser.contentBuffer.toString(),
-                        tps = if (totalTokens > 0) totalTokens / finalElapsedSec else 0f,
-                        promptSpeed = 0f,
-                        totalTokens = totalTokens,
-                        isComplete = true
-                    )
-                )
-            } finally {
-                if (activeSdJob === worker) activeSdJob = null
-                // A blocking generate() cannot be interrupted by cancel(): ask the
-                // decode loop to stop so the worker thread does not keep decoding.
-                sdStopRequested = true
-                worker.cancel()
-            }
-            return@flow
-        }
 
         if (model.runtimeType == ModelRuntimeType.LITE_RT) {
             val engine = litertEngine
@@ -1027,17 +885,30 @@ class LlmEngine(private val context: Context) {
                 }
             } else null
 
+            val localAudioPath = materializeAudioForLitert(attachment)?.absolutePath
             val hasImage = localImagePath != null
-            Log.d(tag, "Starting LiteRT inference with prompt length: ${formattedPrompt.length}, hasVisionInput: $hasImage")
+            Log.d(
+                tag,
+                "Starting LiteRT inference with prompt length: ${formattedPrompt.length}, " +
+                    "hasVisionInput: $hasImage, hasAudioInput: ${localAudioPath != null}"
+            )
 
-            val contents = if (localImagePath != null) {
-                Log.i(tag, "[LiteRT LM] 올인원 통합 비전 인코더 이미지 연동: $localImagePath")
-                Contents.of(
-                    Content.ImageFile(localImagePath),
-                    Content.Text(formattedPrompt)
-                )
-            } else {
-                Contents.of(Content.Text(formattedPrompt))
+            val contents = when {
+                localAudioPath != null -> {
+                    Log.i(tag, "[LiteRT LM] 옴니 모델 오디오 직접 입력: $localAudioPath")
+                    Contents.of(
+                        Content.AudioFile(localAudioPath),
+                        Content.Text(formattedPrompt)
+                    )
+                }
+                localImagePath != null -> {
+                    Log.i(tag, "[LiteRT LM] 올인원 통합 비전 인코더 이미지 연동: $localImagePath")
+                    Contents.of(
+                        Content.ImageFile(localImagePath),
+                        Content.Text(formattedPrompt)
+                    )
+                }
+                else -> Contents.of(Content.Text(formattedPrompt))
             }
 
             try {
@@ -1261,7 +1132,6 @@ class LlmEngine(private val context: Context) {
      * native loop, leaving CPU/GPU work running in the background.
      */
     fun stopGeneration() {
-        sdStopRequested = true
         try {
             activeLitertConversation?.cancelProcess()
         } catch (e: Throwable) {

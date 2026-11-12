@@ -130,10 +130,6 @@
     </div>
   </section>
 
-  <section id="lab">
-    <h2>In the lab: SDengine</h2>
-    <p class="sub">A first-party MoE-only inference core, built in the open as the <code>:engine</code> module. GGUF reader, BPE tokenizer, paged expert streaming, portable C++ JNI reference (real math is JVM scalar kernels; NEON pending). Numerical validation against real MoE weights runs manually/nightly via range streaming, plus end-to-end generation over gated-expert GGUFs. Imported models default to llama.cpp; SDengine is strictly opt-in per model, advisories stay visible, and a failed load falls back to llama.cpp. <b>Experimental - runs, but not for production yet.</b> Dense engines (llama.cpp / LiteRT-LM) remain the production path.</p>
-  </section>
 
   <section id="build">
     <h2>Build from source</h2>

@@ -51,7 +51,9 @@ class LlamaContext(params: Map<String, Any>) {
                 (params["n_gpu_layers"] as? Number)?.toInt() ?: 0,
                 params["use_mmap"] as? Boolean ?: true,
                 params["use_mlock"] as? Boolean ?: false,
-                params["vocab_only"] as? Boolean ?: false
+                params["vocab_only"] as? Boolean ?: false,
+                (params["type_k"] as? Number)?.toInt() ?: 1,
+                (params["type_v"] as? Number)?.toInt() ?: 1
             )
         }
     }
@@ -140,7 +142,9 @@ class LlamaContext(params: Map<String, Any>) {
         nGpuLayers: Int,
         useMmap: Boolean,
         useMlock: Boolean,
-        vocabOnly: Boolean
+        vocabOnly: Boolean,
+        typeK: Int,
+        typeV: Int
     ): Long
 
     private external fun nativeFree(handle: Long)
