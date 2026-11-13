@@ -104,7 +104,7 @@ class ChatCryptoInstrumentedTest {
     fun legacyHardcodedKeyCiphertextIsRejected() {
         val legacyKey = SecretKeySpec(
             MessageDigest.getInstance("SHA-256")
-                .digest("LocalLLM_SQLite_Encrypted_Keystore_2026_Key".toByteArray(Charsets.UTF_8)),
+                .digest("OffconAI_SQLite_Encrypted_Keystore_2026_Key".toByteArray(Charsets.UTF_8)),
             "AES"
         )
         val iv = ByteArray(12) { it.toByte() }

@@ -40,7 +40,7 @@ class UpdateChecker(
     suspend fun latestRelease(): AppUpdateInfo? = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url("https://api.github.com/repos/zmxnpquryet-gif/Localllmandroid/releases/latest")
+                .url("https://api.github.com/repos/zmxnpquryet-gif/OffconAI/releases/latest")
                 .header("Accept", "application/vnd.github+json")
                 .header("User-Agent", "OffconAI-Android/$currentVersion")
                 .build()
