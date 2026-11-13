@@ -400,6 +400,7 @@
 - 앱 내 `UpdateChecker`의 GitHub API URL을 `repos/zmxnpquryet-gif/OffconAI`로 수정하고, 테스트 전용 레거시 키 상수도 `OffconAI_SQLite_Encrypted_Keystore_2026_Key`로 통일했다.
 - README/README.ko/README.zh-CN, docs/index.html, CONTRIBUTING, workflows의 링크는 이미 OffconAI 기준이라 그대로 유지했다. `Localllmandroid` 표기는 과거 기록(agentswork)과 서명 인증서 DN에만 남으며, 후자는 업데이트 호환 때문에 변경하지 않는다.
 - Android `namespace`/`applicationId`는 `com.localllm.android`를 유지한다. 변경하면 기존 설치가 별도 앱으로 설치되고 암호화된 대화/모델 데이터가 고립된다(문서에 명시됨).
-- 이후 rebrand 변경을 커밋하고 새 `origin`(OffconAI)으로 `main`을 push한다.
+- rebrand 변경을 `be9493a` (`chore: rebrand repository references to OffconAI`)로 커밋하고 새 `origin`(`https://github.com/zmxnpquryet-gif/OffconAI`)으로 `main`을 push했다 (`d0636be..be9493a`).
+- 확인: GitHub 저장소 이름/URL/description/homepage 모두 OffconAI, GitHub Pages는 `https://zmxnpquryet-gif.github.io/OffconAI/`에서 `built` 상태, 워크플로 이름도 OffconAI Android CI / OffconAI Pages / OffconAI Release APK로 표시된다.
 
 
