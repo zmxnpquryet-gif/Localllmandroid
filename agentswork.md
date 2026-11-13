@@ -417,5 +417,7 @@
   - `docs/robots.txt` (sitemap 지정), `docs/sitemap.xml`, `docs/llms.txt` 추가.
   - IndexNow 키 파일 `docs/7c9e4b2a6f1d8c3e5a0b7d4f2e9c6a18.txt` 추가. Pages 배포 후 IndexNow API로 URL 제출 예정.
 - 검증: JSON-LD 2개, sitemap XML, webmanifest JSON 파싱 성공. GitHub 토픽 19개 확인. 이후 커밋/push 후 Pages 배포를 확인하고 IndexNow를 호출한다.
+- 반영/검증: `9bab632`로 커밋 후 push, Pages 빌드(`9bab632`) 완료. 라이브 URL `/`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`, IndexNow 키 파일, `/site.webmanifest` 모두 HTTP 200 확인. 페이지 title/JSON-LD 2개/FAQ 섹션도 확인.
+- IndexNow 제출: `https://api.indexnow.org/indexnow`에 `https://zmxnpquryet-gif.github.io/OffconAI/`를 POST → **HTTP 202 Accepted**. Bing/Yandex 계열 크롤러에 색인 요청이 전달됐다. Google Search Console/Bing Webmaster Tools는 계정 소유 확인이 필요해 이번에 직접 제출하지 않았고, robots.txt+sitemap+canonical+구조화 데이터로 크롤링 기반은 마련했다.
 
 
