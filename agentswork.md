@@ -403,4 +403,19 @@
 - rebrand 변경을 `be9493a` (`chore: rebrand repository references to OffconAI`)로 커밋하고 새 `origin`(`https://github.com/zmxnpquryet-gif/OffconAI`)으로 `main`을 push했다 (`d0636be..be9493a`).
 - 확인: GitHub 저장소 이름/URL/description/homepage 모두 OffconAI, GitHub Pages는 `https://zmxnpquryet-gif.github.io/OffconAI/`에서 `built` 상태, 워크플로 이름도 OffconAI Android CI / OffconAI Pages / OffconAI Release APK로 표시된다.
 
+## 2026-11-13 — 검색 노출(SEO) 및 발견성 보강
+
+- GitHub 저장소 토픽을 10개에서 19개로 확장: `local-ai`, `private-ai`, `offline-ai`, `local-llm`, `android-app`, `rag`, `mcp`, `voice-ai`, `openai-compatible` 추가.
+- README 3개 언어(EN/KO/ZH)를 검색 친화적으로 보강:
+  - H1에 `OffconAI` 제품명 포함, 첫 문단에 "offline LLM app for Android and desktop", GGUF/llama.cpp/LiteRT-LM/RAG/MCP/Ollama/OpenAI-compatible 키워드를 자연스럽게 배치.
+  - stars/forks 배지 추가, `Why OffconAI?` 요약, FAQ 5문항, "Star OffconAI" CTA 추가(과장된 성능 주장 없이).
+- GitHub Pages(`docs/index.html`) SEO:
+  - 검색용 title/description/keywords, canonical, robots(`index,follow,max-image-preview:large`), OG/Twitter 메타, `sitemap` 링크.
+  - Organization/WebSite/SoftwareApplication JSON-LD와 FAQPage JSON-LD 추가, 히어로 H1에 OffconAI 포함, FAQ 섹션/공유 CTA 추가.
+  - `site.webmanifest` 추가.
+- 크롤러/색인 자산:
+  - `docs/robots.txt` (sitemap 지정), `docs/sitemap.xml`, `docs/llms.txt` 추가.
+  - IndexNow 키 파일 `docs/7c9e4b2a6f1d8c3e5a0b7d4f2e9c6a18.txt` 추가. Pages 배포 후 IndexNow API로 URL 제출 예정.
+- 검증: JSON-LD 2개, sitemap XML, webmanifest JSON 파싱 성공. GitHub 토픽 19개 확인. 이후 커밋/push 후 Pages 배포를 확인하고 IndexNow를 호출한다.
+
 

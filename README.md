@@ -5,6 +5,8 @@
 <p align="center">
   <a href="https://github.com/zmxnpquryet-gif/OffconAI/releases/latest"><img src="https://img.shields.io/github/v/release/zmxnpquryet-gif/OffconAI?label=latest%20release&color=687CFF" alt="Latest release" /></a>
   <a href="https://github.com/zmxnpquryet-gif/OffconAI/actions/workflows/android.yml"><img src="https://github.com/zmxnpquryet-gif/OffconAI/actions/workflows/android.yml/badge.svg" alt="Android CI" /></a>
+  <a href="https://github.com/zmxnpquryet-gif/OffconAI/stargazers"><img src="https://img.shields.io/github/stars/zmxnpquryet-gif/OffconAI?style=flat&color=687CFF" alt="GitHub stars" /></a>
+  <a href="https://github.com/zmxnpquryet-gif/OffconAI/forks"><img src="https://img.shields.io/github/forks/zmxnpquryet-gif/OffconAI?style=flat&color=94A3B8" alt="GitHub forks" /></a>
   <img src="https://img.shields.io/badge/Android-24%2B-0F172A" alt="Android 24+" />
   <img src="https://img.shields.io/badge/llama.cpp-GGUF-687CFF" alt="llama.cpp" />
   <img src="https://img.shields.io/badge/LiteRT-LM-94A3B8" alt="LiteRT-LM" />
@@ -12,11 +14,11 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-687CFF" alt="Apache-2.0" /></a>
 </p>
 
-<h1 align="center">AI that stays with you.</h1>
+<h1 align="center">OffconAI — AI that stays with you.</h1>
 
 <p align="center">
-  OffconAI is a local-first AI workspace for Android and desktop.<br/>
-  Run language, vision, and native voice models on your own hardware. No account required for inference.
+  <strong>Offline LLM app for Android and desktop.</strong><br/>
+  Run GGUF language, vision and native voice models with llama.cpp or LiteRT-LM, add on-device document RAG and MCP tools, and serve an Ollama/OpenAI-compatible API — on hardware you own. No account. No telemetry. No cloud round trips.
 </p>
 
 <p align="center">
@@ -33,6 +35,13 @@
   <img src="docs/screenshots/ui-chat.png" alt="OffconAI chat" width="31%" />
   <img src="docs/screenshots/ui-models.png" alt="OffconAI model manager" width="31%" />
 </p>
+
+## Why OffconAI?
+
+- **Offline by default.** Models, prompts, conversations, RAG indexes and voice stay on the device. Network access is a deliberate choice.
+- **Bring your own models.** llama.cpp GGUF and LiteRT-LM bundles, including vision projectors and native Omni audio.
+- **A private alternative to cloud AI.** No account, no analytics, and no hosted model in the loop.
+- **More than a chat box.** On-device RAG with OCR, MCP tools with per-call approval, local STT/TTS, and an Ollama/OpenAI-compatible API on port 11434.
 
 ## Local by architecture
 
@@ -140,6 +149,27 @@ app/       Android UI, llama.cpp/LiteRT runtimes, voice, storage, API server
 desktop/   Java 17 desktop editions and independent backend adapters
 docs/      Architecture, model catalog, UI direction, GitHub Pages
 ~~~
+
+## FAQ
+
+### Does OffconAI work offline?
+Yes. After models are downloaded, inference, chat, RAG, voice and the local API run on-device. Network access is only used when you choose to download a model, connect an MCP server, or expose the LAN API.
+
+### Can I run my own GGUF models?
+Yes. OffconAI runs GGUF models through llama.cpp and LiteRT-LM bundles, including vision projectors and native Omni audio where the model and runtime support them.
+
+### Is OffconAI a private alternative to cloud AI?
+It is a local-first alternative for offline work: no account, no telemetry, and no prompts sent to a hosted model. Answer quality depends on the model you run and the memory of your device.
+
+### Does OffconAI collect telemetry?
+No analytics or telemetry are built in. Conversations and credentials are stored locally, and the chat database is encrypted with Android Keystore AES-256-GCM.
+
+### Is it free?
+The app is Apache-2.0. Models are downloaded separately and keep their own licenses.
+
+## Star OffconAI
+
+If OffconAI saves you a subscription or keeps a private conversation private, [star the repository](https://github.com/zmxnpquryet-gif/OffconAI/stargazers). Stars help more people find a local alternative to cloud AI.
 
 ## Contributing
 

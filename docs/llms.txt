@@ -1,0 +1,23 @@
+# OffconAI
+
+> OffconAI is an offline, local-first LLM app for Android and desktop. Run GGUF models with llama.cpp or LiteRT-LM, plus vision, native voice, document RAG and local tools, on hardware you own.
+
+Canonical: https://zmxnpquryet-gif.github.io/OffconAI/
+Repository: https://github.com/zmxnpquryet-gif/OffconAI
+
+## What it is
+
+OffconAI is a private alternative to cloud AI for on-device work. Inference runs locally with llama.cpp (GGUF) and Google LiteRT-LM. The app includes an Ollama/OpenAI-compatible local API, an MCP tool client with per-call approval, encrypted chat storage, on-device document RAG with PDF/Office OCR, and native Omni voice or local STT/TTS.
+
+## Key pages
+
+- Landing page: https://zmxnpquryet-gif.github.io/OffconAI/
+- Releases: https://github.com/zmxnpquryet-gif/OffconAI/releases/latest
+- Source: https://github.com/zmxnpquryet-gif/OffconAI
+- Architecture: https://github.com/zmxnpquryet-gif/OffconAI/blob/main/docs/ARCHITECTURE.md
+- Model catalog: https://github.com/zmxnpquryet-gif/OffconAI/blob/main/docs/MODEL_CATALOG.md
+- UI/UX notes: https://github.com/zmxnpquryet-gif/OffconAI/blob/main/docs/UIUX.md
+
+## Topics
+
+offline LLM Android, on-device AI, GGUF, llama.cpp, LiteRT-LM, local RAG, MCP tools, Ollama API, OpenAI-compatible API, private AI, native voice.

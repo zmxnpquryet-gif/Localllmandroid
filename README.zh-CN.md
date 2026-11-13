@@ -5,6 +5,8 @@
 <p align="center">
   <a href="https://github.com/zmxnpquryet-gif/OffconAI/releases/latest"><img src="https://img.shields.io/github/v/release/zmxnpquryet-gif/OffconAI?label=latest%20release&color=687CFF" alt="最新版本" /></a>
   <a href="https://github.com/zmxnpquryet-gif/OffconAI/actions/workflows/android.yml"><img src="https://github.com/zmxnpquryet-gif/OffconAI/actions/workflows/android.yml/badge.svg" alt="Android CI" /></a>
+  <a href="https://github.com/zmxnpquryet-gif/OffconAI/stargazers"><img src="https://img.shields.io/github/stars/zmxnpquryet-gif/OffconAI?style=flat&color=687CFF" alt="GitHub stars" /></a>
+  <a href="https://github.com/zmxnpquryet-gif/OffconAI/forks"><img src="https://img.shields.io/github/forks/zmxnpquryet-gif/OffconAI?style=flat&color=94A3B8" alt="GitHub forks" /></a>
   <img src="https://img.shields.io/badge/Android-24%2B-0F172A" alt="Android 24+" />
   <img src="https://img.shields.io/badge/llama.cpp-GGUF-687CFF" alt="llama.cpp" />
   <img src="https://img.shields.io/badge/LiteRT-LM-94A3B8" alt="LiteRT-LM" />
@@ -12,11 +14,11 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-687CFF" alt="Apache-2.0" /></a>
 </p>
 
-<h1 align="center">始终陪伴你的 AI。</h1>
+<h1 align="center">OffconAI — 始终陪伴你的 AI。</h1>
 
 <p align="center">
-  OffconAI 是面向 Android 和桌面的本地优先 AI 工作区。<br/>
-  在你自己的硬件上运行语言、视觉和原生语音模型。推理无需账户。
+  <strong>面向 Android 和桌面的离线 LLM 应用。</strong><br/>
+  使用 llama.cpp 与 LiteRT-LM 运行 GGUF 语言、视觉和原生语音模型，加入设备端文档 RAG、MCP 工具以及 Ollama/OpenAI 兼容 API。无需账户、无遥测、无云端往返。
 </p>
 
 <p align="center">
@@ -33,6 +35,13 @@
   <img src="docs/screenshots/ui-chat.png" alt="OffconAI 对话" width="31%" />
   <img src="docs/screenshots/ui-models.png" alt="OffconAI 模型管理" width="31%" />
 </p>
+
+## 为什么选择 OffconAI？
+
+- **默认离线。** 模型、提示词、对话、RAG 索引和语音都留在设备上，只有你主动选择时才联网。
+- **带上你自己的模型。** 支持 llama.cpp GGUF 与 LiteRT-LM 包，包括视觉投影器和原生 Omni 音频。
+- **云 AI 的私密替代。** 无账户、无分析、无托管模型。
+- **不止是聊天框。** OCR 文档 RAG、逐次批准的 MCP 工具、本地 STT/TTS，以及端口 11434 的 Ollama/OpenAI 兼容 API。
 
 ## 从架构开始，就留在本地
 
@@ -137,6 +146,10 @@ app/       Android 界面、llama.cpp/LiteRT 运行时、语音、存储与 API 
 desktop/   Java 17 桌面版本与独立后端适配器
 docs/      架构、模型目录、界面方向与 GitHub Pages
 ~~~
+
+## 为 OffconAI 加星
+
+如果 OffconAI 帮你省下订阅费或守住了私人对话，请[给仓库点个星](https://github.com/zmxnpquryet-gif/OffconAI/stargazers)。星标能帮助更多人发现本地 AI。
 
 ## 参与贡献
 

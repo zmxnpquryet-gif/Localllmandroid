@@ -5,6 +5,8 @@
 <p align="center">
   <a href="https://github.com/zmxnpquryet-gif/OffconAI/releases/latest"><img src="https://img.shields.io/github/v/release/zmxnpquryet-gif/OffconAI?label=latest%20release&color=687CFF" alt="최신 릴리스" /></a>
   <a href="https://github.com/zmxnpquryet-gif/OffconAI/actions/workflows/android.yml"><img src="https://github.com/zmxnpquryet-gif/OffconAI/actions/workflows/android.yml/badge.svg" alt="Android CI" /></a>
+  <a href="https://github.com/zmxnpquryet-gif/OffconAI/stargazers"><img src="https://img.shields.io/github/stars/zmxnpquryet-gif/OffconAI?style=flat&color=687CFF" alt="GitHub stars" /></a>
+  <a href="https://github.com/zmxnpquryet-gif/OffconAI/forks"><img src="https://img.shields.io/github/forks/zmxnpquryet-gif/OffconAI?style=flat&color=94A3B8" alt="GitHub forks" /></a>
   <img src="https://img.shields.io/badge/Android-24%2B-0F172A" alt="Android 24+" />
   <img src="https://img.shields.io/badge/llama.cpp-GGUF-687CFF" alt="llama.cpp" />
   <img src="https://img.shields.io/badge/LiteRT-LM-94A3B8" alt="LiteRT-LM" />
@@ -12,11 +14,11 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-687CFF" alt="Apache-2.0" /></a>
 </p>
 
-<h1 align="center">곁에 머무는 AI.</h1>
+<h1 align="center">OffconAI — 곁에 머무는 AI.</h1>
 
 <p align="center">
-  OffconAI는 Android와 데스크톱을 위한 로컬 우선 AI 워크스페이스입니다.<br/>
-  언어, 비전, 네이티브 음성 모델을 직접 보유한 하드웨어에서 실행하세요. 추론에는 계정이 필요하지 않습니다.
+  <strong>Android와 데스크톱을 위한 오프라인 LLM 앱.</strong><br/>
+  llama.cpp와 LiteRT-LM으로 GGUF 언어·비전·네이티브 음성 모델을 실행하고, 온디바이스 문서 RAG와 MCP 도구, Ollama/OpenAI 호환 API까지 직접 보유한 하드웨어에서 사용하세요. 계정도, 텔레메트리도, 클라우드 왕복도 없습니다.
 </p>
 
 <p align="center">
@@ -33,6 +35,13 @@
   <img src="docs/screenshots/ui-chat.png" alt="OffconAI 대화" width="31%" />
   <img src="docs/screenshots/ui-models.png" alt="OffconAI 모델 관리자" width="31%" />
 </p>
+
+## 왜 OffconAI인가?
+
+- **기본이 오프라인.** 모델, 프롬프트, 대화, RAG 인덱스, 음성이 모두 기기에 남습니다. 네트워크는 직접 선택할 때만 사용합니다.
+- **내 모델을 그대로.** llama.cpp GGUF와 LiteRT-LM 번들, 비전 프로젝터와 네이티브 Omni 오디오까지 지원합니다.
+- **클라우드 AI의 사적 대안.** 계정도, 분석도, 호스팅 모델도 없습니다.
+- **채팅 그 이상.** OCR 문서 RAG, 호출별 승인 MCP 도구, 로컬 STT/TTS, 포트 11434의 Ollama/OpenAI 호환 API.
 
 ## 구조적으로 로컬
 
@@ -137,6 +146,10 @@ app/       Android UI, llama.cpp/LiteRT 런타임, 음성, 저장소, API 서버
 desktop/   Java 17 데스크톱 에디션과 독립 백엔드 어댑터
 docs/      아키텍처, 모델 카탈로그, UI 방향, GitHub Pages
 ~~~
+
+## OffconAI에 별을
+
+OffconAI가 구독료를 아껴주거나 사적인 대화를 지켜준다면 [저장소에 별을 눌러 주세요](https://github.com/zmxnpquryet-gif/OffconAI/stargazers). 별은 더 많은 사람이 로컬 AI를 찾는 데 도움이 됩니다.
 
 ## 기여하기
 

@@ -4,14 +4,69 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f4f5f8">
-  <title>OffconAI — AI that stays with you</title>
-  <meta name="description" content="A local-first AI workspace for Android and desktop. Run language, vision, and native voice models on hardware you control.">
-  <meta property="og:title" content="OffconAI — AI that stays with you">
-  <meta property="og:description" content="Run language, vision, and native voice models on hardware you control.">
+  <title>OffconAI — Offline LLM for Android &amp; Desktop</title>
+  <meta name="description" content="OffconAI is an offline, local-first LLM app for Android and desktop. Run GGUF models with llama.cpp or LiteRT-LM, plus vision, voice, RAG and local tools on your own hardware.">
+  <meta name="keywords" content="OffconAI, offline LLM Android, local AI app, on-device AI, GGUF, llama.cpp, LiteRT-LM, private ChatGPT alternative, local RAG, MCP, Ollama API, OpenAI-compatible API">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+  <meta name="author" content="OffconAI">
+  <link rel="canonical" href="https://zmxnpquryet-gif.github.io/OffconAI/">
+  <link rel="sitemap" type="application/xml" href="sitemap.xml">
+  <meta property="og:site_name" content="OffconAI">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="OffconAI — Offline LLM for Android &amp; Desktop">
+  <meta property="og:description" content="Run GGUF models with llama.cpp or LiteRT-LM, plus vision, voice, RAG and local tools on hardware you control.">
+  <meta property="og:url" content="https://zmxnpquryet-gif.github.io/OffconAI/">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://zmxnpquryet-gif.github.io/OffconAI/screenshots/ui-home.png">
+  <meta property="og:image:alt" content="OffconAI running an on-device model on Android">
   <meta name="twitter:card" content="summary_large_image">
-  <link rel="icon" href="assets/offcon-mark.svg" type="image/svg+xml">
+  <meta name="twitter:title" content="OffconAI — Offline LLM for Android &amp; Desktop">
+  <meta name="twitter:description" content="A private, local-first AI workspace. No account, no telemetry, no cloud round trips.">
+  <meta name="twitter:image" content="https://zmxnpquryet-gif.github.io/OffconAI/screenshots/ui-home.png">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://zmxnpquryet-gif.github.io/OffconAI/#organization",
+        "name": "OffconAI",
+        "url": "https://zmxnpquryet-gif.github.io/OffconAI/",
+        "logo": "https://zmxnpquryet-gif.github.io/OffconAI/assets/offcon-mark.svg",
+        "sameAs": ["https://github.com/zmxnpquryet-gif/OffconAI"]
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://zmxnpquryet-gif.github.io/OffconAI/#website",
+        "url": "https://zmxnpquryet-gif.github.io/OffconAI/",
+        "name": "OffconAI",
+        "description": "Offline, local-first AI workspace for Android and desktop.",
+        "publisher": { "@id": "https://zmxnpquryet-gif.github.io/OffconAI/#organization" }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "OffconAI",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Android 7.0+, Windows, macOS, Linux",
+        "softwareVersion": "2.0.0",
+        "downloadUrl": "https://github.com/zmxnpquryet-gif/OffconAI/releases/latest",
+        "codeRepository": "https://github.com/zmxnpquryet-gif/OffconAI",
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "description": "Run GGUF language, vision and native voice models on-device with llama.cpp and LiteRT-LM. Includes local RAG, MCP tools and an Ollama/OpenAI-compatible API.",
+        "featureList": [
+          "Offline LLM inference on Android",
+          "llama.cpp GGUF and LiteRT-LM runtimes",
+          "On-device document RAG and OCR",
+          "Native Omni voice and local STT/TTS",
+          "MCP tools with per-call approval",
+          "Ollama and OpenAI-compatible local API"
+        ],
+        "sameAs": ["https://github.com/zmxnpquryet-gif/OffconAI"]
+      }
+    ]
+  }
+  </script>
   <style>
     @font-face {
       font-family: "DM Sans";
@@ -152,6 +207,17 @@
     .hero-note { display: flex; flex-wrap: wrap; gap: 18px; color: #59647a; font-size: 12px; font-weight: 600; }
     .hero-note span { display: inline-flex; align-items: center; gap: 7px; }
     .hero-note span::before { content: "✓"; color: var(--accent-deep); font-size: 12px; font-weight: 800; }
+    .hero-share { max-width: 540px; margin: 14px 0 0; color: #59647a; font-size: 13px; line-height: 1.6; }
+    .hero-share a { color: var(--accent-deep); font-weight: 700; text-decoration: none; }
+    .hero-share a:hover { text-decoration: underline; }
+    .faq-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .faq-grid details { background: var(--paper); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; }
+    .faq-grid summary { cursor: pointer; font-weight: 700; color: var(--ink); list-style: none; }
+    .faq-grid summary::-webkit-details-marker { display: none; }
+    .faq-grid summary::after { content: "+"; float: right; color: var(--accent-deep); font-weight: 800; }
+    .faq-grid details[open] summary::after { content: "−"; }
+    .faq-grid p { margin: 12px 0 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+    @media (max-width: 760px) { .faq-grid { grid-template-columns: 1fr; } }
 
     .hero-art { position: relative; min-height: 584px; isolation: isolate; }
     .hero-art::before {
@@ -410,6 +476,36 @@
       *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
     }
   </style>
+  <link rel="icon" href="assets/offcon-mark.svg" type="image/svg+xml">
+  <link rel="manifest" href="site.webmanifest">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Does OffconAI work offline?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes. After a model is downloaded, inference, chat history, document RAG and the local API run on-device. Network access is only used for explicit model downloads, MCP connections, or the optional LAN API." }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I run my own GGUF models?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes. OffconAI runs GGUF models through llama.cpp and LiteRT-LM bundles, including vision projectors and native Omni audio where supported." }
+      },
+      {
+        "@type": "Question",
+        "name": "Is OffconAI a private alternative to cloud AI?",
+        "acceptedAnswer": { "@type": "Answer", "text": "It is a local-first alternative for offline work: no account, no telemetry, and no prompts sent to a hosted model. Answer quality depends on the model and the device." }
+      },
+      {
+        "@type": "Question",
+        "name": "Does OffconAI collect telemetry?",
+        "acceptedAnswer": { "@type": "Answer", "text": "No analytics or telemetry are built in. Conversations and credentials are stored locally, and the chat database is encrypted with Android Keystore AES-256-GCM." }
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -441,8 +537,8 @@
       <div class="hero-grid shell">
         <div class="hero-copy">
           <div class="eyebrow">Local-first AI · Android + Desktop</div>
-          <h1>AI that stays <em>with you.</em></h1>
-          <p>Run capable language, vision, and native voice models on the hardware you already own. Your prompts, files, and conversations stay with you.</p>
+          <h1>OffconAI — AI that stays <em>with you.</em></h1>
+          <p>OffconAI is an offline, local-first LLM app for Android and desktop. Run GGUF models with llama.cpp or LiteRT-LM — plus vision, native voice, on-device document RAG and local tools — on hardware you already own. No account. No telemetry. No cloud round trips.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/zmxnpquryet-gif/OffconAI/releases/latest">
               Download OffconAI
@@ -457,6 +553,7 @@
             <span>No telemetry</span>
             <span>Offline inference</span>
           </div>
+          <p class="hero-share">If OffconAI saves you a subscription, <a href="https://github.com/zmxnpquryet-gif/OffconAI">star it on GitHub</a> — stars help more people find a private alternative to cloud AI.</p>
         </div>
 
         <div class="hero-art" aria-label="OffconAI previews">
@@ -668,6 +765,31 @@
               <div class="backend"><b>Strata</b><span>OpenAI-compatible gateway</span><i></i></div>
             </div>
           </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="faq">
+      <div class="shell">
+        <div class="kicker">FAQ</div>
+        <h2>Questions, answered.</h2>
+        <div class="faq-grid">
+          <details open>
+            <summary>Does OffconAI work offline?</summary>
+            <p>Yes. After a model is downloaded, inference, chat history, document RAG and the local API run on-device. Network access is only used when you explicitly download a model, connect an MCP server, or expose the optional LAN API.</p>
+          </details>
+          <details>
+            <summary>Can I run my own GGUF models?</summary>
+            <p>Yes. OffconAI runs GGUF models through llama.cpp and LiteRT-LM bundles, including vision projectors and native Omni audio where the model and runtime support them.</p>
+          </details>
+          <details>
+            <summary>Is this a private alternative to cloud AI?</summary>
+            <p>It is a local-first alternative for offline work: no account, no telemetry, and no prompts sent to a hosted model. Answer quality depends on the model you run and the memory of your device.</p>
+          </details>
+          <details>
+            <summary>Does it collect telemetry?</summary>
+            <p>No analytics or telemetry are built in. Conversations and credentials are stored locally, and the chat database is encrypted with Android Keystore AES-256-GCM.</p>
+          </details>
         </div>
       </div>
     </section>
