@@ -41,7 +41,6 @@ fun PerformanceMetricsChip(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(chipBg)
-            .border(1.dp, GlassTheme.colors.outline.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)

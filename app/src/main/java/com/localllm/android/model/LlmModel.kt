@@ -15,7 +15,32 @@ enum class PromptTemplateType(val id: String, val displayName: String) {
     LFM3("lfm3", "LFM3 (<|im_start|>, <think>)"),
     GEMMA4("gemma4", "Gemma 4 (<|turn>model)"),
     QWEN35("qwen35", "Qwen 3.5 (<|im_start|>, think)"),
+    MINICPM5("minicpm5", "MiniCPM5 (<|im_start|> + <function>)"),
     CUSTOM("custom", "Custom / JSON")
+}
+
+/**
+ * Tool-call dialect a model was trained on. The runtime speaks plain text, so the
+ * dialect only decides the block syntax offered in the prompt and then parsed back
+ * — every on-device template can still fall back to [HERMES].
+ */
+enum class ToolCallTemplate(val id: String, val displayName: String, val shortLabel: String) {
+    AUTO("auto", "Auto-detect", "Auto"),
+    HERMES("hermes", "Hermes <tool_call>", "Hermes"),
+    LLAMA3_JSON("llama3_json", "Llama 3 JSON", "Llama 3"),
+    MISTRAL("mistral", "Mistral [TOOL_CALLS]", "Mistral"),
+    PLAIN_JSON("plain_json", "Plain JSON object", "JSON"),
+    MINICPM5("minicpm5", "MiniCPM5 XML <function>", "MiniCPM5"),
+    NONE("none", "Disabled", "Off");
+
+    companion object {
+        /**
+         * Unknown or legacy ids fall back to auto-detection rather than pinning a
+         * dialect the model may never have been trained on.
+         */
+        fun fromId(id: String?): ToolCallTemplate =
+            entries.firstOrNull { it.id == id } ?: AUTO
+    }
 }
 
 data class LlmModel(
@@ -42,6 +67,12 @@ data class LlmModel(
     val downloadSpeedText: String = "",
     val description: String = "",
     val quantization: String = "Q4_K_M",
+    /** Context length the model is served with at most; 0 = not stated by the catalog. */
+    val maxContextTokens: Int = 0,
+    /** Practical minimum device RAM for a usable load; 0 = not stated by the catalog. */
+    val minDeviceRamMb: Int = 0,
+    /** Tool-call dialect this model was trained on; AUTO detects it from the name. */
+    val toolCallTemplate: ToolCallTemplate = ToolCallTemplate.AUTO,
     val localFilePath: String? = null,
     val localMmprojPath: String? = null,
     val localMtpDrafterPath: String? = null,

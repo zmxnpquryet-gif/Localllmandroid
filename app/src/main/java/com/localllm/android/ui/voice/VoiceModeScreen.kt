@@ -86,6 +86,7 @@ fun VoiceModeScreen(
     val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
     val nativeOmniActive by viewModel.nativeOmniActive.collectAsStateWithLifecycle()
     val nativeOmniTranscript by viewModel.nativeOmniTranscript.collectAsStateWithLifecycle()
+    val audioDecision by viewModel.voiceAudioDecision.collectAsStateWithLifecycle()
     val isNativeOmni = activeModel?.supportsNativeAudioInput == true &&
         activeModel?.supportsNativeAudioOutput == true
 
@@ -198,19 +199,6 @@ fun VoiceModeScreen(
                     )
                 )
         )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            GlassTheme.colors.secondary.copy(alpha = 0.10f),
-                            Color.Transparent
-                        ),
-                        radius = 1000f
-                    )
-                )
-        )
         // Content column: the orb area flexes and the controls below stay reachable on
         // short screens (large system nav bars / small phones).
         Column(modifier = Modifier.fillMaxSize()) {
@@ -255,6 +243,21 @@ fun VoiceModeScreen(
             fontSize = 11.sp,
             color = if (isNativeOmni) GlassTheme.colors.primary else GlassTheme.colors.onBackground.copy(alpha = 0.55f)
         )
+
+        audioDecision?.let { decision ->
+            GText(
+                text = stringResource(
+                    when (decision.reason) {
+                        com.localllm.android.voice.VoiceAudioReason.MODEL_ACCEPTS_AUDIO -> R.string.voice_route_direct
+                        com.localllm.android.voice.VoiceAudioReason.MODEL_NEEDS_STT -> R.string.voice_route_stt
+                        com.localllm.android.voice.VoiceAudioReason.RUNTIME_CANNOT_DECODE_AUDIO -> R.string.voice_route_runtime_stt
+                    }
+                ),
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                fontSize = 11.sp,
+                color = GlassTheme.colors.onBackground.copy(alpha = 0.55f)
+            )
+        }
 
         // Center: Interactive Voice Orb (flexible area: it gives room to the controls)
         Box(

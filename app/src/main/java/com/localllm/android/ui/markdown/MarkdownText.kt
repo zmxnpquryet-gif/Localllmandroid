@@ -55,12 +55,33 @@ fun MarkdownText(
     isStreaming: Boolean = false
 ) {
     val document = remember(markdown) { MarkdownParser.parse(markdown) }
+    MarkdownBlocks(
+        blocks = document.blocks,
+        modifier = modifier,
+        style = style,
+        color = color,
+        isStreaming = isStreaming
+    )
+}
+
+/**
+ * Renders blocks that were already parsed, used when the caller has split the
+ * answer into prose and artifact listings.
+ */
+@Composable
+fun MarkdownBlocks(
+    blocks: List<MarkdownBlock>,
+    modifier: Modifier = Modifier,
+    style: TextStyle = GlassTheme.type.bodyLarge.copy(lineHeight = 24.sp),
+    color: Color = GlassTheme.colors.onBackground,
+    isStreaming: Boolean = false
+) {
     SelectionContainer {
         Column(
             modifier = modifier,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            document.blocks.forEach { block ->
+            blocks.forEach { block ->
                 MarkdownBlockView(block, style, color, isStreaming)
             }
             if (isStreaming) {

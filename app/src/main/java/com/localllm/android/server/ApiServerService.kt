@@ -17,6 +17,7 @@ import com.localllm.android.MainActivity
 import com.localllm.android.R
 import com.localllm.android.data.ModelStorageManager
 import com.localllm.android.model.GenerationSettings
+import com.localllm.android.model.KvCacheQuantization
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelRuntimeType
 
@@ -100,7 +101,13 @@ class ApiServerService : Service() {
                 topP = prefs.getFloat("top_p", 0.9f),
                 topK = prefs.getInt("top_k", 40),
                 apiServerBindAddress = prefs.getString("api_server_bind_address", "127.0.0.1") ?: "127.0.0.1",
-                apiServerRequireAuth = prefs.getBoolean("api_server_require_auth", true)
+                apiServerRequireAuth = prefs.getBoolean("api_server_require_auth", true),
+                // Requests served over the API load models through the same engine, so
+                // the memory-mode choices must travel with the serving settings too.
+                kvCacheQuantization = KvCacheQuantization.fromId(prefs.getString("kv_cache_quantization", null)),
+                ignoreMemoryLimits = prefs.getBoolean("ignore_memory_limits", false),
+                toolCallsEnabled = prefs.getBoolean("tool_calls_enabled", true),
+                builtInSystemPromptEnabled = prefs.getBoolean("built_in_system_prompt_enabled", true)
             )
         }
     }

@@ -57,7 +57,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.localllm.android.model.GenerationSettings
+import com.localllm.android.model.KvCacheQuantization
 import com.localllm.android.model.ModelRuntimeType
+import com.localllm.android.model.ToolCallTemplate
 import com.localllm.android.memory.MemoryGuardStore
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
@@ -88,6 +90,9 @@ fun SettingsScreen(
     val localIpAddress by viewModel.localIpAddress.collectAsStateWithLifecycle()
     val memoryGuardState by viewModel.memoryGuardState.collectAsStateWithLifecycle()
     val llamaGpuOffloadAvailable = remember { viewModel.isLlamaGpuOffloadAvailable() }
+    val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
+    val activeToolTemplate by viewModel.activeToolTemplate.collectAsStateWithLifecycle()
+    val documentStats by viewModel.documentStats.collectAsStateWithLifecycle()
 
     var showClearDialog by remember { mutableStateOf(false) }
     var showMemoryLog by remember { mutableStateOf(false) }
@@ -332,6 +337,67 @@ fun SettingsScreen(
                 )
             }
 
+            // 2c. KV cache precision and OOM-protection bypass
+            SettingsCard(
+                title = stringResource(R.string.settings_kv_title),
+                icon = GIcons.Tune
+            ) {
+                GText(
+                    text = stringResource(R.string.settings_kv_desc),
+                    style = GlassTheme.type.bodySmall,
+                    color = GlassTheme.colors.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    KvCacheQuantization.entries.forEach { option ->
+                        GFilterChip(
+                            selected = settings.kvCacheQuantization == option,
+                            onClick = {
+                                viewModel.updateSettings(settings.copy(kvCacheQuantization = option))
+                            },
+                            label = { GText(option.label) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        GText(
+                            text = stringResource(R.string.settings_oom_bypass_title),
+                            style = GlassTheme.type.bodyMedium
+                        )
+                        GText(
+                            text = stringResource(R.string.settings_oom_bypass_desc),
+                            fontSize = 12.sp,
+                            color = GlassTheme.colors.onSurfaceVariant
+                        )
+                    }
+                    GSwitch(
+                        checked = settings.ignoreMemoryLimits,
+                        onCheckedChange = {
+                            viewModel.updateSettings(settings.copy(ignoreMemoryLimits = it))
+                        }
+                    )
+                }
+                if (settings.ignoreMemoryLimits) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    GText(
+                        text = stringResource(R.string.settings_oom_bypass_warning),
+                        fontSize = 11.sp,
+                        color = GlassTheme.colors.error
+                    )
+                }
+            }
+
             // 3. Generation Hyperparameters (Context 4096 default, Temp, Top-P, Top-K)
             SettingsCard(
                 title = stringResource(R.string.settings_params_title),
@@ -502,6 +568,101 @@ fun SettingsScreen(
                 }
             }
 
+            // 5b. Tool-call behavior and dialect
+            SettingsCard(
+                title = stringResource(R.string.settings_tool_template_title),
+                icon = GIcons.Bolt
+            ) {
+                GText(
+                    text = stringResource(R.string.settings_tool_template_desc),
+                    style = GlassTheme.type.bodySmall,
+                    color = GlassTheme.colors.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                ToolCallTemplate.entries.chunked(3).forEach { chunk ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        chunk.forEach { option ->
+                            GFilterChip(
+                                selected = activeToolTemplate == option,
+                                onClick = { viewModel.setToolCallTemplate(option) },
+                                label = {
+                                    GText(
+                                        when (option) {
+                                            ToolCallTemplate.AUTO -> stringResource(R.string.settings_tool_template_auto)
+                                            ToolCallTemplate.NONE -> stringResource(R.string.settings_tool_template_off)
+                                            else -> option.shortLabel
+                                        }
+                                    )
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        repeat(3 - chunk.size) { Spacer(modifier = Modifier.weight(1f)) }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+                if (activeModel == null) {
+                    GText(
+                        text = stringResource(R.string.vm_status_no_default_model),
+                        fontSize = 11.sp,
+                        color = GlassTheme.colors.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        GText(
+                            text = stringResource(R.string.settings_tool_calls_title),
+                            style = GlassTheme.type.bodyMedium
+                        )
+                        GText(
+                            text = stringResource(R.string.settings_tool_calls_desc),
+                            fontSize = 12.sp,
+                            color = GlassTheme.colors.onSurfaceVariant
+                        )
+                    }
+                    GSwitch(
+                        checked = !settings.toolCallsEnabled,
+                        onCheckedChange = {
+                            viewModel.updateSettings(settings.copy(toolCallsEnabled = !it))
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        GText(
+                            text = stringResource(R.string.settings_builtin_prompt_title),
+                            style = GlassTheme.type.bodyMedium
+                        )
+                        GText(
+                            text = stringResource(R.string.settings_builtin_prompt_desc),
+                            fontSize = 12.sp,
+                            color = GlassTheme.colors.onSurfaceVariant
+                        )
+                    }
+                    GSwitch(
+                        checked = !settings.builtInSystemPromptEnabled,
+                        onCheckedChange = {
+                            viewModel.updateSettings(settings.copy(builtInSystemPromptEnabled = !it))
+                        }
+                    )
+                }
+            }
+
             // 6. Hugging Face Personal Access Token (Optional)
             SettingsCard(
                 title = stringResource(R.string.settings_hf_token_title),
@@ -610,7 +771,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 val themes = listOf(
-                    Triple("offcon", "Offcon Blue", Color(0xFF687CFF)),
+                    Triple("offcon", "Offcon Blue", Color(0xFF4F63F0)),
                     Triple("artistic", "Artistic Purple", Color(0xFFD0BCFF)),
                     Triple("liquid", "Liquid Glass", Color(0xFF7DD3FC)),
                     Triple("chatgpt", "Emerald Green", Color(0xFF10A37F)),
@@ -694,6 +855,28 @@ fun SettingsScreen(
                             label = { GText(label) },
                             modifier = Modifier.weight(1f)
                         )
+                    }
+                }
+            }
+
+            // 6b. Document library (local RAG index)
+            SettingsCard(
+                title = stringResource(R.string.settings_documents_title),
+                icon = GIcons.Description
+            ) {
+                GText(
+                    text = stringResource(
+                        R.string.settings_documents_summary,
+                        documentStats.documents,
+                        documentStats.chunks
+                    ),
+                    style = GlassTheme.type.bodySmall,
+                    color = GlassTheme.colors.onSurfaceVariant
+                )
+                if (documentStats.chunks > 0) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    GButton(onClick = { viewModel.clearDocumentIndex() }) {
+                        GText(stringResource(R.string.settings_documents_clear))
                     }
                 }
             }

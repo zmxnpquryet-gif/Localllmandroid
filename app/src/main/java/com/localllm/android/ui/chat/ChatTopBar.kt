@@ -80,8 +80,8 @@ fun ChatTopBar(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(18.dp))
-                .background(GlassTheme.colors.surface)
-                                .clickable { isModelMenuExpanded = true }
+                .background(GlassTheme.colors.surfaceVariant)
+                .clickable { isModelMenuExpanded = true }
                 .padding(horizontal = 14.dp, vertical = 7.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -129,7 +129,7 @@ fun ChatTopBar(
                                 GText(
                                     text = " • MTP 2x",
                                     style = GlassTheme.type.labelSmall,
-                                    color = GlassTheme.colors.secondary,
+                                    color = GlassTheme.colors.primary,
                                     fontSize = 10.sp
                                 )
                             }

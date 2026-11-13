@@ -138,16 +138,16 @@ data class GlassType(
 )
 
 private fun glassType() = GlassType(
-    headlineMedium = TextStyle(fontSize = 28.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp),
-    titleLarge = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Normal),
-    titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Medium),
-    titleSmall = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium),
-    bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, letterSpacing = 0.5.sp),
-    bodyMedium = TextStyle(fontSize = 14.sp),
-    bodySmall = TextStyle(fontSize = 12.sp),
-    labelLarge = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium),
-    labelMedium = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium),
-    labelSmall = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium)
+    headlineMedium = TextStyle(fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp),
+    titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp),
+    titleMedium = TextStyle(fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1).sp),
+    titleSmall = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
+    bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 26.sp, letterSpacing = 0.sp),
+    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 21.sp),
+    bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
+    labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium),
+    labelMedium = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
+    labelSmall = TextStyle(fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.2.sp)
 )
 
 private val baselineTertiaryDark = Color(0xFFCCC2DC)
@@ -163,6 +163,57 @@ private val baselineOnErrorContainerLight = Color(0xFF410002)
 
 fun glassColors(themeName: String, dark: Boolean): GlassColors {
     return when (themeName.lowercase()) {
+        "offcon", "" -> if (dark) {
+            // OffconAI — modern blend of ChatGPT / Claude / Gemini dark surfaces.
+            GlassColors(
+                background = Color(0xFF0E0F13),
+                onBackground = Color(0xFFECEDF1),
+                surface = Color(0xFF181A20),
+                onSurface = Color(0xFFE6E8EE),
+                surfaceVariant = Color(0xFF23262F),
+                onSurfaceVariant = Color(0xFF9CA2B0),
+                primary = Color(0xFF8B9BFF),
+                onPrimary = Color(0xFF0B0C10),
+                primaryContainer = Color(0xFF3A4185),
+                onPrimaryContainer = Color(0xFFEDEFFF),
+                secondary = Color(0xFF252A3D),
+                onSecondary = Color(0xFFAAB4FF),
+                secondaryContainer = Color(0xFF1E2028),
+                onSecondaryContainer = Color(0xFFE6E8EE),
+                tertiary = Color(0xFF2BD4A0),
+                outline = Color(0xFF2A2D37),
+                error = Color(0xFFF1998E),
+                errorContainer = Color(0xFF5C1F1A),
+                onErrorContainer = Color(0xFFFFDAD4),
+                tertiaryContainer = Color(0xFF0C4634),
+                onTertiaryContainer = Color(0xFFA9F0D3)
+            )
+        } else {
+            // OffconAI — calm near-white canvas with solid surfaces and soft dividers.
+            GlassColors(
+                background = Color(0xFFF7F8FA),
+                onBackground = Color(0xFF191B22),
+                surface = Color(0xFFFFFFFF),
+                onSurface = Color(0xFF23252D),
+                surfaceVariant = Color(0xFFF1F2F6),
+                onSurfaceVariant = Color(0xFF6C7280),
+                primary = Color(0xFF4F63F0),
+                onPrimary = Color(0xFFFFFFFF),
+                primaryContainer = Color(0xFF4F63F0),
+                onPrimaryContainer = Color(0xFFFFFFFF),
+                secondary = Color(0xFFEEF0FB),
+                onSecondary = Color(0xFF3B49C7),
+                secondaryContainer = Color(0xFFF1F2F6),
+                onSecondaryContainer = Color(0xFF23252D),
+                tertiary = Color(0xFF0FA37F),
+                outline = Color(0xFFE6E8EE),
+                error = Color(0xFFC8372B),
+                errorContainer = Color(0xFFFCE7E4),
+                onErrorContainer = Color(0xFF7A1E15),
+                tertiaryContainer = Color(0xFFDCF5EC),
+                onTertiaryContainer = Color(0xFF0A5744)
+            )
+        }
         "artistic" -> if (dark) {
             GlassColors(ArtisticBgDark, ArtisticTextDark, ArtisticSurfaceDark, ArtisticTextDark,
                 ArtisticSurfaceVariantDark, ArtisticTextMutedDark, ArtisticPrimaryDark, ArtisticOnPrimaryDark,
@@ -256,57 +307,7 @@ fun glassColors(themeName: String, dark: Boolean): GlassColors {
                 ChatGptLightCard, ChatGptLightText, baselineTertiaryLight,
                 ChatGptLightBorder, baselineErrorLight, baselineErrorContainerLight, baselineOnErrorContainerLight, Color(0xFFFFD9E2), Color(0xFF633B48))
         }
-        else -> if (dark) {
-            // OffconAI Modern Slate Dark Design System (19390.png More Screens)
-            GlassColors(
-                background = Color(0xFF0F172A),
-                onBackground = Color(0xFFF8FAFC),
-                surface = Color(0xFF1E293B),
-                onSurface = Color(0xFFF1F5F9),
-                surfaceVariant = Color(0xFF334155),
-                onSurfaceVariant = Color(0xFF94A3B8),
-                primary = Color(0xFF687CFF),
-                onPrimary = Color.White,
-                primaryContainer = Color(0xFF1E293B),
-                onPrimaryContainer = Color(0xFFF8FAFC),
-                secondary = Color(0xFF242C44),
-                onSecondary = Color(0xFF818CF8),
-                secondaryContainer = Color(0xFF1E293B),
-                onSecondaryContainer = Color(0xFFF8FAFC),
-                tertiary = Color(0xFF10B981),
-                outline = Color(0xFF334155),
-                error = baselineErrorDark,
-                errorContainer = baselineErrorContainerDark,
-                onErrorContainer = baselineOnErrorContainerDark,
-                tertiaryContainer = Color(0xFF064E3B),
-                onTertiaryContainer = Color(0xFFA7F3D0)
-            )
-        } else {
-            // OffconAI Clean Canvas
-            GlassColors(
-                background = Color(0xFFFAFBFF),
-                onBackground = Color(0xFF0F172A),
-                surface = Color.White,
-                onSurface = Color(0xFF1E293B),
-                surfaceVariant = Color(0xFFE6EBFF),
-                onSurfaceVariant = Color(0xFF64748B),
-                primary = Color(0xFF687CFF),
-                onPrimary = Color.White,
-                primaryContainer = Color(0xFF0F172A),
-                onPrimaryContainer = Color.White,
-                secondary = Color(0xFFE6EBFF),
-                onSecondary = Color(0xFF687CFF),
-                secondaryContainer = Color(0xFFF1F5F9),
-                onSecondaryContainer = Color(0xFF1E293B),
-                tertiary = Color(0xFF10B981),
-                outline = Color(0xFFE2E8F0),
-                error = baselineErrorLight,
-                errorContainer = baselineErrorContainerLight,
-                onErrorContainer = baselineOnErrorContainerLight,
-                tertiaryContainer = Color(0xFFD1FAE5),
-                onTertiaryContainer = Color(0xFF065F46)
-            )
-        }
+        else -> glassColors("offcon", dark)
     }
 }
 
@@ -323,7 +324,7 @@ object GlassTheme {
 @Composable
 fun GlassTheme(
     darkModePreference: String = "dark",
-    themeColorName: String = "artistic",
+    themeColorName: String = "offcon",
     content: @Composable () -> Unit
 ) {
     val systemDark = isSystemInDarkTheme()

@@ -7,6 +7,7 @@ import com.localllm.android.data.crypto.ChatCrypto
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelCatalog
 import com.localllm.android.model.ModelRuntimeType
+import com.localllm.android.model.ToolCallTemplate
 import com.localllm.android.engine.GgufMetadataDetector
 import org.json.JSONArray
 import org.json.JSONObject
@@ -91,6 +92,13 @@ class ModelStorageManager(private val context: Context) {
                         supportsNativeAudioInput = saved.supportsNativeAudioInput || defaultModel.supportsNativeAudioInput,
                         supportsNativeAudioOutput = saved.supportsNativeAudioOutput || defaultModel.supportsNativeAudioOutput,
                         nativeAudioProtocol = saved.nativeAudioProtocol.ifBlank { defaultModel.nativeAudioProtocol },
+                        maxContextTokens = if (saved.maxContextTokens > 0) saved.maxContextTokens else defaultModel.maxContextTokens,
+                        minDeviceRamMb = if (saved.minDeviceRamMb > 0) saved.minDeviceRamMb else defaultModel.minDeviceRamMb,
+                        toolCallTemplate = if (saved.toolCallTemplate != ToolCallTemplate.AUTO) {
+                            saved.toolCallTemplate
+                        } else {
+                            defaultModel.toolCallTemplate
+                        },
                         templateFileName = saved.templateFileName ?: defaultModel.templateFileName,
                         templateFileUrl = saved.templateFileUrl.ifBlank { defaultModel.templateFileUrl }
                     )
@@ -308,6 +316,9 @@ class ModelStorageManager(private val context: Context) {
         obj.put("supportsNativeAudioInput", m.supportsNativeAudioInput)
         obj.put("supportsNativeAudioOutput", m.supportsNativeAudioOutput)
         obj.put("nativeAudioProtocol", m.nativeAudioProtocol)
+        obj.put("maxContextTokens", m.maxContextTokens)
+        obj.put("minDeviceRamMb", m.minDeviceRamMb)
+        obj.put("toolCallTemplate", m.toolCallTemplate.id)
         obj.put("mtpDrafterFileName", m.mtpDrafterFileName ?: "")
         obj.put("templateFileName", m.templateFileName ?: "")
         obj.put("templateFileUrl", m.templateFileUrl)
@@ -356,6 +367,9 @@ class ModelStorageManager(private val context: Context) {
             supportsNativeAudioInput = obj.optBoolean("supportsNativeAudioInput", false),
             supportsNativeAudioOutput = obj.optBoolean("supportsNativeAudioOutput", false),
             nativeAudioProtocol = obj.optString("nativeAudioProtocol", ""),
+            maxContextTokens = obj.optInt("maxContextTokens", 0),
+            minDeviceRamMb = obj.optInt("minDeviceRamMb", 0),
+            toolCallTemplate = ToolCallTemplate.fromId(obj.optString("toolCallTemplate", null)),
             mtpDrafterFileName = obj.optString("mtpDrafterFileName", "").ifBlank { null },
             templateFileName = obj.optString("templateFileName", "").ifBlank { null },
             templateFileUrl = obj.optString("templateFileUrl", ""),

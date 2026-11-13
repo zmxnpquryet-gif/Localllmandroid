@@ -70,7 +70,7 @@ fun GText(
     )
 }
 
-/** OffconAI Card: clean white solid card on light, frosted liquid on dark. */
+/** OffconAI Card: solid surface with a soft shadow on light, hairline border on dark. */
 @Composable
 fun GCard(
     modifier: Modifier = Modifier,
@@ -80,68 +80,27 @@ fun GCard(
 ) {
     val isDark = GlassTheme.colors.background.luminance() < 0.5f
     val shape = RoundedCornerShape(cornerRadius)
-    if (isDark) {
-        val borderBrush = Brush.linearGradient(
-            colors = listOf(
-                glassHighlight(0.35f),
-                GlassTheme.colors.primary.copy(alpha = 0.25f),
-                glassHighlight(0.08f)
-            )
-        )
-        Box(
-            modifier = modifier
-                .clip(shape)
-                .background(containerColor ?: GlassTheme.colors.surface.copy(alpha = 0.55f))
-                .border(1.dp, borderBrush, shape),
-            content = {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clip(shape)
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(glassHighlight(0.10f), Color.Transparent)
-                            )
-                        )
-                )
-                content()
-            }
-        )
-    } else {
-        Box(
-            modifier = modifier
-                .clip(shape)
-                .background(containerColor ?: GlassTheme.colors.surface)
-                .border(1.dp, GlassTheme.colors.outline, shape),
-            content = {
-                content()
-            }
-        )
-    }
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(containerColor ?: GlassTheme.colors.surface)
+            .then(
+                if (isDark) Modifier.border(1.dp, GlassTheme.colors.outline, shape)
+                else Modifier
+            ),
+        content = content
+    )
 }
 
-/** Full-screen aurora backdrop drawn under content. */
+/** Full-screen backdrop. Flat canvas with a single restrained top glow. */
 @Composable
 fun LiquidBackground(modifier: Modifier = Modifier) {
     val scheme = GlassTheme.colors
     Box(modifier = modifier.fillMaxSize().background(scheme.background)) {
         Box(modifier = Modifier.fillMaxSize().background(
             Brush.radialGradient(
-                colors = listOf(scheme.primary.copy(alpha = 0.16f), Color.Transparent),
-                radius = 900f
-            )
-        ))
-        Box(modifier = Modifier.fillMaxSize().background(
-            Brush.radialGradient(
-                colors = listOf(scheme.secondary.copy(alpha = 0.12f), Color.Transparent),
+                colors = listOf(scheme.primary.copy(alpha = 0.05f), Color.Transparent),
                 radius = 1100f
-            )
-        ))
-        Box(modifier = Modifier.fillMaxSize().background(
-            Brush.verticalGradient(
-                colors = listOf(
-                    glassHighlight(0.05f), Color.Transparent, Color.Black.copy(alpha = 0.08f)
-                )
             )
         ))
     }

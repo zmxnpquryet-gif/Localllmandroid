@@ -50,7 +50,7 @@ fun ReasoningCard(
         }
     }
 
-    val containerColor = GlassTheme.colors.surface.copy(alpha = 0.55f)
+    val containerColor = GlassTheme.colors.surfaceVariant
     val accentColor = GlassTheme.colors.primary
 
     Column(
@@ -58,16 +58,6 @@ fun ReasoningCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(containerColor)
-            .border(
-                1.dp,
-                Brush.linearGradient(
-                    colors = listOf(
-                        GlassTheme.colors.onSurface.copy(alpha = 0.30f),
-                        accentColor.copy(alpha = 0.30f)
-                    )
-                ),
-                RoundedCornerShape(12.dp)
-            )
             .padding(10.dp)
     ) {
         Row(

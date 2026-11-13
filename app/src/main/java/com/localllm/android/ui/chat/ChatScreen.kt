@@ -60,6 +60,7 @@ import com.localllm.android.ui.glass.GCard
 import com.localllm.android.ui.glass.GDialog
 import com.localllm.android.ui.glass.GDrawer
 import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIconButton
 import com.localllm.android.ui.glass.GIcons
 import com.localllm.android.ui.glass.GLinearProgress
 import com.localllm.android.ui.glass.GScaffold
@@ -67,6 +68,9 @@ import com.localllm.android.ui.glass.GText
 import com.localllm.android.ui.glass.GTextButton
 import com.localllm.android.ui.glass.GlassTheme
 import com.localllm.android.ui.glass.LiquidBackground
+import com.localllm.android.ui.glass.OffconMark
+import com.localllm.android.update.AppUpdateInfo
+import com.localllm.android.update.EngineVersions
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -96,6 +100,9 @@ fun ChatScreen(
     val modelLoadingStage by viewModel.modelLoadingStage.collectAsStateWithLifecycle()
     val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsStateWithLifecycle()
     val apiPort by viewModel.apiServerPort.collectAsStateWithLifecycle()
+    val documentLibrary by viewModel.documentLibrary.collectAsStateWithLifecycle()
+    val activeDocumentIds by viewModel.activeDocumentIds.collectAsStateWithLifecycle()
+    val appUpdate by viewModel.appUpdate.collectAsStateWithLifecycle()
 
     var inputText by remember { mutableStateOf("") }
     var showStatusDetailDialog by remember { mutableStateOf(false) }
@@ -282,6 +289,11 @@ fun ChatScreen(
                         }
                     },
                     onOpenVoiceMode = { viewModel.navigateTo(AppScreen.VOICE_MODE) },
+                    onDocumentPicked = { uri, name -> viewModel.importDocument(uri, name) },
+                    indexedDocuments = documentLibrary,
+                    activeDocumentIds = activeDocumentIds,
+                    onToggleDocument = { viewModel.toggleDocumentSelection(it) },
+                    onDeleteDocument = { viewModel.deleteIndexedDocument(it) },
                     isModelLoading = isModelLoading,
                     modelLoadingProgress = modelLoadingProgress,
                     modelLoadingStage = modelLoadingStage,
@@ -393,20 +405,20 @@ fun ChatScreen(
                                             GIcon(
                                                 imageVector = GIcons.Dns,
                                                 contentDescription = null,
-                                                tint = GlassTheme.colors.secondary,
+                                                tint = GlassTheme.colors.primary,
                                                 modifier = Modifier.size(14.dp)
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             GText(
                                                 text = stringResource(R.string.chat_api_banner_active, apiPort),
                                                 fontSize = 11.sp,
-                                                color = GlassTheme.colors.onSecondaryContainer
+                                                color = GlassTheme.colors.onSurface
                                             )
                                         }
                                         GText(
                                             text = stringResource(R.string.chat_api_banner_details),
                                             fontSize = 11.sp,
-                                            color = GlassTheme.colors.secondary
+                                            color = GlassTheme.colors.primary
                                         )
                                     }
                                 }
@@ -414,7 +426,15 @@ fun ChatScreen(
                         }
                     }
 
-                // Engine Status Pill Banner
+                    // App update banner
+                    appUpdate?.let { update ->
+                        UpdateBanner(
+                            update = update,
+                            onDismiss = { viewModel.dismissAppUpdate() }
+                        )
+                    }
+
+                    // Engine Status Pill Banner
                 if (!engineStatus.isNullOrBlank()) {
                         val isErrorStatus = isEngineErrorStatus(engineStatus)
 
@@ -653,6 +673,66 @@ private fun isEngineErrorStatus(status: String?): Boolean {
 }
 
 @Composable
+private fun UpdateBanner(
+    update: AppUpdateInfo,
+    onDismiss: () -> Unit
+) {
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+    ) {
+        GCard(cornerRadius = 16.dp) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { uriHandler.openUri(update.releaseUrl) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GIcon(
+                    imageVector = GIcons.CloudDownload,
+                    contentDescription = null,
+                    tint = GlassTheme.colors.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    GText(
+                        text = stringResource(R.string.update_banner_title, update.latestVersion),
+                        style = GlassTheme.type.bodySmall,
+                        color = GlassTheme.colors.onSurface
+                    )
+                    GText(
+                        text = stringResource(
+                            R.string.update_banner_engine,
+                            EngineVersions.LLAMA_CPP,
+                            EngineVersions.LITERT_LM
+                        ),
+                        style = GlassTheme.type.labelSmall,
+                        color = GlassTheme.colors.onSurfaceVariant
+                    )
+                }
+                GText(
+                    text = stringResource(R.string.update_banner_action),
+                    style = GlassTheme.type.labelSmall,
+                    color = GlassTheme.colors.primary
+                )
+                GIconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    GIcon(
+                        imageVector = GIcons.Close,
+                        contentDescription = stringResource(R.string.update_banner_dismiss),
+                        tint = GlassTheme.colors.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun JumpToLatestButton(onClick: () -> Unit) {
     Box(
         modifier = Modifier
@@ -689,148 +769,137 @@ private fun EmptyChatPlaceholder(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 28.dp),
-        horizontalAlignment = Alignment.Start
+            .padding(horizontal = 20.dp)
+            .padding(top = 64.dp, bottom = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(GlassTheme.colors.secondary)
-                .padding(horizontal = 10.dp, vertical = 5.dp)
-        ) {
-            GText(
-                text = "LOCAL-FIRST AI",
-                style = GlassTheme.type.labelSmall,
-                color = GlassTheme.colors.primary
-            )
-        }
+        OffconMark(
+            modifier = Modifier.size(44.dp),
+            contentDescription = "OffconAI"
+        )
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(22.dp))
 
         GText(
-            text = "무엇이든\n함께해볼까요?",
+            text = "무엇이든 함께해볼까요?",
             style = androidx.compose.ui.text.TextStyle(
                 fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                fontSize = 32.sp,
-                lineHeight = 38.sp,
-                letterSpacing = (-0.5).sp
+                fontSize = 26.sp,
+                lineHeight = 34.sp,
+                letterSpacing = (-0.5).sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
             ),
-            color = GlassTheme.colors.onBackground
+            color = GlassTheme.colors.onBackground,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         GText(
-            text = "모델은 기기 안에서 실행되고\n대화는 암호화되어 저장됩니다.",
-            style = GlassTheme.type.bodyMedium.copy(lineHeight = 21.sp),
-            color = GlassTheme.colors.onSurfaceVariant
+            text = "모델은 기기 안에서 실행되고 대화는 암호화되어 저장됩니다",
+            style = GlassTheme.type.bodyMedium,
+            color = GlassTheme.colors.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
         if (activeModel == null) {
-            Box(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(GlassTheme.colors.secondary)
-                    .border(1.dp, GlassTheme.colors.primary.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(GlassTheme.colors.surface)
                     .clickable { onOpenModelManager() }
-                    .padding(horizontal = 18.dp, vertical = 16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        GIcon(
-                            imageVector = GIcons.CloudDownload,
-                            contentDescription = null,
-                            tint = GlassTheme.colors.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    GIcon(
+                        imageVector = GIcons.CloudDownload,
+                        contentDescription = null,
+                        tint = GlassTheme.colors.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
                         GText(
                             text = "모델 선택 및 다운로드",
-                            style = GlassTheme.type.bodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                            style = GlassTheme.type.titleSmall,
                             color = GlassTheme.colors.onSurface
                         )
+                        GText(
+                            text = "시작하려면 로컬 모델이 필요합니다",
+                            style = GlassTheme.type.labelSmall,
+                            color = GlassTheme.colors.onSurfaceVariant
+                        )
                     }
+                }
+                GIcon(
+                    imageVector = GIcons.ArrowForward,
+                    contentDescription = null,
+                    tint = GlassTheme.colors.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
+        val suggestions = listOf(
+            Triple("파이썬으로 Hello World 출력하기", GIcons.Description, "코드 작성"),
+            Triple("오늘 저녁 메뉴 추천해줘", GIcons.Chat, "일상 대화"),
+            Triple("재미있는 사실 하나 알려줘", GIcons.Info, "지식 탐색")
+        )
+
+        suggestions.forEach { (prompt, icon, category) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(GlassTheme.colors.surface)
+                    .clickable { onSampleClick(prompt) }
+                    .padding(horizontal = 16.dp, vertical = 15.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(GlassTheme.colors.secondary),
+                    contentAlignment = Alignment.Center
+                ) {
                     GIcon(
-                        imageVector = GIcons.ArrowForward,
+                        imageVector = icon,
                         contentDescription = null,
                         tint = GlassTheme.colors.primary,
                         modifier = Modifier.size(18.dp)
                     )
                 }
-            }
-            Spacer(modifier = Modifier.height(18.dp))
-        }
-
-        GText(
-            text = "이렇게 시작해보세요",
-            style = GlassTheme.type.labelMedium,
-            color = GlassTheme.colors.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        val suggestions = listOf(
-            Triple("오늘의 날씨는 어때?", GIcons.Chat, "대화 시작"),
-            Triple("파이썬으로 Hello World!", GIcons.Description, "코드 작성"),
-            Triple("이미지를 만들어줘", GIcons.Image, "이미지 요청")
-        )
-
-        suggestions.forEach { (prompt, icon, category) ->
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(GlassTheme.colors.surface)
-                    .clickable { onSampleClick(prompt) }
-                    .padding(horizontal = 16.dp, vertical = 15.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        GIcon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = GlassTheme.colors.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            GText(
-                                text = prompt,
-                                style = GlassTheme.type.bodyMedium.copy(
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                                    fontSize = 15.sp
-                                ),
-                                color = GlassTheme.colors.onSurface
-                            )
-                            GText(
-                                text = category,
-                                style = GlassTheme.type.labelSmall,
-                                color = GlassTheme.colors.onSurfaceVariant
-                            )
-                        }
-                    }
-                    GIcon(
-                        imageVector = GIcons.ArrowForward,
-                        contentDescription = null,
-                        tint = GlassTheme.colors.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    GText(
+                        text = prompt,
+                        style = GlassTheme.type.bodyMedium.copy(
+                            fontSize = 15.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                        ),
+                        color = GlassTheme.colors.onSurface
+                    )
+                    GText(
+                        text = category,
+                        style = GlassTheme.type.labelSmall,
+                        color = GlassTheme.colors.onSurfaceVariant
                     )
                 }
+                GIcon(
+                    imageVector = GIcons.ArrowForward,
+                    contentDescription = null,
+                    tint = GlassTheme.colors.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
     }

@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,9 +82,9 @@ fun GSwitch(
                 .clip(RoundedCornerShape(15.dp))
                 .background(
                     if (checked) activeColor
-                    else if (colors.background.luminance() < 0.5f) colors.surfaceVariant.copy(alpha = 0.7f) else colors.outline
+                    else if (colors.background.luminance() < 0.5f) colors.surfaceVariant
+                    else colors.outline
                 )
-                .border(1.dp, if (colors.background.luminance() < 0.5f) glassHighlight(0.2f) else colors.outline, RoundedCornerShape(15.dp))
                 .padding(3.dp),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -198,28 +199,29 @@ fun GFilterChip(
     leadingIcon: (@Composable () -> Unit)? = null
 ) {
     val colors = GlassTheme.colors
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(
-                if (selected) (if (colors.background.luminance() < 0.5f) colors.primaryContainer.copy(alpha = 0.75f) else colors.secondary)
-                else (if (colors.background.luminance() < 0.5f) colors.surface.copy(alpha = 0.5f) else colors.surface)
-            )
-            .border(
-                1.dp, if (selected) colors.primary else colors.outline,
-                RoundedCornerShape(12.dp)
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        content = {
-            leadingIcon?.let {
-                it()
-                Spacer(modifier = Modifier.width(6.dp))
+    val isDark = colors.background.luminance() < 0.5f
+    CompositionLocalProvider(
+        LocalGContentColor provides if (selected) colors.primary else colors.onSurfaceVariant
+    ) {
+        Row(
+            modifier = modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    if (selected) colors.primary.copy(alpha = if (isDark) 0.26f else 0.12f)
+                    else colors.surfaceVariant
+                )
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = {
+                leadingIcon?.let {
+                    it()
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                label()
             }
-            label()
-        }
-    )
+        )
+    }
 }
 
 /** Linear progress replacing M3 LinearProgressIndicator. Null = indeterminate. */

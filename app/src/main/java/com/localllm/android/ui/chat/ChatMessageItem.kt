@@ -66,7 +66,6 @@ fun ChatMessageItem(
                     .widthIn(max = 360.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(GlassTheme.colors.surfaceVariant)
-                    .border(1.dp, GlassTheme.colors.outline, RoundedCornerShape(14.dp))
                     .padding(12.dp)
             ) {
                 GText(
@@ -97,9 +96,9 @@ fun ChatMessageItem(
             Column(
                 modifier = Modifier
                     .widthIn(max = 320.dp)
-                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 6.dp, bottomStart = 20.dp, bottomEnd = 20.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(GlassTheme.colors.secondary)
-                                        .padding(14.dp)
+                    .padding(horizontal = 15.dp, vertical = 12.dp)
             ) {
                 // Attached file preview
                 if (message.attachment != null) {
@@ -160,11 +159,13 @@ fun ChatMessageItem(
                 verticalAlignment = Alignment.Top
             ) {
                 OffconMark(
-                    modifier = Modifier.size(30.dp),
-                    contentDescription = "OffconAI"
+                    modifier = Modifier.size(26.dp),
+                    contentDescription = "OffconAI",
+                    backgroundColor = GlassTheme.colors.secondary,
+                    markColor = GlassTheme.colors.primary
                 )
 
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     // Reasoning Card (if DeepSeek/Qwen thinking model or reasoning exists)
@@ -179,7 +180,7 @@ fun ChatMessageItem(
 
                     // Main Text Content
                     if (message.content.isNotBlank()) {
-                        MarkdownText(
+                        AssistantMarkdown(
                             markdown = message.content,
                             style = GlassTheme.type.bodyLarge.copy(
                                 lineHeight = 24.sp,

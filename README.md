@@ -45,7 +45,9 @@ OffconAI keeps prompts, conversations, model files, and generation on the device
 | **Pipeline voice** | Text and vision models can use on-device Whisper STT → LLM → TTS |
 | **Conversation storage** | AES-256-GCM encryption with Android Keystore |
 | **Local API** | Ollama and OpenAI-compatible server on port 11434 |
-| **Tool calls** | MCP client with structured parsing and per-call approval |
+| **Tool calls** | MCP client with five tool-call dialects and per-call approval |
+| **Documents** | Encrypted on-device RAG for PDF, XLSX, PPTX and text, with OCR for scanned PDFs |
+| **Memory control** | F16/Q8_0/Q4_0 KV cache and an optional OOM-guard bypass |
 | **Desktop** | Independent llama.cpp, vLLM, and Strata adapters |
 
 <a id="feature-tour"></a>
@@ -57,7 +59,8 @@ OffconAI keeps prompts, conversations, model files, and generation on the device
 
 - **One composer, clear actions.** Attach an image, dictate, enter voice mode, or send without leaving the conversation.
 - **Theme-wide color changes.** Accent changes propagate to the logo, bubbles, focus rings, controls, and status states.
-- **Streaming-friendly rendering.** Markdown, highlighted code, tables, links, and readable math render without executing raw HTML.
+- **Streaming-friendly rendering.** Markdown, highlighted code, tables, links, and readable math render without executing raw HTML; trailing listings collapse into copyable artifact cards.
+- **Documents stay searchable.** Imported files are chunked, embedded, and encrypted on-device; only the files you enable for a chat are retrieved into its prompt.
 - **Live runtime truth.** TPS, prompt speed, context usage, model format, and acceleration state come from the active backend.
 - **Responsive layout.** The content column stays readable on phones, tablets, foldables, and Windows Subsystem for Android.
 

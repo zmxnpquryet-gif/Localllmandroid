@@ -22,17 +22,39 @@ object PromptFormatter {
         history: List<Pair<String, String>>,
         userPrompt: String,
         toolsContext: String?,
-        supportsReasoning: Boolean
+        supportsReasoning: Boolean,
+        includeBuiltInSystemPrompt: Boolean = true,
+        documentContext: String? = null
     ): String {
+        // RAG excerpts belong in the system instruction, next to the tools block, and
+        // stay separate from the caller's system prompt. When a document block is
+        // present the built-in prompt is materialized here, because
+        // buildSystemInstruction only falls back to it for a blank prompt.
+        val documentBlock = documentContext?.trim()?.takeIf { it.isNotEmpty() }
+        val effectiveSystemPrompt = if (documentBlock == null) {
+            systemPrompt
+        } else {
+            buildString {
+                if (systemPrompt.isNotBlank()) {
+                    append(systemPrompt.trim())
+                } else if (includeBuiltInSystemPrompt) {
+                    append(AppStrings.get(R.string.sys_prompt))
+                }
+                append("\n\n").append(AppStrings.get(R.string.sys_doc_header)).append("\n")
+                append(documentBlock)
+            }
+        }
+
         // 1. Try parsing local template file (Jinja or JSON) if available
         if (!templateJsonPath.isNullOrBlank()) {
             val formatted = tryFormatWithTemplateFile(
                 templateFilePath = templateJsonPath,
-                systemPrompt = systemPrompt,
+                systemPrompt = effectiveSystemPrompt,
                 history = history,
                 userPrompt = userPrompt,
                 toolsContext = toolsContext,
-                supportsReasoning = supportsReasoning
+                supportsReasoning = supportsReasoning,
+                includeBuiltInSystemPrompt = includeBuiltInSystemPrompt
             )
             if (formatted != null) {
                 return formatted
@@ -41,13 +63,14 @@ object PromptFormatter {
 
         // 2. Fall back to standard model prompt formats
         return when (templateType) {
-            PromptTemplateType.GEMMA -> formatGemma(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
-            PromptTemplateType.PHI -> formatPhi(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
-            PromptTemplateType.LLAMA3 -> formatLlama3(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
-            PromptTemplateType.LFM3 -> formatLfm3(systemPrompt, history, userPrompt, toolsContext)
-            PromptTemplateType.GEMMA4 -> formatGemma4(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
-            PromptTemplateType.QWEN35 -> formatQwen35(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
-            PromptTemplateType.CHATML, PromptTemplateType.CUSTOM -> formatChatML(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
+            PromptTemplateType.GEMMA -> formatGemma(effectiveSystemPrompt, history, userPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
+            PromptTemplateType.PHI -> formatPhi(effectiveSystemPrompt, history, userPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
+            PromptTemplateType.LLAMA3 -> formatLlama3(effectiveSystemPrompt, history, userPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
+            PromptTemplateType.LFM3 -> formatLfm3(effectiveSystemPrompt, history, userPrompt, toolsContext, includeBuiltInSystemPrompt)
+            PromptTemplateType.GEMMA4 -> formatGemma4(effectiveSystemPrompt, history, userPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
+            PromptTemplateType.QWEN35 -> formatQwen35(effectiveSystemPrompt, history, userPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
+            PromptTemplateType.MINICPM5 -> formatMiniCPM5(effectiveSystemPrompt, history, userPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
+            PromptTemplateType.CHATML, PromptTemplateType.CUSTOM -> formatChatML(effectiveSystemPrompt, history, userPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
         }
     }
 
@@ -61,7 +84,9 @@ object PromptFormatter {
         templateJsonPath: String?,
         messages: List<TemplateMessage>,
         toolsContext: String?,
-        supportsReasoning: Boolean
+        supportsReasoning: Boolean,
+        includeBuiltInSystemPrompt: Boolean = true,
+        documentContext: String? = null
     ): String {
         if (messages.isEmpty()) return ""
         val system = messages.filter { it.role == TemplateRole.SYSTEM }
@@ -70,7 +95,17 @@ object PromptFormatter {
         val body = messages.filter { it.role != TemplateRole.SYSTEM }
         val lastUser = body.indexOfLast { it.role == TemplateRole.USER }
         if (lastUser < 0) {
-            return formatPrompt(templateType, templateJsonPath, system, emptyList(), body.lastOrNull()?.plainText().orEmpty(), toolsContext, supportsReasoning)
+            return formatPrompt(
+                templateType,
+                templateJsonPath,
+                system,
+                emptyList(),
+                body.lastOrNull()?.plainText().orEmpty(),
+                toolsContext,
+                supportsReasoning,
+                includeBuiltInSystemPrompt,
+                documentContext
+            )
         }
         fun asHistory(message: TemplateMessage): Pair<String, String> {
             val role = when (message.role) {
@@ -95,7 +130,9 @@ object PromptFormatter {
             history = history,
             userPrompt = current,
             toolsContext = toolsContext,
-            supportsReasoning = supportsReasoning
+            supportsReasoning = supportsReasoning,
+            includeBuiltInSystemPrompt = includeBuiltInSystemPrompt,
+            documentContext = documentContext
         )
     }
 
@@ -116,12 +153,15 @@ object PromptFormatter {
     fun buildSystemInstruction(
         systemPrompt: String,
         toolsContext: String?,
-        supportsReasoning: Boolean
+        supportsReasoning: Boolean,
+        includeBuiltInSystemPrompt: Boolean = true
     ): String {
         return buildString {
             if (systemPrompt.isNotBlank()) {
                 append(systemPrompt.trim())
-            } else {
+            } else if (includeBuiltInSystemPrompt) {
+                // Low-end mode turns this off: every extra prefill token costs time on
+                // weak hardware, and the tools/reasoning blocks still apply.
                 append(AppStrings.get(R.string.sys_prompt))
             }
             if (!toolsContext.isNullOrBlank()) {
@@ -144,10 +184,11 @@ object PromptFormatter {
         history: List<Pair<String, String>>,
         userPrompt: String,
         toolsContext: String?,
-        supportsReasoning: Boolean
+        supportsReasoning: Boolean,
+        includeBuiltInSystemPrompt: Boolean = true
     ): String {
         val sb = StringBuilder()
-        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning)
+        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
 
         // For Gemma, system prompt is typically placed inside the first user turn or before it
         var isFirstUserTurn = true
@@ -178,10 +219,11 @@ object PromptFormatter {
         history: List<Pair<String, String>>,
         userPrompt: String,
         toolsContext: String?,
-        supportsReasoning: Boolean
+        supportsReasoning: Boolean,
+        includeBuiltInSystemPrompt: Boolean = true
     ): String {
         val sb = StringBuilder()
-        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning)
+        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
 
         sb.append("<|im_start|>system\n").append(systemText).append("<|im_end|>\n")
 
@@ -205,10 +247,11 @@ object PromptFormatter {
         systemPrompt: String,
         history: List<Pair<String, String>>,
         userPrompt: String,
-        toolsContext: String?
+        toolsContext: String?,
+        includeBuiltInSystemPrompt: Boolean = true
     ): String {
         val sb = StringBuilder()
-        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning = false)
+        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning = false, includeBuiltInSystemPrompt)
         if (systemText.isNotBlank()) {
             sb.append("<|im_start|>system\n").append(systemText).append("<|im_end|>\n")
         }
@@ -241,10 +284,11 @@ object PromptFormatter {
         history: List<Pair<String, String>>,
         userPrompt: String,
         toolsContext: String?,
-        supportsReasoning: Boolean
+        supportsReasoning: Boolean,
+        includeBuiltInSystemPrompt: Boolean = true
     ): String {
         val sb = StringBuilder()
-        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning)
+        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
         if (systemText.isNotBlank() || supportsReasoning) {
             sb.append("<|turn>system\n")
             if (supportsReasoning) sb.append("<|think|>\n")
@@ -270,10 +314,11 @@ object PromptFormatter {
         history: List<Pair<String, String>>,
         userPrompt: String,
         toolsContext: String?,
-        supportsReasoning: Boolean
+        supportsReasoning: Boolean,
+        includeBuiltInSystemPrompt: Boolean = true
     ): String {
         val sb = StringBuilder()
-        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning)
+        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
         sb.append("<|im_start|>system\n").append(systemText).append("<|im_end|>\n")
         for ((role, text) in normalizedHistory(history)) {
             val normalizedRole = if (role.equals("user", ignoreCase = true)) "user" else "assistant"
@@ -287,6 +332,53 @@ object PromptFormatter {
     }
 
     /**
+     * MiniCPM5 format: ChatML turns plus the model's own empty thinking block and
+     * XML tool calls. The official template always opens an assistant turn with a
+     * ` thinking` pair — an empty one when thinking is disabled — so history turns
+     * must carry it too or the model sees a distribution it was never trained on.
+     */
+    fun formatMiniCPM5(
+        systemPrompt: String,
+        history: List<Pair<String, String>>,
+        userPrompt: String,
+        toolsContext: String?,
+        supportsReasoning: Boolean,
+        includeBuiltInSystemPrompt: Boolean = true
+    ): String {
+        val sb = StringBuilder()
+        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
+        if (systemText.isNotBlank()) {
+            sb.append("<|im_start|>system\n").append(systemText).append("<|im_end|>\n")
+        }
+
+        for ((role, text) in normalizedHistory(history)) {
+            val content = text.trim()
+            if (role.equals("user", ignoreCase = true)) {
+                sb.append("<|im_start|>user\n").append(content).append("<|im_end|>\n")
+            } else {
+                sb.append("<|im_start|>assistant\n")
+                if (content.contains("<think>") || content.contains("</think>")) {
+                    sb.append(content)
+                } else {
+                    sb.append("<think>\n\n</think>\n\n").append(content)
+                }
+                sb.append("<|im_end|>\n")
+            }
+        }
+
+        sb.append("<|im_start|>user\n").append(userPrompt.trim()).append("<|im_end|>\n")
+        sb.append("<|im_start|>assistant\n")
+        // Thinking off keeps the empty think block the template emits for
+        // enable_thinking=false; thinking on leaves the block open for the model.
+        if (supportsReasoning) {
+            sb.append("<think>")
+        } else {
+            sb.append("<think>\n\n</think>\n\n")
+        }
+        return sb.toString()
+    }
+
+    /**
      * Phi format (<|system|>\n...<|end|>\n<|user|>\n...<|end|>\n<|assistant|>\n)
      */
     fun formatPhi(
@@ -294,10 +386,11 @@ object PromptFormatter {
         history: List<Pair<String, String>>,
         userPrompt: String,
         toolsContext: String?,
-        supportsReasoning: Boolean
+        supportsReasoning: Boolean,
+        includeBuiltInSystemPrompt: Boolean = true
     ): String {
         val sb = StringBuilder()
-        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning)
+        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
 
         sb.append("<|system|>\n").append(systemText).append("<|end|>\n")
 
@@ -319,11 +412,12 @@ object PromptFormatter {
         history: List<Pair<String, String>>,
         userPrompt: String,
         toolsContext: String?,
-        supportsReasoning: Boolean
+        supportsReasoning: Boolean,
+        includeBuiltInSystemPrompt: Boolean = true
     ): String {
         val sb = StringBuilder()
         sb.append("<|begin_of_text|>")
-        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning)
+        val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
 
         sb.append("<|start_header_id|>system<|end_header_id|>\n\n").append(systemText).append("<|eot_id|>")
 
@@ -347,7 +441,8 @@ object PromptFormatter {
         history: List<Pair<String, String>>,
         userPrompt: String,
         toolsContext: String?,
-        supportsReasoning: Boolean
+        supportsReasoning: Boolean,
+        includeBuiltInSystemPrompt: Boolean
     ): String? {
         return try {
             val file = File(templateFilePath)
@@ -399,7 +494,7 @@ object PromptFormatter {
                     val systemSuffix = json.optString("system_suffix", "")
 
                     val sb = StringBuilder()
-                    val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning)
+                    val systemText = buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning, includeBuiltInSystemPrompt)
                     if (systemText.isNotBlank() && systemPrefix.isNotBlank()) {
                         sb.append(systemPrefix).append(systemText).append(systemSuffix).append("\n")
                     }

@@ -489,7 +489,9 @@ Java_com_localllm_android_engine_llama_LlamaContext_nativeCreate(
         jint n_gpu_layers,
         jboolean use_mmap,
         jboolean use_mlock,
-        jboolean vocab_only) {
+        jboolean vocab_only,
+        jint type_k,
+        jint type_v) {
     const std::string model_path = jstring_to_utf8(env, j_model_path);
     const std::string mmproj_path = jstring_to_utf8(env, j_mmproj_path);
     if (model_path.empty()) {
@@ -530,6 +532,18 @@ Java_com_localllm_android_engine_llama_LlamaContext_nativeCreate(
     context_params.n_threads = std::max(1, n_threads);
     context_params.n_threads_batch = std::max(1, n_threads);
     context_params.embeddings = false;
+
+    // KV-cache precision chosen in Settings: 1 = F16, 8 = Q8_0, 2 = Q4_0 (ggml_type
+    // ids). Any other value keeps llama.cpp's default instead of degrading the load.
+    const auto is_supported_kv_type = [](jint t) { return t == 1 || t == 8 || t == 2; };
+    if (is_supported_kv_type(type_k)) {
+        context_params.type_k = static_cast<decltype(context_params.type_k)>(type_k);
+    }
+    if (is_supported_kv_type(type_v)) {
+        context_params.type_v = static_cast<decltype(context_params.type_v)>(type_v);
+    }
+    LOGI("kv cache types: k=%d v=%d", static_cast<int>(context_params.type_k),
+         static_cast<int>(context_params.type_v));
 
     session->ctx = llama_init_from_model(session->model, context_params);
     if (session->ctx == nullptr) {

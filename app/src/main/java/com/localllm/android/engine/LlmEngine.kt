@@ -14,6 +14,7 @@ import com.localllm.android.memory.MemoryGuardStore
 import com.localllm.android.memory.MemorySnapshot
 import com.localllm.android.model.ChatAttachment
 import com.localllm.android.model.GenerationSettings
+import com.localllm.android.model.KvCacheQuantization
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelRuntimeType
 import com.google.ai.edge.litertlm.Backend
@@ -143,10 +144,11 @@ class LlmEngine(private val context: Context) {
      */
     private fun memoryDecision(
         modelFile: File,
-        requestedContextWindow: Int
+        requestedContextWindow: Int,
+        kvBytesPerElement: Double
     ): Pair<MemorySnapshot, MemoryEstimator.Decision?> {
         val snapshot = memorySnapshot()
-        val estimate = MemoryEstimator.estimate(modelFile, requestedContextWindow)
+        val estimate = MemoryEstimator.estimate(modelFile, requestedContextWindow, kvBytesPerElement)
         return snapshot to estimate?.let { MemoryEstimator.decide(it, snapshot, requestedContextWindow) }
     }
 
@@ -252,7 +254,18 @@ class LlmEngine(private val context: Context) {
         }
 
         var effectiveContext = settings.contextWindow
-        val (snapshot, decision) = memoryDecision(modelFile, settings.contextWindow)
+        // Memory-guard bypass: load exactly the configured context and KV precision —
+        // no footprint refusal, no automatic shrink. The estimate is skipped entirely
+        // so nothing downstream can resize the load.
+        val (snapshot, decision) = if (settings.ignoreMemoryLimits) {
+            memorySnapshot() to null
+        } else {
+            memoryDecision(
+                modelFile,
+                settings.contextWindow,
+                settings.kvCacheQuantization.bytesPerElement
+            )
+        }
         if (decision?.estimate != null) {
             Log.i(
                 tag,
@@ -503,13 +516,21 @@ class LlmEngine(private val context: Context) {
             Log.i(tag, "llama.cpp build has no GPU offload backend; using CPU$detail")
             onStageUpdate?.invoke(AppStrings.get(R.string.eng_stage_llama_cpu_only), 0.36f)
         }
+        Log.i(
+            tag,
+            "KV 캐시 양자화: ${effectiveSettings.kvCacheQuantization.id} " +
+                "(type_k/type_v=${effectiveSettings.kvCacheQuantization.ggmlTypeId}), " +
+                "OOM 방어 우회=${effectiveSettings.ignoreMemoryLimits}"
+        )
 
         data class GgufInitCandidate(
             val desc: String,
             val useMmap: Boolean,
             val useMmproj: Boolean,
             val ctxLength: Int,
-            val gpuLayers: Int
+            val gpuLayers: Int,
+            /** 0 = use the configured KV precision; otherwise an explicit ggml_type id. */
+            val kvType: Int = 0
         )
 
         val candidates = mutableListOf<GgufInitCandidate>()
@@ -530,10 +551,29 @@ class LlmEngine(private val context: Context) {
         candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand5, contextWindow), useMmap = true, useMmproj = false, ctxLength = contextWindow, gpuLayers = 0))
         candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand6, contextWindow), useMmap = false, useMmproj = false, ctxLength = contextWindow, gpuLayers = 0))
 
-        // 3. Fallback to reduced context if large context fails
-        if (contextWindow > 2048) {
+        // 3. Fallback to reduced context if large context fails.
+        //    Skipped when memory protection is disabled: the configured context is
+        //    loaded as-is instead of being silently shrunk.
+        if (!effectiveSettings.ignoreMemoryLimits && contextWindow > 2048) {
             candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand7), useMmap = true, useMmproj = false, ctxLength = 2048, gpuLayers = 0))
             candidates.add(GgufInitCandidate(AppStrings.get(R.string.eng_cand8), useMmap = false, useMmproj = false, ctxLength = 1024, gpuLayers = 0))
+        }
+
+        // 4. Last resort for a quantized V cache: some llama.cpp builds reject it
+        //    without flash attention. Retry once at F16 with the SAME context so the
+        //    model still loads (the status line reports the fallback) instead of
+        //    failing outright.
+        if (effectiveSettings.kvCacheQuantization != KvCacheQuantization.F16) {
+            candidates.add(
+                GgufInitCandidate(
+                    AppStrings.get(R.string.eng_cand_kv_f16, contextWindow),
+                    useMmap = true,
+                    useMmproj = mmprojPath != null,
+                    ctxLength = contextWindow,
+                    gpuLayers = targetGpuLayers,
+                    kvType = KvCacheQuantization.F16.ggmlTypeId
+                )
+            )
         }
 
         var newLlamaContext: LlamaContext? = null
@@ -547,6 +587,8 @@ class LlmEngine(private val context: Context) {
             Log.d(tag, "GGUF 로드 시도 (${idx + 1}/${candidates.size}): ${cand.desc}")
 
             val candidateMmprojPath = if (cand.useMmproj) mmprojPath else null
+            val candidateKvType =
+                if (cand.kvType != 0) cand.kvType else effectiveSettings.kvCacheQuantization.ggmlTypeId
 
             try {
                 val params = mutableMapOf<String, Any>(
@@ -559,7 +601,9 @@ class LlmEngine(private val context: Context) {
                     "n_batch" to 512,
                     "n_threads" to threadCount,
                     "n_gpu_layers" to cand.gpuLayers,
-                    "vocab_only" to false
+                    "vocab_only" to false,
+                    "type_k" to candidateKvType,
+                    "type_v" to candidateKvType
                 )
 
                 if (candidateMmprojPath != null) {
@@ -682,14 +726,15 @@ class LlmEngine(private val context: Context) {
         settings: GenerationSettings,
         attachment: ChatAttachment?,
         mcpToolsContext: String? = null,
-        numPredictOverride: Int? = null
+        numPredictOverride: Int? = null,
+        documentContext: String? = null
     ): Flow<GenerationChunk> = flow {
         if (!acquireInferenceLock()) {
             throw IllegalStateException("BUSY_INFERENCE: " + AppStrings.get(R.string.eng_busy))
         }
         try {
             try {
-                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride))
+                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride, documentContext))
             } catch (gpuFailure: LiteRtGpuUnavailableException) {
                 // The GPU backend can load a model and still fail at sampling (the OpenCL
                 // sampler library is not part of the bundled AAR). Remember the failure for
@@ -706,7 +751,7 @@ class LlmEngine(private val context: Context) {
                 )
                 Log.i(tag, "CPU 백엔드 재로드: $reloadStatus")
                 backendNote = AppStrings.get(R.string.eng_sampler_cpu)
-                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride))
+                emitAll(inferenceFlow(prompt, history, settings, attachment, mcpToolsContext, numPredictOverride, documentContext))
             }
         } finally {
             clearActiveInferenceState()
@@ -752,7 +797,8 @@ class LlmEngine(private val context: Context) {
         settings: GenerationSettings,
         attachment: ChatAttachment?,
         mcpToolsContext: String?,
-        numPredictOverride: Int?
+        numPredictOverride: Int?,
+        documentContext: String? = null
     ): Flow<GenerationChunk> = flow {
         val model = activeModel
             ?: throw IllegalStateException(AppStrings.get(R.string.eng_no_selected))
@@ -788,7 +834,9 @@ class LlmEngine(private val context: Context) {
             templateJsonPath = model.localTemplatePath,
             messages = structuredMessages,
             toolsContext = mcpToolsContext,
-            supportsReasoning = model.supportsReasoning
+            supportsReasoning = model.supportsReasoning,
+            includeBuiltInSystemPrompt = settings.builtInSystemPromptEnabled,
+            documentContext = documentContext
         )
 
         val startTime = System.currentTimeMillis()

@@ -323,3 +323,72 @@
   - Computer Use verified the new launcher/app identity, image-only attachment sheet, home, conversation, and model-manager flows.
   - The GitHub Pages page was served locally in the in-app browser; all local links and images resolved, self-hosted fonts loaded, and the 599px viewport had no horizontal overflow.
   - A screenshot of the updated web page was reviewed at narrow responsive width; the full-page layout and layered previews rendered without broken assets.
+
+## 2026-11-06 — ChatGPT · Claude · Gemini 혼합 모던 UI 리디자인
+
+- 요청: 기존 OffconAI Android UI를 ChatGPT·Claude·Gemini를 적당히 섞은 모던한 느낌으로 리디자인. WSA에서 직접 확인 요청.
+- 사전 조사: `AGENTS.md`와 `agentswork.md`를 먼저 읽고, `app/src/main/java/com/localllm/android/ui/`의 chat·glass·drawer·voice 소스를 확인했다. 기존 기본 테마가 "artistic"(보라색 3D 계열)이고 `ChatScreen`/`ChatInputBar`/`ChatMessageItem`가 `19390.png` 스타일 가이드의 슬레이트 팔레트를 리터럴로 복제하고 있었다.
+- 디자인 토큰 재정의 (`ui/glass/GlassTheme.kt`):
+  - 새 기본 팔레트 `offcon` 추가. 라이트 캔버스 `#F7F8FA`, 서피스 `#FFFFFF`, 텍스트 `#23252D`, 뮤트 `#6C7280`, 프라이머리 `#4F63F0`, 보조 칩 `#EEF0FB`, 아웃라인 `#E6E8EE`. 다크는 `#0E0F13`/`#181A20`/`#23262F` 조합.
+  - 기존 `else`(구 슬레이트 하드코딩) 브랜치를 `offcon` 재사용으로 대체하고, 기본 테마 이름을 `offcon`으로 변경(`GenerationSettings.kt`, `MainViewModel.kt` 초기값).
+  - 타이포 스케일을 재정비(헤드라인 28/36 Bold, 제목 17 SemiBold, 본문 16/26 등)하여 타이트한 letter-spacing 적용.
+- 공용 프리미티브 (`ui/glass/GPrimitives.kt`): `GCard`의 다크 그라디언트 보더/시스루를 제거하고 라이트는 단색 서피스, 다크는 1dp 아웃라인만 남김. `LiquidBackground`의 3중 오로라 그라디언트를 단일 은은한 글로우로 축소.
+- 컨트롤 (`ui/glass/GControls.kt`): `GSwitch` 트랙 보더 제거, `GFilterChip`을 보더 없는 칩으로 바꾸고 선택 시 `CompositionLocalProvider`로 라벨 색을 프라이머리로 전환(호출부 수정 불필요).
+- 홈/빈 대화 (`ui/chat/ChatScreen.kt`): 좌측 정렬 히어로 + "LOCAL-FIRST AI" 배지를 제거하고, OffconMark 뱃지 + 중앙 정렬 헤드라인 + 모델 다운로드 카드 + 아이콘 타일 제안 카드로 ChatGPT/Gemini식 빈 화면 재구성. API 배너의 `secondary` 틴트를 `primary`로 교체.
+- 입력창 (`ui/chat/ChatInputBar.kt`): 단일 캡슐(26dp)에 좌측 `+`/웨이브폼, 우측 마이크 + 40dp 프라이머리 원형 전송(전송 불가 시 중립 회색)으로 정리. 라이트에서 소프트 섀도우, 다크에서 1dp 아웃라인. 캡슐 하단에 로딩/생성 상태 스트립(`tok/s · ctx`)을 추가해 기존에 미사용이던 진행률 파라미터를 실제로 표시.
+- 말풍선 (`ui/chat/ChatMessageItem.kt`): 사용자 버블을 완전 라운드(20dp) 칩 컬러로, 어시스턴트 마크를 26dp 칩 배경으로 통일, 도구 결과 카드의 보더 제거.
+- 상단바 (`ui/chat/ChatTopBar.kt`): 모델 칩 배경을 `surfaceVariant`로 바꾸고 MTP 강조색을 `secondary`→`primary`로 수정.
+- 드로어 (`ui/drawer/ChatDrawer.kt`): 새 대화 버튼을 프라이머리 채움 버튼으로, 선택된 대화를 칩 배경 + 프라이머리 텍스트로, API 아이콘 틴트를 프라이머리로 정리.
+- 부가 (`ui/chat/ReasoningCard.kt`, `ui/chat/PerformanceMetricsChip.kt`, `ui/voice/VoiceModeScreen.kt`): 그라디언트 보더/시스루 제거, 보조 오로라 레이어 제거.
+- 검증: `:app:assembleDebug`와 `:app:testDebugUnitTest` 모두 BUILD SUCCESSFUL. 기존 테스트 회귀 없음.
+- WSA 실기기 확인 시도: 새 ADB 포트 확인을 위해 `adb connect 127.0.0.1:58526`(WSA 고급 설정 표기 포트) 여러 차례 시도했으나 계속 connection refused. WSA 설정(고급 설정)에서 개발자 모드는 On으로 확인했고, VM(`vmmemWSA`)은 부팅되며 게스트 `adbd`도 vsock:5555로 기동하지만 호스트 측 58526 리스너가 생성되지 않았다. WsaClient가 부팅 후 "Android가 응답을 중지했습니다" 시스템 오류 대화상자를 반복 표시해, 호스트 ADB 브리지 프로세스가 정상 동작하지 않는 상태로 판단했다. 강제 재시작(WsaService 시작, WsaClient 재실행, WSA 끄기/켜기, 개발자 모드 토글)을 모두 시도했으나 포트는 열리지 않았다. 따라서 이번 변경은 APK 빌드/단위 테스트로만 검증되었고, WSA 화면 캡처는 확보하지 못했다. (사용자가 WSA ADB 브리지를 복구하면 `adb install -r app-debug.apk`로 즉시 배포 검증 가능.)
+
+## 2026-11-13 — PR #20/#21 vs 로컬 커밋 비교 후 장점만 선별 병합
+
+- 요청: 원격 저장소의 PR과 현재 로컬 커밋을 비교하고, 장점만 추출해 병합.
+- 비교 기준: `origin/main`(d0636be)에서 갈라진 로컬 7개 커밋(a8f5dcb까지, OffconAI 리브랜드·디자인 시스템·네이티브 Omni 음성 포함)과 열린 PR #20(`feat/chat-markdown-kv-tools`), PR #21(`feat/engine-update-banner`, #20 커밋을 포함한 상위 집합). PR 트리는 로컬보다 오래된 베이스라 UI/브랜드/카탈로그를 되돌리는 변경이 많아 통째로 merge하지 않고, 기능 단위로 선별 포팅했다.
+- PR에서 가져온 장점:
+  - **문서 RAG**: `document/` 8개 파일(DocumentIndex/Store/Chunker/TextExtractor/OfficeTextParser/PdfOcrExtractor/PdfOcrPolicy/HashedTextEmbedder). PDFBox-Android + MLKit OCR 의존성 추가, 청크 텍스트는 기존 ChatCrypto(AAD)로 암호화. 채팅 첨부 시트에서 문서 선택·라이브러리 토글·삭제, 설정에 인덱스 통계/초기화 추가.
+  - **KV 캐시 양자화**: `KvCacheQuantization`(F16/Q8_0/Q4_0), `GenerationSettings` 필드, 메모리 추정치에 `bytesPerElement` 반영, `LlamaContext` → `llama_jni.cpp`로 `type_k`/`type_v` 전달, 양자화 KV 실패 시 같은 컨텍스트의 F16 폴백 후보 추가.
+  - **OOM 보호 우회**: `ignoreMemoryLimits` 설정. 로드 시 추정/축소/거부를 건너뛰고, 워치독 시작과 critical 콜백도 비활성화.
+  - **도구 호출 방언**: `ToolCallTemplate`/`ToolCallTemplates`(Auto/Hermes/Llama3 JSON/Mistral/MiniCPM5/Plain JSON/Off), MiniCPM5 프롬프트 템플릿, McpToolProtocol의 방언별 파싱·드리프트 복구·`encodeCall`/`formatCallEcho`·방언 인지 `visibleText`. 로컬의 턴당 최대 4개 배치 실행·승인·미완료 턴 거부 안전장치는 유지(PR의 “첫 호출만” 회귀는 채택하지 않음).
+  - **저사양 토글**: `toolCallsEnabled`, `builtInSystemPromptEnabled`를 프롬프트/파싱 경로에 연결. API 서버(`ApiServerService.readServingSettings`)도 KV 양자화·OOM 우회·도구 호출·내장 프롬프트 설정을 prefs에서 동일하게 읽도록 전파.
+  - **모델 메타데이터 저장**: `LlmModel`의 `maxContextTokens`, `minDeviceRamMb`, `toolCallTemplate`을 `ModelStorageManager` JSON에 저장/복원하고, 카탈로그 기본값 병합 시 사용자/저장값 우선 규칙 적용.
+  - **아티팩트 카드**: 로컬 Markdown AST에 맞춘 `ArtifactExtractor`와 접이식/복사 가능한 `ArtifactCard`. 스트리밍 중에는 추출하지 않음.
+  - **업데이트 배너**: `UpdateChecker` + 채팅 상단 배너. 배너의 엔진 버전은 실제 빌드( llama.cpp v0.8.0 / LiteRT 0.17.0 )에 맞춰 표기.
+  - **음성 라우팅**: `AudioInputRouter`를 로컬 네이티브 Omni(`supportsNativeAudioInput`, llama.cpp) 기준으로 적응해 Voice 화면에 경로 라벨 표시. PR의 `WavWriter`와 LiteRT `Content.AudioFile` 직접 오디오 경로는 로컬 런타임에 대응 경로가 없어 가져오지 않음(죽은 코드 방지).
+  - PR 테스트를 로컬 API에 맞춰 이식: 문서 4종, KV 설정/메모리 추정, 도구 방언, 아티팩트, 업데이트 체커, 오디오 라우팅, 시스템 프롬프트 토글, API 서버 설정 전파.
+- 의도적으로 제외한 PR 변경(로컬 장점 보존):
+  - 앱 이름/문서를 “Local LLM”으로 되돌리는 브랜딩, 루트 프로젝트명/`:desktop` 제거, 버전 코드 22→21 다운그레이드.
+  - llama.cpp GPU offload 능력 확인 제거, 네이티브 Omni 오디오 경로 삭제, 구조화 `TemplateConversation` 경계 제거, Gemma4/Qwen3.5 템플릿 삭제, 로컬 카탈로그(LFM3/Qwen3.5/Gemma4) 축소.
+  - LiteRT 0.19.1/llama.cpp 서브모듈 범프는 로컬 네이티브 Omni API와의 호환 검증 없이 적용하지 않음.
+- 검증:
+  - `:app:compileDebugKotlin` 성공.
+  - `:app:testDebugUnitTest` 성공(241 tests, 0 failures). 기존 McpToolProtocol 배치/안전 테스트도 통과하도록 prose 공백·미완료 배치 동작을 보존.
+  - `:app:assembleDebug`(arm64-v8a/x86_64 CMake 포함) 성공, `:app:assembleDebugAndroidTest` 성공, `:app:lintDebug` 성공.
+- 참고: 사용자가 요청하지 않아 커밋/푸시는 하지 않았다. 기존 작업 트리의 미커밋 UI 변경 15개 파일은 그대로 유지되며, 이번 포팅은 그 위에 선택적으로 얹었다.
+
+## 2026-11-13 — WSA 실기기 직접 테스트 (신규 병합 빌드)
+
+- 사용자 요청("직접 사용하면서 테스트해봐 WSA로")에 따라 Windows Subsystem for Android(MagiskOnWSALocal, `D:\WSA\WSA_2407.40000.4.0_x64`)에 새 debug APK를 설치하고 UI/설정/RAG/추론 경로를 직접 조작했다.
+- WSA/ADB 복구:
+  - WsaClient가 초기에 `0xc0000005` 액세스 위반으로 죽어 있었고, `wsa-settings:developers`/설정 앱으로 개발자 모드를 껐다 켜 ADB 프록시(`127.0.0.1:58526`)를 다시 열었다.
+  - ADB가 `unauthorized`로 남아 WSA의 Windows 측 `#32770` 인증 대화상자를 UIAutomation으로 찾아 `SetWindowPos(HWND_TOPMOST)` 후 "이 컴퓨터에서 항상 허용" + "허용"을 클릭해 `device` 상태로 전환했다.
+  - `adb install -r app-debug.apk` 성공(versionCode 22/versionName 2.0.0, lastUpdate 21:10). 앱은 `com.localllm.android/.MainActivity`로 정상 실행됐고 크래시/ANR은 없었다.
+- UI/설정 검증:
+  - 설정 화면에서 새 카드 5종을 직접 확인: `KV 캐시 양자화 (llama.cpp)`, `OOM 보호 끄기`, `도구 호출 형식`, `도구 호출 끄기`, `내장 시스템 프롬프트 끄기`, `문서 라이브러리 (RAG)`.
+  - KV를 Q8_0로 변경 → `shared_prefs`에 `kv_cache_quantization=q8_0` 저장, OOM 우회 true 저장, 도구 형식 MiniCPM5 선택 시 `tool_call_template_lfm3-omni-2b-native-audio=minicpm5` 저장, 두 토글 false 저장을 모두 확인. 테스트 후 기본값(F16/OOM off/도구·프롬프트 on/Auto)으로 복구.
+- 문서 RAG end-to-end:
+  - `/sdcard/Download/offcon_rag_test.txt`를 push하고 앱 문서 선택기에서 선택 → "1개 청크를 인덱싱했습니다" 상태, `databases/local_llm_documents.db` 생성, `document_selection.xml`에 대화별 doc id 저장, 설정 문서 카드 "문서 1개 · 청크 1개" 확인.
+  - 영어 문서로 교체 후 질문 시 프롬프트 길이가 208→543/743 tokens로 증가해 RAG 문맥이 실제로 프롬프트에 주입되는 것을 확인.
+  - 테스트 문서/인덱스/선택 상태는 삭제하고 문서 카드 0개로 복구.
+- 추론 검증 및 한계:
+  - LFM3 Omni 2B + KV Q8_0 로드 성공, F16 재로드도 성공. `타입_k/타입_v` JNI 경로가 실제 로드에 문제없음을 확인.
+  - LFM3 Omni(F16)에서 실제 토큰 33개와 부분 답변(0.3 t/s, 6T)이 스트리밍되는 것을 확인.
+  - WSA CPU에서 543~743 토큰 프롬프트는 수 분간 PP가 끝나지 않아 완성된 RAG 답변까지는 도달하지 못했다. 프로세스는 6코어를 계속 사용해 행(hang)은 아니며, WSA CPU 성능 한계로 판단.
+  - 긴 생성 중 중지 후 다음 요청이 `BUSY_INFERENCE`로 거절되는 상태를 관찰했다. UI는 idle로 바뀌지만 네이티브 prompt 처리 루프가 stop 플래그를 즉시 확인하지 못해 추론 뮤텍스가 풀리지 않는 기존 경로 문제로 보인다(이번 병합 기능과 무관, 후속 수정 필요).
+  - 어시스턴트 아바타가 WSA에서 단색 사각형으로 렌더링되는 현상이 있었으나 이전 설치본에서도 동일해 WSA 그래픽 렌더링 이슈로 분류.
+  - 마이크/오디오 장치가 없어 네이티브 Omni 음성 입출력과 업데이트 배너 네트워크 표시는 실기기 검증하지 못했다.
+- 테스트 후 앱 설정/모델(LFM3 Omni)/문서 인덱스를 원상복구했고, 테스트 대화 메시지는 증거로 남겨두었다.
+
+

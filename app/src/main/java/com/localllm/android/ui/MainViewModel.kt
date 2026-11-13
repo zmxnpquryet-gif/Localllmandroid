@@ -9,6 +9,9 @@ import androidx.lifecycle.viewModelScope
 import com.localllm.android.data.ModelStorageManager
 import com.localllm.android.data.local.ChatDatabase
 import com.localllm.android.data.repository.ChatRepository
+import com.localllm.android.document.DocumentIndex
+import com.localllm.android.document.DocumentStats
+import com.localllm.android.document.DocumentSummary
 import com.localllm.android.engine.GgufMetadataDetector
 import com.localllm.android.engine.GenerationChunk
 import com.localllm.android.engine.HfSource
@@ -26,11 +29,16 @@ import com.localllm.android.model.ChatAttachment
 import com.localllm.android.model.ChatMessage
 import com.localllm.android.model.Conversation
 import com.localllm.android.model.GenerationSettings
+import com.localllm.android.model.KvCacheQuantization
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.MessageRole
 import com.localllm.android.model.ModelCatalog
 import com.localllm.android.model.ModelRuntimeType
 import com.localllm.android.model.PromptTemplateType
+import com.localllm.android.model.ToolCallTemplate
+import com.localllm.android.model.ToolCallTemplates
+import com.localllm.android.update.AppUpdateInfo
+import com.localllm.android.update.UpdateChecker
 import com.localllm.android.R
 import com.localllm.android.OffconAIApplication
 import com.localllm.android.memory.MemoryGuard
@@ -38,7 +46,9 @@ import com.localllm.android.memory.MemoryGuardStore
 import com.localllm.android.memory.MemorySnapshot
 import com.localllm.android.memory.MemoryWatchdog
 import com.localllm.android.voice.InteractiveVoiceState
+import com.localllm.android.voice.AudioInputRouter
 import com.localllm.android.voice.TtsEngineMode
+import com.localllm.android.voice.VoiceAudioDecision
 import com.localllm.android.voice.VoiceManager
 import com.localllm.android.audio.AndroidPcmInputSource
 import com.localllm.android.audio.AndroidPcmOutputSink
@@ -112,7 +122,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         GenerationSettings(
             hfToken = secrets.get(SecretPrefs.HF_TOKEN) ?: "",
             runtime = parseStoredRuntime(settingsPrefs.getString("runtime", null)),
-            themeColorName = settingsPrefs.getString("theme_color", "artistic") ?: "artistic",
+            themeColorName = settingsPrefs.getString("theme_color", "offcon") ?: "offcon",
             darkModePreference = settingsPrefs.getString("dark_mode", "system") ?: "system",
             temperature = settingsPrefs.getFloat("temperature", 0.7f),
             topP = settingsPrefs.getFloat("top_p", 0.9f),
@@ -123,11 +133,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             enableIndexingAcceleration = settingsPrefs.getBoolean("enable_indexing", true),
             enableGpuAcceleration = settingsPrefs.getBoolean("enable_gpu", true),
             gpuLayers = settingsPrefs.getInt("gpu_layers", 99),
+            kvCacheQuantization = KvCacheQuantization.fromId(
+                settingsPrefs.getString("kv_cache_quantization", null)
+            ),
+            ignoreMemoryLimits = settingsPrefs.getBoolean("ignore_memory_limits", false),
             showPerformanceMetrics = settingsPrefs.getBoolean("show_metrics", true),
             apiServerBindAddress = settingsPrefs.getString("api_server_bind_address", "127.0.0.1") ?: "127.0.0.1",
             apiServerRequireAuth = settingsPrefs.getBoolean("api_server_require_auth", true),
             languagePreference = settingsPrefs.getString("language_preference", "system") ?: "system",
             hfSource = settingsPrefs.getString("hf_source", "official") ?: "official",
+            toolCallsEnabled = settingsPrefs.getBoolean("tool_calls_enabled", true),
+            builtInSystemPromptEnabled = settingsPrefs.getBoolean("built_in_system_prompt_enabled", true),
             mcpServerUrl = settingsPrefs.getString("mcp_server_url", "") ?: "",
             isMcpEnabled = settingsPrefs.getBoolean("is_mcp_enabled", false)
         )
@@ -233,6 +249,118 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Prompt-ready rendering of the *actually connected* MCP tools. Null when none. */
     private val _mcpToolsContext = MutableStateFlow<String?>(null)
 
+    // ---- Document RAG ----
+    private val documentIndex = DocumentIndex(application)
+    private val documentSelectionPrefs = application.getSharedPreferences(
+        "document_selection",
+        android.content.Context.MODE_PRIVATE
+    )
+    private val _documentStats = MutableStateFlow(DocumentStats.EMPTY)
+    val documentStats: StateFlow<DocumentStats> = _documentStats.asStateFlow()
+
+    /** Files the user explicitly added to the current conversation (default: none). */
+    private val _activeDocumentIds = MutableStateFlow<Set<String>>(emptySet())
+    val activeDocumentIds: StateFlow<Set<String>> = _activeDocumentIds.asStateFlow()
+
+    /** Every indexed file, shown under "Add from library" in the attachment sheet. */
+    private val _documentLibrary = MutableStateFlow<List<DocumentSummary>>(emptyList())
+    val documentLibrary: StateFlow<List<DocumentSummary>> = _documentLibrary.asStateFlow()
+
+    // ---- App update banner ----
+    private val updatePrefs = application.getSharedPreferences(
+        "app_updates",
+        android.content.Context.MODE_PRIVATE
+    )
+    private val _appUpdate = MutableStateFlow<AppUpdateInfo?>(null)
+    val appUpdate: StateFlow<AppUpdateInfo?> = _appUpdate.asStateFlow()
+
+    // ---- Tool dialect / voice route ----
+    /** Dialect used to offer and parse tool calls for the active model. */
+    private val _activeToolTemplate = MutableStateFlow(ToolCallTemplate.NONE)
+    val activeToolTemplate: StateFlow<ToolCallTemplate> = _activeToolTemplate.asStateFlow()
+    private var mcpServerName: String = "MCP"
+
+    private val _voiceAudioDecision = MutableStateFlow<VoiceAudioDecision?>(null)
+    val voiceAudioDecision: StateFlow<VoiceAudioDecision?> = _voiceAudioDecision.asStateFlow()
+
+    private fun toolTemplatePrefKey(modelId: String) = "tool_call_template_$modelId"
+
+    /**
+     * Single entry point for activating a model, so the tool dialect and the tools
+     * block in the prompt always follow whatever is loaded.
+     */
+    private fun setActiveModel(model: LlmModel?) {
+        _activeModel.value = model
+        _activeToolTemplate.value = model?.let { active ->
+            ToolCallTemplates.resolve(
+                active,
+                settingsPrefs.getString(toolTemplatePrefKey(active.id), null)
+            )
+        } ?: ToolCallTemplate.NONE
+        _voiceAudioDecision.value = AudioInputRouter.route(model)
+        refreshMcpToolsContext()
+    }
+
+    /** User choice for the active model. AUTO clears the override. */
+    fun setToolCallTemplate(template: ToolCallTemplate) {
+        val model = _activeModel.value ?: return
+        val editor = settingsPrefs.edit()
+        if (template == ToolCallTemplate.AUTO) editor.remove(toolTemplatePrefKey(model.id))
+        else editor.putString(toolTemplatePrefKey(model.id), template.id)
+        editor.apply()
+        setActiveModel(model)
+    }
+
+    private fun refreshMcpToolsContext() {
+        val template = _activeToolTemplate.value
+        val tools = mcpClient.currentTools()
+        _mcpToolsContext.value = if (
+            template == ToolCallTemplate.NONE ||
+            !_settings.value.toolCallsEnabled ||
+            !_settings.value.isMcpEnabled ||
+            tools.isEmpty()
+        ) {
+            null
+        } else {
+            McpToolProtocol.buildToolsPrompt(mcpServerName, tools, template)
+        }
+    }
+
+    private fun selectionKey(conversationId: String) = "$SELECTION_KEY_PREFIX$conversationId"
+
+    private fun loadDocumentSelection(conversationId: String): Set<String> =
+        documentSelectionPrefs.getStringSet(selectionKey(conversationId), emptySet())
+            ?.toSet()
+            .orEmpty()
+
+    private fun persistDocumentSelection(conversationId: String, documentIds: Set<String>) {
+        documentSelectionPrefs.edit()
+            .putStringSet(selectionKey(conversationId), documentIds)
+            .apply()
+    }
+
+    /**
+     * One silent check per process. The release banner is optional chrome, so a
+     * network failure must not surface as an error.
+     */
+    private fun checkForAppUpdate() {
+        viewModelScope.launch {
+            val update = runCatching { UpdateChecker().latestRelease() }.getOrNull()
+                ?: return@launch
+            if (update.latestVersion == updatePrefs.getString(DISMISSED_UPDATE_KEY, null)) {
+                return@launch
+            }
+            _appUpdate.value = update
+        }
+    }
+
+    fun dismissAppUpdate() {
+        _appUpdate.value?.let { update ->
+            updatePrefs.edit().putString(DISMISSED_UPDATE_KEY, update.latestVersion).apply()
+        }
+        _appUpdate.value = null
+    }
+
     private var currentStreamJob: Job? = null
     private var lastVoiceInput: String? = null
     private var messageCollectionJob: Job? = null
@@ -249,21 +377,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ?: _models.value.firstOrNull { it.isDownloaded }
 
         if (restoredModel != null) {
-            _activeModel.value = restoredModel
+            setActiveModel(restoredModel)
             _settings.value = _settings.value.copy(
                 runtime = restoredModel.runtimeType,
                 enableMtp = if (restoredModel.supportsMtp) true else _settings.value.enableMtp
             )
             _engineStatusMessage.value = localizedString(R.string.vm_status_model_restored, restoredModel.name)
         } else {
-            _activeModel.value = null
+            setActiveModel(null)
             _engineStatusMessage.value = localizedString(R.string.vm_status_no_default_model)
         }
+
+        viewModelScope.launch {
+            _documentStats.value = documentIndex.stats()
+            _documentLibrary.value = documentIndex.documents()
+        }
+        checkForAppUpdate()
 
         // Memory protection: apply the degradation ladder accumulated by previous
         // abnormal runs (OOM kill / native crash mid-inference) before the first load.
         memoryGuard?.let { guard ->
-            if (guard.isEnabled() && guard.level() > 0) {
+            if (guard.isEnabled() && !_settings.value.ignoreMemoryLimits && guard.level() > 0) {
                 _settings.value = guard.applyLevel(_settings.value)
             }
             val report = OffconAIApplication.consumeStartupReport()
@@ -381,6 +515,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun setCurrentToPending(pending: Conversation) {
         pendingConversation = pending
         _currentConversationId.value = pending.id
+        _activeDocumentIds.value = emptySet()
         messageCollectionJob?.cancel()
         _messages.value = emptyList()
         messageCollectionJob = viewModelScope.launch {
@@ -425,6 +560,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_currentConversationId.value == conversationId && messageCollectionJob != null) return
         stopGeneration()
         _currentConversationId.value = conversationId
+        _activeDocumentIds.value = loadDocumentSelection(conversationId)
         messageCollectionJob?.cancel()
         messageCollectionJob = viewModelScope.launch {
             repository.getMessagesForConversation(conversationId).collect { msgList ->
@@ -476,6 +612,96 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _pendingAttachment.value = attachment
     }
 
+    /**
+     * Extracts, chunks and embeds a picked document, then keeps it for retrieval on
+     * later messages. The original URI is not stored: text is copied into the index,
+     * so a document deleted from the device remains searchable until the index is
+     * cleared, and no read permission is retained.
+     */
+    fun importDocument(uri: Uri, displayName: String) {
+        viewModelScope.launch {
+            _engineStatusMessage.value = localizedString(R.string.vm_doc_indexing, displayName)
+            val result = runCatching {
+                documentIndex.ingest(uri, displayName, _settings.value.languagePreference)
+            }
+            _documentStats.value = documentIndex.stats()
+            _documentLibrary.value = documentIndex.documents()
+            result.onSuccess { ingested ->
+                if (ingested.chunkCount > 0) enableDocumentForCurrentChat(ingested.documentId)
+            }
+            _engineStatusMessage.value = result.fold(
+                onSuccess = { ingested ->
+                    if (ingested.chunkCount == 0) {
+                        localizedString(R.string.vm_doc_empty, displayName)
+                    } else {
+                        localizedString(R.string.vm_doc_indexed, ingested.chunkCount, displayName)
+                    }
+                },
+                onFailure = { t ->
+                    localizedString(R.string.vm_doc_failed, displayName, t.localizedMessage ?: t.message ?: "")
+                }
+            )
+        }
+    }
+
+    /** Adds or removes a saved file for the current conversation only. */
+    fun toggleDocumentSelection(documentId: String) {
+        val conversationId = _currentConversationId.value ?: ensureConversationId()
+        val current = _activeDocumentIds.value
+        val updated = if (documentId in current) current - documentId else current + documentId
+        _activeDocumentIds.value = updated
+        persistDocumentSelection(conversationId, updated)
+    }
+
+    /**
+     * Deletes one saved file and removes it from every conversation's selection, so a
+     * stale id can never keep a deleted document referenced.
+     */
+    fun deleteIndexedDocument(documentId: String) {
+        val name = _documentLibrary.value.firstOrNull { it.id == documentId }?.name ?: "document"
+        viewModelScope.launch {
+            runCatching { documentIndex.deleteDocument(documentId) }
+            pruneDocumentFromSelections(documentId)
+            _documentLibrary.value = documentIndex.documents()
+            _documentStats.value = documentIndex.stats()
+            _engineStatusMessage.value = localizedString(R.string.vm_doc_deleted, name)
+        }
+    }
+
+    private fun pruneDocumentFromSelections(documentId: String) {
+        documentSelectionPrefs.all.forEach { (key, value) ->
+            if (key.startsWith(SELECTION_KEY_PREFIX) && value is Set<*>) {
+                val ids = value.mapNotNull { it as? String }.toSet()
+                if (documentId in ids) {
+                    documentSelectionPrefs.edit()
+                        .putStringSet(key, ids - documentId)
+                        .apply()
+                }
+            }
+        }
+        _activeDocumentIds.value = _activeDocumentIds.value - documentId
+    }
+
+    private fun enableDocumentForCurrentChat(documentId: String) {
+        // Importing is already an explicit choice for this chat, so the new file is
+        // included here; other conversations still start with nothing selected.
+        val conversationId = _currentConversationId.value ?: return
+        val updated = _activeDocumentIds.value + documentId
+        _activeDocumentIds.value = updated
+        persistDocumentSelection(conversationId, updated)
+    }
+
+    fun clearDocumentIndex() {
+        viewModelScope.launch {
+            runCatching { documentIndex.clear() }
+            documentSelectionPrefs.edit().clear().apply()
+            _activeDocumentIds.value = emptySet()
+            _documentLibrary.value = emptyList()
+            _documentStats.value = documentIndex.stats()
+            _engineStatusMessage.value = localizedString(R.string.vm_doc_cleared)
+        }
+    }
+
     fun selectModel(model: LlmModel) {
         if (!model.isDownloaded) {
             _engineStatusMessage.value = localizedString(R.string.vm_status_model_not_downloaded, model.name)
@@ -516,14 +742,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 if (llmEngine.isModelReady()) {
-                    _activeModel.value = model
+                    setActiveModel(model)
                     _modelLoadingProgress.value = 1.0f
                     _modelLoadingStage.value = localizedString(R.string.vm_stage_load_complete)
                     _engineStatusMessage.value = status
                     modelStorageManager.saveActiveModelId(model.id)
                     delay(400)
                 } else {
-                    _activeModel.value = null
+                    setActiveModel(null)
                     _modelLoadingProgress.value = 0f
                     _modelLoadingStage.value = localizedString(R.string.vm_stage_load_failed)
                     _engineStatusMessage.value = status
@@ -531,7 +757,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (t: Throwable) {
                 android.util.Log.e("MainViewModel", "Model loading error", t)
-                _activeModel.value = null
+                setActiveModel(null)
                 _modelLoadingProgress.value = 0f
                 _modelLoadingStage.value = localizedString(R.string.vm_stage_load_failed)
                 _engineStatusMessage.value = localizedString(R.string.vm_status_model_load_exception, t.localizedMessage ?: t.message)
@@ -553,7 +779,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (downloadedMatch != null) {
             selectModel(downloadedMatch)
         } else {
-            _activeModel.value = null
+            setActiveModel(null)
             viewModelScope.launch {
                 try {
                     llmEngine.loadModel(null, _settings.value)
@@ -612,8 +838,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putBoolean("enable_indexing", newSettings.enableIndexingAcceleration)
             putBoolean("enable_gpu", newSettings.enableGpuAcceleration)
             putInt("gpu_layers", newSettings.gpuLayers)
+            putString("kv_cache_quantization", newSettings.kvCacheQuantization.id)
+            putBoolean("ignore_memory_limits", newSettings.ignoreMemoryLimits)
             putString("runtime", newSettings.runtime.name)
             putBoolean("show_metrics", newSettings.showPerformanceMetrics)
+            putBoolean("tool_calls_enabled", newSettings.toolCallsEnabled)
+            putBoolean("built_in_system_prompt_enabled", newSettings.builtInSystemPromptEnabled)
             putString("api_server_bind_address", newSettings.apiServerBindAddress)
             putBoolean("api_server_require_auth", newSettings.apiServerRequireAuth)
             putString("language_preference", newSettings.languagePreference)
@@ -623,6 +853,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             apply()
         }
         if (newSettings.hfToken != previous.hfToken) secrets.put(SecretPrefs.HF_TOKEN, newSettings.hfToken)
+        if (previous.toolCallsEnabled != newSettings.toolCallsEnabled ||
+            previous.isMcpEnabled != newSettings.isMcpEnabled
+        ) {
+            refreshMcpToolsContext()
+        }
         // Re-enabling GPU is an explicit retry: forget the remembered driver failure
         // so LiteRT offers the GPU backend again.
         if (!previous.enableGpuAcceleration && newSettings.enableGpuAcceleration) {
@@ -634,7 +869,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val needsReload = previous.runtime != newSettings.runtime ||
                 previous.contextWindow != newSettings.contextWindow ||
                 previous.enableGpuAcceleration != newSettings.enableGpuAcceleration ||
-                previous.gpuLayers != newSettings.gpuLayers
+                previous.gpuLayers != newSettings.gpuLayers ||
+                previous.kvCacheQuantization != newSettings.kvCacheQuantization ||
+                previous.ignoreMemoryLimits != newSettings.ignoreMemoryLimits
         if (!needsReload) return
         viewModelScope.launch {
             try {
@@ -779,16 +1016,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (tokenWithheld) token = null
             val result = mcpClient.connectServer(url, token)
             if (result.isSuccess) {
+                mcpServerName = result.serverName
                 _mcpTools.value = result.tools
-                _mcpToolsContext.value = McpToolProtocol.buildToolsPrompt(result.serverName, result.tools)
+                refreshMcpToolsContext()
                 settingsPrefs.edit().putString("mcp_last_host", host).apply()
                 _mcpTokenSaved.value = !secrets.get(SecretPrefs.MCP_TOKEN).isNullOrBlank()
                 _mcpStatusText.value = localizedString(R.string.vm_mcp_connected, result.serverName, result.latencyMs, result.tools.size) +
                     if (tokenWithheld) " " + localizedString(R.string.settings_mcp_token_not_sent) else ""
             } else {
                 mcpClient.disconnect()
+                mcpServerName = "MCP"
                 _mcpTools.value = emptyList()
-                _mcpToolsContext.value = null
+                refreshMcpToolsContext()
                 _mcpStatusText.value = localizedString(R.string.vm_mcp_failed, result.message)
             }
             _settings.value = _settings.value.copy(
@@ -799,6 +1038,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .putString("mcp_server_url", url)
                 .putBoolean("is_mcp_enabled", result.isSuccess)
                 .apply()
+            refreshMcpToolsContext()
         }
     }
 
@@ -933,7 +1173,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (nextDownloaded != null) {
                 selectModel(nextDownloaded)
             } else {
-                _activeModel.value = null
+                setActiveModel(null)
                 modelStorageManager.saveActiveModelId(null)
                 viewModelScope.launch {
                     llmEngine.loadModel(null, _settings.value)
@@ -957,7 +1197,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _activeModel.value?.let { active ->
             if (active.id == modelId) {
                 val updated = _models.value.first { it.id == modelId }
-                _activeModel.value = updated
+                setActiveModel(updated)
                 _engineStatusMessage.value = localizedString(
                     R.string.vm_status_vision_toggle,
                     updated.name,
@@ -981,7 +1221,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _activeModel.value?.let { active ->
             if (active.id == modelId) {
                 val updated = _models.value.first { it.id == modelId }
-                _activeModel.value = updated
+                setActiveModel(updated)
                 _engineStatusMessage.value = localizedString(
                     R.string.vm_status_drafter_toggle,
                     updated.name,
@@ -1225,6 +1465,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isStreaming = true
             )
             val history = currentList.takeLast(6).map { toHistoryPair(it) }
+            // One retrieval per turn, reused by every tool round: the user's question
+            // does not change between rounds, so neither should the excerpts.
+            val documentContext = runCatching {
+                documentIndex.buildContext(trimmed, _activeDocumentIds.value)
+            }.getOrNull()
 
             val previousJob = currentStreamJob
             previousJob?.cancel()
@@ -1235,7 +1480,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 beginInferenceGuard()
                 // Tool use only when MCP is on AND the server really exposes tools: without
                 // the tools block in the prompt the model has nothing to call.
-                val toolsActive = _settings.value.isMcpEnabled && mcpClient.currentTools().isNotEmpty()
+                val toolTemplate = _activeToolTemplate.value
+                val toolsActive = _settings.value.isMcpEnabled &&
+                    _settings.value.toolCallsEnabled &&
+                    toolTemplate != ToolCallTemplate.NONE &&
+                    mcpClient.currentTools().isNotEmpty()
                 var turnPlaceholder = streamPlaceholder
                 var turnPrompt = trimmed
                 var turnHistory = history
@@ -1253,12 +1502,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             history = turnHistory,
                             settings = _settings.value,
                             attachment = turnAttachment,
-                            mcpToolsContext = if (toolsActive) _mcpToolsContext.value else null
+                            mcpToolsContext = if (toolsActive) _mcpToolsContext.value else null,
+                            documentContext = documentContext
                         ).collect { chunk ->
                             turnText = chunk.currentContentText
                             turnReasoning = chunk.currentReasoningText.ifBlank { null }
                             // While a tool block is streaming, show only the prose before it.
-                            val shown = if (toolsActive) McpToolProtocol.visibleTextAll(turnText) else turnText
+                            val shown = if (toolsActive) {
+                                McpToolProtocol.visibleText(turnText, toolTemplate)
+                            } else turnText
                             val pendingMsg = turnPlaceholder.copy(
                                 content = shown,
                                 reasoning = turnReasoning,
@@ -1276,13 +1528,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
 
                         val batch = if (toolsActive && round < McpToolProtocol.MAX_TOOL_ROUNDS) {
-                            McpToolProtocol.parseBatch(turnText, mcpClient.currentTools())
+                            McpToolProtocol.parseBatch(
+                                text = turnText,
+                                available = mcpClient.currentTools(),
+                                template = toolTemplate
+                            )
                         } else {
                             ToolCallBatch(emptyList(), turnText)
                         }
 
                         // Persist this assistant turn (prose only when it carried a tool block).
-                        val savedContent = McpToolProtocol.visibleTextAll(turnText)
+                        val savedContent = McpToolProtocol.visibleText(turnText, toolTemplate)
                             .ifBlank { if (batch.hasWork) "" else turnText }
                         val savedAssistant = (_streamingMessage.value ?: turnPlaceholder).copy(
                             content = savedContent,
@@ -1352,7 +1608,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             }
                             val toolText = McpToolProtocol.formatExecutions(executions)
-                            val callEcho = batch.calls.joinToString("\n", transform = McpToolProtocol::encodeCall)
+                            val callEcho = batch.calls.joinToString(
+                                "\n",
+                                transform = { McpToolProtocol.encodeCall(it, toolTemplate) }
+                            )
                             turnHistory = (turnHistory + (MessageRole.USER.name to turnPrompt) +
                                 (MessageRole.ASSISTANT.name to callEcho)).takeLast(8)
                             turnPrompt = toolText
@@ -1446,7 +1705,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             gpuLayers = current.gpuLayers,
             gpuAcceleration = current.enableGpuAcceleration
         )
-        memoryWatchdog.start()
+        // The user asked to run the configured load as-is; the watchdog must not
+        // override that choice by stopping a generation the OS may well survive.
+        if (!current.ignoreMemoryLimits) memoryWatchdog.start()
     }
 
     private fun endInferenceGuard() {
@@ -1460,6 +1721,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * the OS kill the app with no chance to write anything down.
      */
     private fun onMemoryCritical(snapshot: MemorySnapshot) {
+        if (_settings.value.ignoreMemoryLimits) return
         android.util.Log.w(
             "MainViewModel",
             "Critical memory during inference: avail=${snapshot.availMb}MB total=${snapshot.totalMb}MB low=${snapshot.lowMemory}"
@@ -2131,5 +2393,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         /** Guards the encrypted DB and prompt builder against multi-megabyte pastes. */
         const val MAX_USER_MESSAGE_CHARS = 32_768
+
+        const val DISMISSED_UPDATE_KEY = "dismissed_update_version"
+        const val SELECTION_KEY_PREFIX = "doc_selection_"
     }
 }

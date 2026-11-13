@@ -104,4 +104,20 @@ class ApiServerServicePrefsTest {
         prefs.edit().putString("runtime", "NOT_A_RUNTIME").apply()
         assertEquals(ModelRuntimeType.LLAMA_CPP, ApiServerService.readServingSettings(prefs).runtime)
     }
+
+    @Test
+    fun `serving settings mirror memory and prompt toggles`() {
+        val prefs = prefs()
+        prefs.edit()
+            .putString("kv_cache_quantization", "q8_0")
+            .putBoolean("ignore_memory_limits", true)
+            .putBoolean("tool_calls_enabled", false)
+            .putBoolean("built_in_system_prompt_enabled", false)
+            .apply()
+        val s = ApiServerService.readServingSettings(prefs)
+        assertEquals(com.localllm.android.model.KvCacheQuantization.Q8_0, s.kvCacheQuantization)
+        assertTrue(s.ignoreMemoryLimits)
+        assertFalse(s.toolCallsEnabled)
+        assertFalse(s.builtInSystemPromptEnabled)
+    }
 }

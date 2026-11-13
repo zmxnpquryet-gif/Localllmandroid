@@ -197,4 +197,59 @@ class PromptFormatterTest {
         assertTrue(prompt.contains("[image attachment]"))
         assertFalse(prompt.contains("/home/private/image.png"))
     }
+
+    @Test
+    fun `MiniCPM5 uses its own empty think block and turn markers`() {
+        val prompt = PromptFormatter.formatPrompt(
+            templateType = PromptTemplateType.MINICPM5,
+            templateJsonPath = null,
+            systemPrompt = "SYS",
+            history = listOf("user" to "prev", "assistant" to "answer"),
+            userPrompt = "now",
+            toolsContext = null,
+            supportsReasoning = false,
+            includeBuiltInSystemPrompt = false
+        )
+
+        assertTrue(prompt.startsWith("<|im_start|>system\nSYS<|im_end|>\n"))
+        assertTrue(prompt.contains("<|im_start|>user\nprev<|im_end|>\n"))
+        assertTrue(prompt.contains("<|im_start|>assistant\n<think>\n\n</think>\n\nanswer<|im_end|>\n"))
+        assertTrue(prompt.contains("<|im_start|>user\nnow<|im_end|>\n"))
+        assertTrue(prompt.endsWith("<|im_start|>assistant\n<think>\n\n</think>\n\n"))
+    }
+
+    @Test
+    fun `MiniCPM5 leaves the think block open when reasoning is enabled`() {
+        val prompt = PromptFormatter.formatPrompt(
+            templateType = PromptTemplateType.MINICPM5,
+            templateJsonPath = null,
+            systemPrompt = "",
+            history = emptyList(),
+            userPrompt = "hi",
+            toolsContext = null,
+            supportsReasoning = true
+        )
+
+        assertTrue(prompt.endsWith("<|im_start|>assistant\n<think>"))
+    }
+
+    @Test
+    fun `document excerpts are injected into the system instruction before the user turn`() {
+        val prompt = PromptFormatter.formatPrompt(
+            templateType = PromptTemplateType.CHATML,
+            templateJsonPath = null,
+            systemPrompt = "Be brief.",
+            history = emptyList(),
+            userPrompt = "What was the revenue?",
+            toolsContext = "tool block",
+            supportsReasoning = false,
+            documentContext = "[1] report.xlsx (1/2)\nRevenue | 42"
+        )
+
+        assertTrue(prompt.contains("Be brief."))
+        assertTrue(prompt.contains("report.xlsx"))
+        assertTrue(prompt.contains("Revenue | 42"))
+        assertTrue(prompt.contains("tool block"))
+        assertTrue(prompt.indexOf("report.xlsx") < prompt.indexOf("<|im_start|>user"))
+    }
 }

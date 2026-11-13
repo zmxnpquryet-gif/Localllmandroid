@@ -16,12 +16,28 @@ data class GenerationSettings(
     val enableIndexingAcceleration: Boolean = true, // KV-cache / Prompt cache
     val enableGpuAcceleration: Boolean = true, // Hardware GPU/NPU acceleration
     val gpuLayers: Int = 99, // Offloaded GPU layers for llama.cpp (0 = CPU only, 99 = full offload)
+    val kvCacheQuantization: KvCacheQuantization = KvCacheQuantization.F16, // llama.cpp KV-cache precision
+    /**
+     * Load exactly what is configured: no footprint refusal, no automatic context
+     * reduction, no reduced-context fallback candidates, no watchdog stop.
+     */
+    val ignoreMemoryLimits: Boolean = false,
     val apiServerBindAddress: String = "127.0.0.1", // "127.0.0.1" (secure local) or "0.0.0.0" (LAN)
     val apiServerRequireAuth: Boolean = true, // Require Bearer API key for OllamaApiServer
     val mcpServerUrl: String = "",
     val isMcpEnabled: Boolean = false,
+    /**
+     * Tool calling. Off skips the tools block in the prompt and never parses calls:
+     * a low-end device saves the prefill that the tool schemas would cost.
+     */
+    val toolCallsEnabled: Boolean = true,
+    /**
+     * The app's bundled instruction prompt. Off sends no system message unless tools
+     * or reasoning instructions need one, which cuts prefill on weak hardware.
+     */
+    val builtInSystemPromptEnabled: Boolean = true,
     val darkModePreference: String = "dark", // "system", "dark", "light"
-    val themeColorName: String = "artistic", // "artistic", "liquid", "chatgpt", "cyber", "obsidian", "amber", "frost"
+    val themeColorName: String = "offcon", // "offcon", "artistic", "liquid", "chatgpt", "cyber", "obsidian", "amber", "frost"
     val languagePreference: String = "system", // "system", "en", "ko", "zh"
     val hfSource: String = "official", // "official", "mirror" — 模型下载源
     val hfToken: String = "" // Optional Hugging Face Access Token for gated/private models

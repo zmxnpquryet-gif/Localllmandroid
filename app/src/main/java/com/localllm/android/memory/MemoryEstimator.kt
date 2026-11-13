@@ -24,7 +24,7 @@ object MemoryEstimator {
         val nLayers: Int,
         val kvHeads: Int,
         val headDim: Int,
-        val kvBytesPerElement: Long = KV_BYTES_PER_ELEMENT
+        val kvBytesPerElement: Double = KV_BYTES_PER_ELEMENT.toDouble()
     ) {
         val totalBytes: Long get() = fileBytes + kvBytes + overheadBytes
 
@@ -40,7 +40,11 @@ object MemoryEstimator {
         val reason: String
     )
 
-    fun estimate(file: File, contextWindow: Int): Estimate? {
+    fun estimate(
+        file: File,
+        contextWindow: Int,
+        bytesPerElement: Double = KV_BYTES_PER_ELEMENT.toDouble()
+    ): Estimate? {
         return try {
             val size = file.length()
             if (size <= 0) return null
@@ -55,12 +59,13 @@ object MemoryEstimator {
                 if (nLayers <= 0 || kvHeads <= 0 || headDim <= 0) return null
                 Estimate(
                     fileBytes = size,
-                    kvBytes = kvBytes(nLayers, kvHeads, headDim, contextWindow),
+                    kvBytes = kvBytes(nLayers, kvHeads, headDim, contextWindow, bytesPerElement),
                     overheadBytes = OVERHEAD_BYTES,
                     contextWindow = contextWindow,
                     nLayers = nLayers,
                     kvHeads = kvHeads,
-                    headDim = headDim
+                    headDim = headDim,
+                    kvBytesPerElement = bytesPerElement
                 )
             } finally {
                 reader.close()
@@ -76,9 +81,9 @@ object MemoryEstimator {
         kvHeads: Int,
         headDim: Int,
         contextWindow: Int,
-        bytesPerElement: Long = KV_BYTES_PER_ELEMENT
+        bytesPerElement: Double = KV_BYTES_PER_ELEMENT.toDouble()
     ): Long {
-        return 2L * nLayers * kvHeads * headDim * contextWindow * bytesPerElement
+        return (2.0 * nLayers * kvHeads * headDim * contextWindow * bytesPerElement).toLong()
     }
 
     /**

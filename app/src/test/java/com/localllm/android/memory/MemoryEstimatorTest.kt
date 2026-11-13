@@ -1,5 +1,6 @@
 package com.localllm.android.memory
 
+import com.localllm.android.model.KvCacheQuantization
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -47,6 +48,41 @@ class MemoryEstimatorTest {
         assertEquals(expected, MemoryEstimator.kvBytes(32, 8, 128, 4096))
         assertEquals(expected / 2, MemoryEstimator.kvBytes(32, 8, 128, 2048))
         assertEquals(0L, MemoryEstimator.kvBytes(32, 8, 128, 0))
+    }
+
+    @Test
+    fun `kv quantization scales the cache estimate`() {
+        val f16 = MemoryEstimator.kvBytes(32, 8, 128, 4096, KvCacheQuantization.F16.bytesPerElement)
+        val q8 = MemoryEstimator.kvBytes(32, 8, 128, 4096, KvCacheQuantization.Q8_0.bytesPerElement)
+        val q4 = MemoryEstimator.kvBytes(32, 8, 128, 4096, KvCacheQuantization.Q4_0.bytesPerElement)
+        assertEquals(536_870_912L, f16)
+        assertEquals(285_212_672L, q8)
+        assertEquals(150_994_944L, q4)
+    }
+
+    @Test
+    fun `a quantized cache can keep the configured context`() {
+        fun decisionFor(bytesPerElement: Double) = MemoryEstimator.decide(
+            MemoryEstimator.Estimate(
+                fileBytes = 3_000L * MemorySnapshot.MB,
+                kvBytes = MemoryEstimator.kvBytes(128, 8, 128, 4096, bytesPerElement),
+                overheadBytes = 96L * MemorySnapshot.MB,
+                contextWindow = 4096,
+                nLayers = 128,
+                kvHeads = 8,
+                headDim = 128,
+                kvBytesPerElement = bytesPerElement
+            ),
+            snapshot(availMb = 6_000),
+            4096
+        )
+
+        // F16 KV on the same weights needs the context shrunk...
+        assertEquals(MemoryEstimator.Status.REDUCED, decisionFor(KvCacheQuantization.F16.bytesPerElement).status)
+        // ...while a Q8_0 cache keeps the configured 4096 tokens.
+        val quantized = decisionFor(KvCacheQuantization.Q8_0.bytesPerElement)
+        assertEquals(MemoryEstimator.Status.OK, quantized.status)
+        assertEquals(4096, quantized.effectiveContextWindow)
     }
 
     @Test

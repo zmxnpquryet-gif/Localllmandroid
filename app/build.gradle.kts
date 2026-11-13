@@ -176,6 +176,12 @@ dependencies {
     exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
     exclude(group = "org.jetbrains.kotlin", module = "kotlin-reflect")
   }
+  // PDF text extraction for document RAG (no native code, no network).
+  implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+  // On-device OCR for scanned PDFs: bundled models, works without Play Services.
+  implementation("com.google.mlkit:text-recognition:16.0.1")
+  implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+  implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   // On-device speech recognition (sherpa-onnx, official AAR — no Maven artifact exists)
