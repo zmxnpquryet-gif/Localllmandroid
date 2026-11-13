@@ -434,63 +434,35 @@ fun ChatScreen(
                         )
                     }
 
-                    // Engine Status Pill Banner
-                if (!engineStatus.isNullOrBlank()) {
+                    // Engine status: one quiet status line, a card only when something is wrong.
+                    if (!engineStatus.isNullOrBlank()) {
                         val isErrorStatus = isEngineErrorStatus(engineStatus)
-
-                        val bannerTextColor = if (isErrorStatus) {
-                            GlassTheme.colors.onErrorContainer
-                        } else {
-                            GlassTheme.colors.onSurfaceVariant
-                        }
-
-                        val bannerIcon = if (isErrorStatus) GIcons.ErrorOutline else GIcons.Info
-                        val bannerIconTint = if (isErrorStatus) GlassTheme.colors.error else GlassTheme.colors.primary
-
-                        Box(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                                .background(
+                                    if (isErrorStatus) GlassTheme.colors.errorContainer.copy(alpha = 0.3f)
+                                    else Color.Transparent
+                                )
+                                .clickable { showStatusDetailDialog = true }
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            GCard(cornerRadius = 16.dp) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(
-                                            if (isErrorStatus) GlassTheme.colors.errorContainer.copy(alpha = 0.35f)
-                                            else Color.Transparent
-                                        )
-                                        .clickable { showStatusDetailDialog = true }
-                                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        GIcon(
-                                            imageVector = bannerIcon,
-                                            contentDescription = null,
-                                            tint = bannerIconTint,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        GText(
-                                            text = engineStatus ?: "",
-                                            fontSize = 12.sp,
-                                            color = GlassTheme.colors.onSurface,
-                                            maxLines = 3,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        GText(
-                                            text = stringResource(R.string.chat_status_details_short),
-                                            fontSize = 10.sp,
-                                            color = bannerIconTint,
-                                            style = GlassTheme.type.labelSmall
-                                        )
-                                    }
-                                }
-                            }
+                            GText(
+                                text = engineStatus ?: "",
+                                style = GlassTheme.type.bodySmall,
+                                color = if (isErrorStatus) GlassTheme.colors.onErrorContainer
+                                else GlassTheme.colors.onSurfaceVariant,
+                                maxLines = 2,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            GText(
+                                text = stringResource(R.string.chat_status_details_short),
+                                style = GlassTheme.type.labelSmall,
+                                color = if (isErrorStatus) GlassTheme.colors.error
+                                else GlassTheme.colors.onSurfaceVariant
+                            )
                         }
                     }
 
@@ -584,9 +556,14 @@ fun ChatScreen(
                                 item {
                                     EmptyChatPlaceholder(
                                         activeModel = activeModel,
+                                        contextWindow = settings.contextWindow,
                                         onOpenModelManager = { viewModel.navigateTo(AppScreen.MODELS) },
                                         onSampleClick = { sampleText ->
-                                            viewModel.sendMessage(sampleText)
+                                            if (activeModel == null) {
+                                                viewModel.navigateTo(AppScreen.MODELS)
+                                            } else {
+                                                viewModel.sendMessage(sampleText)
+                                            }
                                         }
                                     )
                                 }
@@ -763,144 +740,145 @@ private fun JumpToLatestButton(onClick: () -> Unit) {
 @Composable
 private fun EmptyChatPlaceholder(
     activeModel: LlmModel?,
+    contextWindow: Int,
     onOpenModelManager: () -> Unit,
     onSampleClick: (String) -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .padding(top = 64.dp, bottom = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 24.dp)
+            .padding(top = 40.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        OffconMark(
-            modifier = Modifier.size(44.dp),
-            contentDescription = "OffconAI"
-        )
-
-        Spacer(modifier = Modifier.height(22.dp))
-
-        GText(
-            text = "무엇이든 함께해볼까요?",
-            style = androidx.compose.ui.text.TextStyle(
-                fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                fontSize = 26.sp,
-                lineHeight = 34.sp,
-                letterSpacing = (-0.5).sp,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            ),
-            color = GlassTheme.colors.onBackground,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        GText(
-            text = "모델은 기기 안에서 실행되고 대화는 암호화되어 저장됩니다",
-            style = GlassTheme.type.bodyMedium,
-            color = GlassTheme.colors.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        if (activeModel == null) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(GlassTheme.colors.surface)
-                    .clickable { onOpenModelManager() }
-                    .padding(horizontal = 18.dp, vertical = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    GIcon(
-                        imageVector = GIcons.CloudDownload,
-                        contentDescription = null,
-                        tint = GlassTheme.colors.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        GText(
-                            text = "모델 선택 및 다운로드",
-                            style = GlassTheme.type.titleSmall,
-                            color = GlassTheme.colors.onSurface
-                        )
-                        GText(
-                            text = "시작하려면 로컬 모델이 필요합니다",
-                            style = GlassTheme.type.labelSmall,
-                            color = GlassTheme.colors.onSurfaceVariant
-                        )
-                    }
-                }
-                GIcon(
-                    imageVector = GIcons.ArrowForward,
-                    contentDescription = null,
-                    tint = GlassTheme.colors.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            Spacer(modifier = Modifier.height(20.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OffconMark(
+                modifier = Modifier.size(28.dp),
+                contentDescription = "OffconAI"
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            GText(
+                text = "OffconAI",
+                style = GlassTheme.type.titleSmall,
+                color = GlassTheme.colors.onBackground
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            GText(
+                text = "local",
+                style = GlassTheme.type.labelSmall.copy(
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                ),
+                color = GlassTheme.colors.onSurfaceVariant
+            )
         }
 
-        val suggestions = listOf(
-            Triple("파이썬으로 Hello World 출력하기", GIcons.Description, "코드 작성"),
-            Triple("오늘 저녁 메뉴 추천해줘", GIcons.Chat, "일상 대화"),
-            Triple("재미있는 사실 하나 알려줘", GIcons.Info, "지식 탐색")
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            GText(
+                text = stringResource(R.string.chat_empty_title),
+                style = GlassTheme.type.headlineMedium.copy(fontSize = 24.sp, lineHeight = 32.sp),
+                color = GlassTheme.colors.onBackground
+            )
+            GText(
+                text = stringResource(R.string.chat_empty_body),
+                style = GlassTheme.type.bodyMedium,
+                color = GlassTheme.colors.onSurfaceVariant
+            )
+        }
 
-        suggestions.forEach { (prompt, icon, category) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(GlassTheme.colors.surface)
-                    .clickable { onSampleClick(prompt) }
-                    .padding(horizontal = 16.dp, vertical = 15.dp),
-                verticalAlignment = Alignment.CenterVertically
+        // The one instrument moment: what will run, on which runtime, at what context.
+        GCard(
+            cornerRadius = 14.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(11.dp))
-                        .background(GlassTheme.colors.secondary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    GIcon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = GlassTheme.colors.primary,
-                        modifier = Modifier.size(18.dp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(
+                                if (activeModel != null) GlassTheme.colors.tertiary
+                                else GlassTheme.colors.onSurfaceVariant
+                            )
                     )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
+                    Spacer(modifier = Modifier.width(8.dp))
                     GText(
-                        text = prompt,
-                        style = GlassTheme.type.bodyMedium.copy(
-                            fontSize = 15.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-                        ),
-                        color = GlassTheme.colors.onSurface
-                    )
-                    GText(
-                        text = category,
+                        text = stringResource(R.string.chat_empty_engine),
                         style = GlassTheme.type.labelSmall,
                         color = GlassTheme.colors.onSurfaceVariant
                     )
                 }
-                GIcon(
-                    imageVector = GIcons.ArrowForward,
-                    contentDescription = null,
-                    tint = GlassTheme.colors.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp)
+                GText(
+                    text = activeModel?.name ?: stringResource(R.string.chat_empty_model_required),
+                    style = GlassTheme.type.titleSmall,
+                    color = GlassTheme.colors.onSurface
                 )
+                if (activeModel != null) {
+                    GText(
+                        text = "${activeModel.runtimeBadge} · ${activeModel.quantization} · ${activeModel.displaySize} · ${contextWindow} ctx",
+                        style = GlassTheme.type.labelSmall.copy(
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                        ),
+                        color = GlassTheme.colors.onSurfaceVariant
+                    )
+                } else {
+                    GTextButton(onClick = onOpenModelManager) {
+                        GText(
+                            text = stringResource(R.string.chat_model_manage),
+                            style = GlassTheme.type.labelMedium,
+                            color = GlassTheme.colors.primary
+                        )
+                    }
+                }
             }
         }
+
+        Column {
+            val suggestions = listOf(
+                Triple(stringResource(R.string.chat_empty_suggest_docs), GIcons.Description, stringResource(R.string.chat_empty_suggest_docs)),
+                Triple(stringResource(R.string.chat_empty_suggest_models), GIcons.Memory, stringResource(R.string.chat_empty_suggest_models)),
+                Triple(stringResource(R.string.chat_empty_suggest_api), GIcons.Dns, stringResource(R.string.chat_empty_suggest_api))
+            )
+            suggestions.forEachIndexed { index, (label, icon, prompt) ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onSampleClick(prompt) }
+                        .padding(horizontal = 4.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GIcon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = GlassTheme.colors.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    GText(
+                        text = label,
+                        style = GlassTheme.type.bodyMedium,
+                        color = GlassTheme.colors.onSurface
+                    )
+                }
+                if (index < suggestions.lastIndex) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(GlassTheme.colors.outline)
+                    )
+                }
+            }
+        }
+
+        GText(
+            text = stringResource(R.string.chat_empty_footer),
+            style = GlassTheme.type.labelSmall,
+            color = GlassTheme.colors.onSurfaceVariant
+        )
     }
 }

@@ -20,8 +20,8 @@ import androidx.compose.ui.semantics.semantics
 fun OffconMark(
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
-    backgroundColor: Color = GlassTheme.colors.primary,
-    markColor: Color = GlassTheme.colors.onPrimary
+    backgroundColor: Color = Color.Transparent,
+    markColor: Color = GlassTheme.colors.primary
 ) {
     val accessibleModifier = if (contentDescription == null) {
         modifier
@@ -31,10 +31,12 @@ fun OffconMark(
 
     Canvas(accessibleModifier) {
         val extent = size.minDimension
-        drawRoundRect(
-            color = backgroundColor,
-            cornerRadius = CornerRadius(extent * 0.28f)
-        )
+        if (backgroundColor != Color.Transparent) {
+            drawRoundRect(
+                color = backgroundColor,
+                cornerRadius = CornerRadius(extent * 0.28f)
+            )
+        }
 
         val stroke = extent * 0.10f
         val loop = Path().apply {

@@ -1023,22 +1023,23 @@ private fun SettingsCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(GlassTheme.colors.surface)
-                        .padding(16.dp)
+            .border(1.dp, GlassTheme.colors.outline, RoundedCornerShape(14.dp))
+            .padding(16.dp)
     ) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GIcon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = Color(0xFF687CFF),
+                    tint = GlassTheme.colors.onSurfaceVariant,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 GText(
                     text = title,
-                    style = GlassTheme.type.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                    style = GlassTheme.type.titleMedium,
                     color = GlassTheme.colors.onSurface
                 )
             }

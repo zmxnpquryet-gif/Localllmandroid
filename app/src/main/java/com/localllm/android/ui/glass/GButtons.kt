@@ -45,19 +45,11 @@ fun GButton(
     Row(
         modifier = modifier
             .alpha(if (enabled) 1f else 0.45f)
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        bg.copy(alpha = if (pressed) 0.75f else 1f),
-                        bg.copy(alpha = if (pressed) 0.65f else 0.88f)
-                    )
-                )
-            )
-            .border(1.dp, glassHighlight(0.25f), RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg.copy(alpha = if (pressed) 0.86f else 1f))
             .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 12.dp)
-            .defaultMinSize(minHeight = 24.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .defaultMinSize(minHeight = 44.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
         content = {
@@ -81,9 +73,9 @@ fun GOutlineButton(
     Row(
         modifier = modifier
             .alpha(if (enabled) 1f else 0.45f)
-            .clip(RoundedCornerShape(14.dp))
-            .background(GlassTheme.colors.surface.copy(alpha = if (pressed) 0.7f else 0.45f))
-            .border(1.dp, GlassTheme.colors.primary.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (pressed) GlassTheme.colors.surfaceVariant else GlassTheme.colors.surface)
+            .border(1.dp, GlassTheme.colors.outline, RoundedCornerShape(12.dp))
             .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.Center,

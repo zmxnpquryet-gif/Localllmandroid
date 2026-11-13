@@ -84,26 +84,15 @@ fun GCard(
         modifier = modifier
             .clip(shape)
             .background(containerColor ?: GlassTheme.colors.surface)
-            .then(
-                if (isDark) Modifier.border(1.dp, GlassTheme.colors.outline, shape)
-                else Modifier
-            ),
+            .border(1.dp, GlassTheme.colors.outline.copy(alpha = if (isDark) 1f else 0.9f), shape),
         content = content
     )
 }
 
-/** Full-screen backdrop. Flat canvas with a single restrained top glow. */
+/** Full-screen backdrop. Flat canvas, no color wash. */
 @Composable
 fun LiquidBackground(modifier: Modifier = Modifier) {
-    val scheme = GlassTheme.colors
-    Box(modifier = modifier.fillMaxSize().background(scheme.background)) {
-        Box(modifier = Modifier.fillMaxSize().background(
-            Brush.radialGradient(
-                colors = listOf(scheme.primary.copy(alpha = 0.05f), Color.Transparent),
-                radius = 1100f
-            )
-        ))
-    }
+    Box(modifier = modifier.fillMaxSize().background(GlassTheme.colors.background))
 }
 
 @Composable

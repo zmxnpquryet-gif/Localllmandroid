@@ -53,6 +53,12 @@ fun ChatMessageItem(
     val isUser = message.role == MessageRole.USER
     val copiedText = stringResource(R.string.copied)
 
+    // A stopped turn can persist an empty assistant shell. Do not render a lonely
+    // mark and a blank block for it.
+    if (!isUser && message.content.isBlank() && message.reasoning.isNullOrBlank() && !message.isStreaming) {
+        return
+    }
+
     if (message.role == MessageRole.TOOL) {
         // Tool output is remote data the user approved: show it as such, never as the
         // assistant's own words, and never speak it or offer copy-as-answer actions.
@@ -88,17 +94,18 @@ fun ChatMessageItem(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
         if (isUser) {
-            // User Message (Right-aligned artistic bubble)
+            // User message: quiet raised surface, accent stays on the send action.
             Column(
                 modifier = Modifier
                     .widthIn(max = 320.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(GlassTheme.colors.secondary)
-                    .padding(horizontal = 15.dp, vertical = 12.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(GlassTheme.colors.surfaceVariant)
+                    .border(1.dp, GlassTheme.colors.outline, RoundedCornerShape(14.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 // Attached file preview
                 if (message.attachment != null) {
@@ -130,7 +137,7 @@ fun ChatMessageItem(
                             GIcon(
                                 imageVector = GIcons.Description,
                                 contentDescription = null,
-                                tint = GlassTheme.colors.primary,
+                                tint = GlassTheme.colors.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -154,18 +161,19 @@ fun ChatMessageItem(
             }
         } else {
             // Assistant Message (ChatGPT style left aligned layout)
+            val displayContent = message.content.withoutLeadingThinkTags()
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top
             ) {
                 OffconMark(
-                    modifier = Modifier.size(26.dp),
+                    modifier = Modifier.size(24.dp),
                     contentDescription = "OffconAI",
-                    backgroundColor = GlassTheme.colors.secondary,
+                    backgroundColor = Color.Transparent,
                     markColor = GlassTheme.colors.primary
                 )
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     // Reasoning Card (if DeepSeek/Qwen thinking model or reasoning exists)
@@ -179,9 +187,9 @@ fun ChatMessageItem(
                     }
 
                     // Main Text Content
-                    if (message.content.isNotBlank()) {
+                    if (displayContent.isNotBlank()) {
                         AssistantMarkdown(
-                            markdown = message.content,
+                            markdown = displayContent,
                             style = GlassTheme.type.bodyLarge.copy(
                                 lineHeight = 24.sp,
                                 color = GlassTheme.colors.onSurface
@@ -190,11 +198,12 @@ fun ChatMessageItem(
                             isStreaming = message.isStreaming && !message.isReasoningStreaming
                         )
                     } else if (message.isStreaming && !message.isReasoningStreaming) {
-                        // Pulsing cursor
-                        GText(
-                            text = "●",
-                            style = GlassTheme.type.bodyLarge,
-                            color = GlassTheme.colors.primary
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .size(width = 6.dp, height = 14.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(GlassTheme.colors.primary.copy(alpha = 0.8f))
                         )
                     }
 
@@ -218,12 +227,12 @@ fun ChatMessageItem(
                         }
 
                         // Action Icons: Copy, Speak
-                        if (!message.isStreaming && message.content.isNotBlank()) {
+                        if (!message.isStreaming && displayContent.isNotBlank()) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 GIconButton(
                                     onClick = {
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        clipboard.setPrimaryClip(ClipData.newPlainText("AI Response", message.content))
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("AI Response", displayContent))
                                         Toast.makeText(context, copiedText, Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.size(32.dp)
@@ -237,7 +246,7 @@ fun ChatMessageItem(
                                 }
 
                                 GIconButton(
-                                    onClick = { onSpeak(message.content) },
+                                    onClick = { onSpeak(displayContent) },
                                     modifier = Modifier.size(32.dp)
                                 ) {
                                     GIcon(
@@ -254,4 +263,12 @@ fun ChatMessageItem(
             }
         }
     }
+}
+
+/** Hides a stray opening/closing think tag left at the start of a saved answer. */
+private fun String.withoutLeadingThinkTags(): String {
+    var text = trimStart()
+    if (text.startsWith("</think>")) text = text.removePrefix("</think>").trimStart()
+    if (text.startsWith("<think>")) text = text.removePrefix("<think>").trimStart()
+    return text
 }

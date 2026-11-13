@@ -644,4 +644,13 @@
     <string name="voice_route_direct">Omni 模型：音频直接传给模型</string>
     <string name="voice_route_stt">此模型先进行语音识别</string>
     <string name="voice_route_runtime_stt">此运行时不支持音频，因此使用语音识别</string>
+    <string name="chat_empty_title">你的模型，你的设备。</string>
+    <string name="chat_empty_body">对话、文档和语音都留在这台设备上。选择模型即可开始。</string>
+    <string name="chat_empty_engine">本地引擎</string>
+    <string name="chat_empty_model_required">选择模型以开始</string>
+    <string name="chat_empty_suggest_docs">如何针对文档提问？</string>
+    <string name="chat_empty_suggest_models">为这台设备推荐一个模型</string>
+    <string name="chat_empty_suggest_api">如何通过本地 API 连接？</string>
+    <string name="chat_empty_footer">无账户 · 无遥测 · 离线推理</string>
+    <string name="chat_input_hint">消息</string>
 </resources>

@@ -86,17 +86,19 @@ fun ChatDrawer(
                 .padding(horizontal = 20.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            OffconMark(modifier = Modifier.size(36.dp))
-            Spacer(modifier = Modifier.width(12.dp))
+            OffconMark(modifier = Modifier.size(30.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Column {
                 GText(
                     text = "OffconAI",
-                    style = GlassTheme.type.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                    style = GlassTheme.type.titleSmall,
                     color = GlassTheme.colors.onBackground
                 )
                 GText(
-                    text = "v2.0.0",
-                    style = GlassTheme.type.labelSmall,
+                    text = "v2.0.0 · local",
+                    style = GlassTheme.type.labelSmall.copy(
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    ),
                     color = GlassTheme.colors.onSurfaceVariant
                 )
             }
@@ -109,32 +111,23 @@ fun ChatDrawer(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(10.dp))
                 .background(GlassTheme.colors.primary)
                 .clickable { onNewChat() }
-                .padding(horizontal = 16.dp, vertical = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                GIcon(
-                    imageVector = GIcons.Add,
-                    contentDescription = null,
-                    tint = GlassTheme.colors.onPrimary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                GText(
-                    text = stringResource(R.string.new_chat),
-                    style = GlassTheme.type.titleSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
-                    color = GlassTheme.colors.onPrimary
-                )
-            }
             GIcon(
-                imageVector = GIcons.Edit,
+                imageVector = GIcons.Add,
                 contentDescription = null,
-                tint = GlassTheme.colors.onPrimary.copy(alpha = 0.85f),
-                modifier = Modifier.size(16.dp)
+                tint = GlassTheme.colors.onPrimary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            GText(
+                text = stringResource(R.string.new_chat),
+                style = GlassTheme.type.titleSmall,
+                color = GlassTheme.colors.onPrimary
             )
         }
 
@@ -144,7 +137,8 @@ fun ChatDrawer(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(GlassTheme.colors.surfaceVariant.copy(alpha = 0.5f))
+                .background(GlassTheme.colors.surface)
+                .border(1.dp, GlassTheme.colors.outline, RoundedCornerShape(10.dp))
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
@@ -182,7 +176,7 @@ fun ChatDrawer(
             GIcon(
                 imageVector = GIcons.Lock,
                 contentDescription = stringResource(R.string.chat_encryption_desc),
-                tint = GlassTheme.colors.primary,
+                tint = GlassTheme.colors.onSurfaceVariant,
                 modifier = Modifier.size(12.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
@@ -236,11 +230,11 @@ fun ChatDrawer(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
                             .background(
-                                if (isSelected) GlassTheme.colors.secondary
+                                if (isSelected) GlassTheme.colors.surfaceVariant
                                 else Color.Transparent
                             )
                             .clickable { onSelectConversation(conv.id) }
-                            .padding(horizontal = 12.dp, vertical = 11.dp),
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -258,7 +252,7 @@ fun ChatDrawer(
                             GText(
                                 text = conv.title.ifBlank { stringResource(R.string.conversation_untitled) },
                                 style = GlassTheme.type.bodyMedium,
-                                color = if (isSelected) GlassTheme.colors.primary else GlassTheme.colors.onSurface,
+                                color = GlassTheme.colors.onSurface,
                                 maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )

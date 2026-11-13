@@ -420,4 +420,26 @@
 - 반영/검증: `9bab632`로 커밋 후 push, Pages 빌드(`9bab632`) 완료. 라이브 URL `/`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`, IndexNow 키 파일, `/site.webmanifest` 모두 HTTP 200 확인. 페이지 title/JSON-LD 2개/FAQ 섹션도 확인.
 - IndexNow 제출: `https://api.indexnow.org/indexnow`에 `https://zmxnpquryet-gif.github.io/OffconAI/`를 POST → **HTTP 202 Accepted**. Bing/Yandex 계열 크롤러에 색인 요청이 전달됐다. Google Search Console/Bing Webmaster Tools는 계정 소유 확인이 필요해 이번에 직접 제출하지 않았고, robots.txt+sitemap+canonical+구조화 데이터로 크롤링 기반은 마련했다.
 
+## 2026-11-13 — unslop + Emil Kowalski 스킬 설치 및 UI 재단장
+
+- 사용자 요청에 따라 `heydamir/unslop` (CC BY 4.0)과 `emilkowalski/skills`의 19개 스킬을 `~/.agents/skills/`에 설치했다. `unslop`, `emil-design-eng`, `apple-design`, `review-animations`, `improve-animations`, `gestures`, `break-ui`, `learn-taste` 등이 포함된다.
+- `unslop` 기준 감사 결과:
+  - frost 테마가 파란 표면 워시로 전체 화면을 물들이고, 모델 칩·상태 카드·사용자 말풍선·전송 버튼에 accent가 반복됐다.
+  - 빈 화면이 중앙정렬된 일반 AI 템플릿이었고, 26sp Bold 헤드라인·과한 pill 반경·색 아이콘 타일이 slop 신호였다.
+  - LFM3 응답 앞에 `</think>`가 본문으로 노출되는 렌더링 버그가 있었다.
+- 디자인 방향(`DESIGN.md`): **calm, exact, quietly technical** — graphite/ink 표면, 하나의 cobalt 신호, 로컬 엔진 계기판을 유일한 moment로, 작은 상태점 + monospace 런타임 라인을 signature로.
+- 9개 패스 적용:
+  - 표면: frost를 중립 ink 램프로 교체, `LiquidBackground` radial wash 제거, `GCard` hairline 통일, `GButton`/`GOutlineButton`의 gradient·glass border 제거 및 12dp radius.
+  - 타입: Bold/SemiBold 중심에서 Medium 400–500 중심으로 재조정, 작은 글자 letterSpacing 제거, 본문/라인하이트 정리.
+  - 아이콘/로고: `OffconMark`를 gradient tile이 아닌 **플랫 글리프**로 변경하고 모든 호출부를 중립 배경으로 정리.
+  - 상단바: 56dp, 중립 surface+1dp hairline 모델 칩, 단일 tertiary 상태점, Vision/MTP/ctx를 muted mono로 축소.
+  - 메시지: 사용자 말풍선을 accent blue에서 surfaceVariant+outline으로, radius 14, assistant mark 24dp 플랫, 스트리밍 커서를 작은 accent bar로.
+  - 계기판: `PerformanceMetricsChip`을 아이콘/MTP 배지/배경 칩에서 **mono 한 줄**로 축소.
+  - 빈 화면: 중앙정렬 템플릿을 좌측정렬·제품 고유 카피·로컬 엔진 카드·문서/모델/API 제안 3행으로 재구성, 문자열 EN/KO/ZH 추가.
+  - 드로어/설정: 플랫 마크, 버전 mono, 새 대화 버튼 radius 10, 검색 hairline, 선택 행 neutral, 설정 카드 hairline+muted icon, 12–14dp radius.
+  - 텍스트: `ReasoningStreamParser`가 `<think>`로 시작하는 프롬프트에서 선행 `</think>`를 본문으로 출력하지 않도록 수정하고, 저장된 기존 답변도 표시 시 선행 think 태그를 제거. 중지된 빈 assistant 메시지는 렌더링하지 않음.
+- WSA 실기기 확인: 빈 화면·대화·드로어·설정 화면을 직접 캡처해 중립 표면, 플랫 마크, mono 계기판, 정리된 상태 라인을 확인. `</think>` 노출과 빈 assistant 블록도 사라졌다.
+- 검증: `:app:assembleDebug`, `:app:testDebugUnitTest` **243/243 통과**, `:app:lintDebug` 성공.
+- 변경 파일: `DESIGN.md`, `GlassTheme.kt`, `GPrimitives.kt`, `GButtons.kt`, `OffconMark.kt`, `ChatTopBar.kt`, `ChatMessageItem.kt`, `ChatScreen.kt`, `ChatInputBar.kt`, `PerformanceMetricsChip.kt`, `ReasoningCard.kt`, `ChatDrawer.kt`, `SettingsScreen.kt`, `ReasoningStreamParser.kt`, strings 3종, parser 테스트.
+
 

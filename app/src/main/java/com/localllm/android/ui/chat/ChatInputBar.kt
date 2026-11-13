@@ -142,7 +142,7 @@ fun ChatInputBar(
                 GIcon(
                     imageVector = GIcons.Psychology,
                     contentDescription = null,
-                    tint = GlassTheme.colors.primary,
+                    tint = GlassTheme.colors.onSurfaceVariant,
                     modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -207,7 +207,7 @@ fun ChatInputBar(
                         GIcon(
                             imageVector = GIcons.Description,
                             contentDescription = null,
-                            tint = GlassTheme.colors.primary,
+                            tint = GlassTheme.colors.onSurfaceVariant,
                             modifier = Modifier.size(32.dp)
                         )
                     }
@@ -242,23 +242,20 @@ fun ChatInputBar(
             }
         }
 
-        // 3. Modern single capsule input bar
-        val capsuleShape = RoundedCornerShape(26.dp)
+        // 3. Quiet composer capsule
+        val capsuleShape = RoundedCornerShape(20.dp)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .shadow(
-                    elevation = if (isDarkCanvas) 0.dp else 12.dp,
+                    elevation = if (isDarkCanvas) 0.dp else 1.dp,
                     shape = capsuleShape,
-                    ambientColor = Color.Black.copy(alpha = 0.10f),
-                    spotColor = Color.Black.copy(alpha = 0.14f)
+                    ambientColor = Color.Black.copy(alpha = 0.04f),
+                    spotColor = Color.Black.copy(alpha = 0.06f)
                 )
                 .clip(capsuleShape)
                 .background(GlassTheme.colors.surface)
-                .then(
-                    if (isDarkCanvas) Modifier.border(1.dp, GlassTheme.colors.outline, capsuleShape)
-                    else Modifier
-                )
+                .border(1.dp, GlassTheme.colors.outline, capsuleShape)
                 .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -297,7 +294,7 @@ fun ChatInputBar(
             ) {
                 if (inputText.isEmpty()) {
                     GText(
-                        text = "메시지를 입력하세요",
+                        text = stringResource(R.string.chat_input_hint),
                         style = GlassTheme.type.bodyLarge,
                         color = GlassTheme.colors.onSurfaceVariant
                     )
@@ -380,15 +377,18 @@ fun ChatInputBar(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(GlassTheme.colors.primary)
+                        .size(4.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(GlassTheme.colors.onSurfaceVariant)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 GText(
                     text = status,
-                    style = GlassTheme.type.labelSmall,
-                    color = GlassTheme.colors.onSurfaceVariant
+                    style = GlassTheme.type.labelSmall.copy(
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    ),
+                    color = GlassTheme.colors.onSurfaceVariant,
+                    fontSize = 10.sp
                 )
             }
         }
@@ -419,7 +419,7 @@ fun ChatInputBar(
             GIcon(
                 imageVector = GIcons.Add,
                 contentDescription = null,
-                tint = GlassTheme.colors.primary,
+                tint = GlassTheme.colors.onSurfaceVariant,
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
@@ -447,7 +447,7 @@ fun ChatInputBar(
             GIcon(
                 imageVector = GIcons.Description,
                 contentDescription = null,
-                tint = GlassTheme.colors.primary,
+                tint = GlassTheme.colors.onSurfaceVariant,
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))

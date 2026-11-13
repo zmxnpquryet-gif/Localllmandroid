@@ -176,4 +176,26 @@ class ReasoningStreamParserTest {
         assertEquals("onetwo", parser.reasoningBuffer.toString())
         assertEquals("mid", parser.contentBuffer.toString())
     }
+
+    @Test
+    fun `a leading closing tag from an open think block is not shown as content`() {
+        val parser = ReasoningStreamParser(startInReasoning = true)
+        parser.processChunk("</think>")
+        parser.processChunk("The answer is 42.")
+        parser.finish()
+
+        assertFalse(parser.isInReasoningMode)
+        assertEquals("", parser.reasoningBuffer.toString())
+        assertEquals("The answer is 42.", parser.contentBuffer.toString())
+    }
+
+    @Test
+    fun `a leading closing tag is dropped even when the parser starts in content mode`() {
+        val parser = ReasoningStreamParser()
+        parser.processChunk("</think>Hello")
+        parser.finish()
+
+        assertEquals("", parser.reasoningBuffer.toString())
+        assertEquals("Hello", parser.contentBuffer.toString())
+    }
 }

@@ -50,14 +50,14 @@ fun ReasoningCard(
         }
     }
 
-    val containerColor = GlassTheme.colors.surfaceVariant
-    val accentColor = GlassTheme.colors.primary
-
+    val containerColor = GlassTheme.colors.surface
+    val accentColor = GlassTheme.colors.onSurfaceVariant
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(containerColor)
+            .border(1.dp, GlassTheme.colors.outline, RoundedCornerShape(10.dp))
             .padding(10.dp)
     ) {
         Row(
@@ -88,19 +88,12 @@ fun ReasoningCard(
                     color = GlassTheme.colors.onSurface
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(accentColor.copy(alpha = 0.15f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    GText(
-                        text = reasoningEffortLabel,
-                        fontSize = 11.sp,
-                        color = accentColor,
-                        style = GlassTheme.type.labelSmall
-                    )
-                }
+                GText(
+                    text = reasoningEffortLabel,
+                    fontSize = 11.sp,
+                    color = GlassTheme.colors.onSurfaceVariant,
+                    style = GlassTheme.type.labelSmall
+                )
             }
 
             GIcon(

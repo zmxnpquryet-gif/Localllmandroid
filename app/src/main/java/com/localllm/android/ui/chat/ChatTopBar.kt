@@ -63,9 +63,9 @@ fun ChatTopBar(
         modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .height(60.dp)
+            .height(56.dp)
             .background(GlassTheme.colors.background)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -79,10 +79,11 @@ fun ChatTopBar(
 
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(18.dp))
-                .background(GlassTheme.colors.surfaceVariant)
+                .clip(RoundedCornerShape(10.dp))
+                .background(GlassTheme.colors.surface)
+                .border(1.dp, GlassTheme.colors.outline, RoundedCornerShape(10.dp))
                 .clickable { isModelMenuExpanded = true }
-                .padding(horizontal = 14.dp, vertical = 7.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             contentAlignment = Alignment.Center
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -93,19 +94,19 @@ fun ChatTopBar(
                                 modifier = Modifier
                                     .size(6.dp)
                                     .clip(androidx.compose.foundation.shape.CircleShape)
-                                    .background(GlassTheme.colors.primary)
+                                    .background(GlassTheme.colors.tertiary)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             GText(
                                 text = activeModel.name,
-                                style = GlassTheme.type.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                style = GlassTheme.type.titleSmall,
                                 color = GlassTheme.colors.onSurface
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             GIcon(
                                 imageVector = GIcons.ArrowDown,
                                 contentDescription = null,
-                                tint = GlassTheme.colors.primary,
+                                tint = GlassTheme.colors.onSurfaceVariant,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
@@ -119,27 +120,26 @@ fun ChatTopBar(
                             )
                             if (activeModel.isVisionDownloaded || activeModel.hasMmproj) {
                                 GText(
-                                    text = " • Vision",
+                                    text = " · Vision",
                                     style = GlassTheme.type.labelSmall,
-                                    color = GlassTheme.colors.tertiary,
+                                    color = GlassTheme.colors.onSurfaceVariant,
                                     fontSize = 10.sp
                                 )
                             }
                             if (activeModel.isMtpDownloaded || (isMtpOn && activeModel.supportsMtp)) {
                                 GText(
-                                    text = " • MTP 2x",
+                                    text = " · MTP",
                                     style = GlassTheme.type.labelSmall,
-                                    color = GlassTheme.colors.primary,
+                                    color = GlassTheme.colors.onSurfaceVariant,
                                     fontSize = 10.sp
                                 )
                             }
                             if (contextUsageTokens > 0) {
                                 GText(
-                                    text = " • " + contextUsageTokens + " ctx",
-                                    style = GlassTheme.type.labelSmall,
-                                    color = GlassTheme.colors.primary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
+                                    text = " · " + contextUsageTokens + " ctx",
+                                    style = GlassTheme.type.labelSmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                                    color = GlassTheme.colors.onSurfaceVariant,
+                                    fontSize = 10.sp
                                 )
                             }
                         }
@@ -149,7 +149,7 @@ fun ChatTopBar(
                         GIcon(
                             imageVector = GIcons.CloudDownload,
                             contentDescription = null,
-                            tint = GlassTheme.colors.primary,
+                            tint = GlassTheme.colors.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -162,7 +162,7 @@ fun ChatTopBar(
                         GIcon(
                             imageVector = GIcons.ArrowDown,
                             contentDescription = null,
-                            tint = GlassTheme.colors.primary,
+                            tint = GlassTheme.colors.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
                         )
                     }

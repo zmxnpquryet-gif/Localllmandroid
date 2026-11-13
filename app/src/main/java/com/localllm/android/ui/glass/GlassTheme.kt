@@ -138,16 +138,16 @@ data class GlassType(
 )
 
 private fun glassType() = GlassType(
-    headlineMedium = TextStyle(fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp),
-    titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp),
-    titleMedium = TextStyle(fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1).sp),
+    headlineMedium = TextStyle(fontSize = 26.sp, lineHeight = 32.sp, fontWeight = FontWeight.Medium),
+    titleLarge = TextStyle(fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.Medium),
+    titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium),
     titleSmall = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
-    bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 26.sp, letterSpacing = 0.sp),
-    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 21.sp),
+    bodyLarge = TextStyle(fontSize = 15.sp, lineHeight = 22.sp),
+    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
     bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
     labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium),
     labelMedium = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
-    labelSmall = TextStyle(fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.2.sp)
+    labelSmall = TextStyle(fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium)
 )
 
 private val baselineTertiaryDark = Color(0xFFCCC2DC)
@@ -282,17 +282,53 @@ fun glassColors(themeName: String, dark: Boolean): GlassColors {
                 Color(0xFFFDE68A), baselineErrorLight, baselineErrorContainerLight, baselineOnErrorContainerLight, Color(0xFFFFD9E2), Color(0xFF633B48))
         }
         "frost" -> if (dark) {
-            GlassColors(ArcticBgDark, Color(0xFFE0F2FE), ArcticSurfaceDark, Color(0xFFE0F2FE),
-                Color(0xFF162A40), Color(0xFF7DD3FC), ArcticBlue, Color.Black,
-                ArcticSurfaceDark, ArcticBlue, ArcticBlue, Color.Black,
-                Color(0xFF162A40), Color(0xFFE0F2FE), baselineTertiaryDark,
-                Color(0xFF234568), baselineErrorDark, baselineErrorContainerDark, baselineOnErrorContainerDark, Color(0xFF633B48), Color(0xFFFFD9E2))
+            GlassColors(
+                background = Color(0xFF0C1117),
+                onBackground = Color(0xFFE6EDF3),
+                surface = Color(0xFF111820),
+                onSurface = Color(0xFFDDE6EE),
+                surfaceVariant = Color(0xFF1A232D),
+                onSurfaceVariant = Color(0xFF94A3B0),
+                primary = Color(0xFF38BDF8),
+                onPrimary = Color(0xFF04121A),
+                primaryContainer = Color(0xFF0B3B4D),
+                onPrimaryContainer = Color(0xFFE0F2FE),
+                secondary = Color(0xFF16232E),
+                onSecondary = Color(0xFF7DD3FC),
+                secondaryContainer = Color(0xFF14202B),
+                onSecondaryContainer = Color(0xFFDDE6EE),
+                tertiary = Color(0xFF2DD4BF),
+                outline = Color(0xFF26323E),
+                error = Color(0xFFF1998E),
+                errorContainer = Color(0xFF5C1F1A),
+                onErrorContainer = Color(0xFFFFDAD4),
+                tertiaryContainer = Color(0xFF0C4634),
+                onTertiaryContainer = Color(0xFFA9F0D3)
+            )
         } else {
-            GlassColors(Color(0xFFF0F9FF), Color(0xFF082A3D), Color.White, Color(0xFF082A3D),
-                Color(0xFFDDF1FE), Color(0xFF075985), Color(0xFF0284C7), Color.White,
-                Color(0xFFDDF1FE), Color(0xFF0284C7), Color(0xFF0284C7), Color.White,
-                Color(0xFFDDF1FE), Color(0xFF082A3D), baselineTertiaryLight,
-                Color(0xFFBAE6FD), baselineErrorLight, baselineErrorContainerLight, baselineOnErrorContainerLight, Color(0xFFFFD9E2), Color(0xFF633B48))
+            GlassColors(
+                background = Color(0xFFF6F8FA),
+                onBackground = Color(0xFF101820),
+                surface = Color(0xFFFFFFFF),
+                onSurface = Color(0xFF18222C),
+                surfaceVariant = Color(0xFFEDF1F5),
+                onSurfaceVariant = Color(0xFF5F6B76),
+                primary = Color(0xFF0E7490),
+                onPrimary = Color(0xFFFFFFFF),
+                primaryContainer = Color(0xFF0E7490),
+                onPrimaryContainer = Color(0xFFFFFFFF),
+                secondary = Color(0xFFE6F4F7),
+                onSecondary = Color(0xFF0B5A6B),
+                secondaryContainer = Color(0xFFEDF1F5),
+                onSecondaryContainer = Color(0xFF18222C),
+                tertiary = Color(0xFF0F766E),
+                outline = Color(0xFFDEE5EA),
+                error = Color(0xFFC8372B),
+                errorContainer = Color(0xFFFCE7E4),
+                onErrorContainer = Color(0xFF7A1E15),
+                tertiaryContainer = Color(0xFFDCF5EC),
+                onTertiaryContainer = Color(0xFF0A5744)
+            )
         }
         "chatgpt" -> if (dark) {
             GlassColors(ChatGptDarkBg, ChatGptDarkText, ChatGptDarkSurface, ChatGptDarkText,

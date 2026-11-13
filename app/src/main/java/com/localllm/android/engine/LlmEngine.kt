@@ -843,7 +843,9 @@ class LlmEngine(private val context: Context) {
         var firstTokenTime: Long? = null
         var totalTokens = 0
 
-        val reasoningParser = ReasoningStreamParser()
+        val reasoningParser = ReasoningStreamParser(
+            startInReasoning = formattedPrompt.trimEnd().endsWith("<think>")
+        )
 
         if (model.runtimeType == ModelRuntimeType.LITE_RT) {
             val engine = litertEngine

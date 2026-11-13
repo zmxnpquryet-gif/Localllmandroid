@@ -5,14 +5,14 @@
  * Correctly handles `<think>` and `</think>` tags even when tokens are split
  * across chunk boundaries (e.g. "<th" in chunk N, "ink>" in chunk N+1).
  */
-class ReasoningStreamParser {
+class ReasoningStreamParser(startInReasoning: Boolean = false) {
 
     companion object {
         private const val OPEN_TAG = "<think>"
         private const val CLOSE_TAG = "</think>"
     }
 
-    var isInReasoningMode: Boolean = false
+    var isInReasoningMode: Boolean = startInReasoning
         private set
 
     val reasoningBuffer = StringBuilder()
@@ -33,6 +33,16 @@ class ReasoningStreamParser {
         pendingBuffer.append(chunk)
 
         while (pendingBuffer.isNotEmpty()) {
+            // A template that opens an empty thinking block can make the model
+            // emit the closing tag as its first token. Drop that tag instead of
+            // printing it as answer text.
+            if (!isInReasoningMode && contentBuffer.isEmpty() && reasoningBuffer.isEmpty()) {
+                val firstNonWhitespace = pendingBuffer.indexOfFirst { !it.isWhitespace() }
+                if (firstNonWhitespace >= 0 && pendingBuffer.startsWith(CLOSE_TAG, firstNonWhitespace)) {
+                    pendingBuffer.delete(0, firstNonWhitespace + CLOSE_TAG.length)
+                    continue
+                }
+            }
             if (!isInReasoningMode) {
                 val openIdx = pendingBuffer.indexOf(OPEN_TAG)
                 if (openIdx >= 0) {

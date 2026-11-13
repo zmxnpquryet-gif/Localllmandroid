@@ -644,4 +644,13 @@
     <string name="voice_route_direct">Omni model: your audio goes straight to the model</string>
     <string name="voice_route_stt">Speech-to-text runs first for this model</string>
     <string name="voice_route_runtime_stt">This runtime cannot take audio, so speech-to-text is used</string>
+    <string name="chat_empty_title">Your model. Your device.</string>
+    <string name="chat_empty_body">Conversations, documents and voice stay on this device. Pick a model and start.</string>
+    <string name="chat_empty_engine">Local engine</string>
+    <string name="chat_empty_model_required">Choose a model to start</string>
+    <string name="chat_empty_suggest_docs">How do I ask a question about a document?</string>
+    <string name="chat_empty_suggest_models">Which model fits this device?</string>
+    <string name="chat_empty_suggest_api">How do I connect through the local API?</string>
+    <string name="chat_empty_footer">No account · No telemetry · Offline inference</string>
+    <string name="chat_input_hint">Message</string>
 </resources>
