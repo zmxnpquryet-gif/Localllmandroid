@@ -370,6 +370,28 @@ fun GlassTheme(
         else -> systemDark
     }
     val colors = glassColors(themeColorName, dark)
+
+    // Keep system-bar icon appearance in sync with the resolved app theme
+    // (which can diverge from the system theme via the in-app preference).
+    // Without this, some OEM builds show white status icons over the light
+    // app background, making them invisible.
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        androidx.compose.runtime.SideEffect {
+            var context = view.context
+            while (context !is android.app.Activity && context is android.content.ContextWrapper) {
+                context = (context as android.content.ContextWrapper).baseContext
+            }
+            if (context is android.app.Activity) {
+                val controller = androidx.core.view.WindowCompat.getInsetsController(
+                    context.window, context.window.decorView
+                )
+                controller.isAppearanceLightStatusBars = !dark
+                controller.isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
+
     CompositionLocalProvider(
         LocalGlassColors provides colors,
         LocalGlassType provides glassType(),

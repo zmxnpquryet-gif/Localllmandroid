@@ -218,6 +218,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val models: StateFlow<List<LlmModel>> get() = modelController.models
     val activeModel: StateFlow<LlmModel?> get() = modelController.activeModel
     val activeToolTemplate: StateFlow<ToolCallTemplate> get() = modelController.activeToolTemplate
+    val selectedToolTemplateChoice: StateFlow<ToolCallTemplate> get() = modelController.selectedToolTemplateChoice
     val voiceAudioDecision: StateFlow<VoiceAudioDecision?> get() = modelController.voiceAudioDecision
     val isModelLoading: StateFlow<Boolean> get() = modelController.isModelLoading
     val modelLoadingProgress: StateFlow<Float> get() = modelController.modelLoadingProgress

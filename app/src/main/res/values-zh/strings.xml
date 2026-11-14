@@ -179,6 +179,7 @@
     <string name="vm_notice_model_load_failed">模型加载失败：%1$s。请在模型库中查看模型状态。</string>
     <string name="vm_error_prefix">错误：%1$s</string>
     <string name="vm_error_inference_generic">推理过程中出现问题。</string>
+    <string name="vm_error_busy">上一次生成尚未结束，请稍后再试。</string>
     <string name="vm_voice_no_model">没有已下载的本地模型。请先从模型库下载。</string>
     <string name="vm_voice_load_failed">模型加载失败：%1$s</string>
     <string name="vm_voice_error">语音对话过程中发生错误。</string>
@@ -566,9 +567,11 @@
     <string name="cry_corrupt">Base64 密文数据已损坏。</string>
     <string name="cry_bad_length">密文数据长度无效（至少需要 %1$s 字节）。</string>
     <string name="cry_decrypt_fail">解密失败：完整性校验未通过或密钥不匹配。</string>
-    <string name="sys_prompt">你是运行在 Android 设备上、完全本地执行的友善且能干的 AI 助手。所有回答都在设备内部生成，不依赖任何外部服务器。</string>
+    <string name="sys_prompt">你是友善且能干的 AI 助手。</string>
     <string name="sys_ctx_header">[当前设备本地上下文与工具信息]：</string>
     <string name="sys_think">撰写回答时，务必把思考与推理过程写在 &lt;think&gt;…&lt;/think&gt; 标签内。</string>
+    <string name="sys_reasoning_low">仅在确实需要时于 &lt;think&gt;…&lt;/think&gt; 标签内简短思考，尽量直接、简洁地给出回答。</string>
+    <string name="sys_reasoning_deep">在给出最终答案前，请先在 &lt;think&gt;…&lt;/think&gt; 标签内一步步深入、严谨地推理。</string>
     <string name="gen_effort_low">低</string>
     <string name="gen_effort_medium">中</string>
     <string name="gen_effort_high">高</string>

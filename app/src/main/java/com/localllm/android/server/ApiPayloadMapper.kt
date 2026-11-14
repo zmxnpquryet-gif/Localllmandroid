@@ -1,5 +1,7 @@
 package com.localllm.android.server
 
+import com.localllm.android.engine.McpTool
+import com.localllm.android.engine.McpToolCall
 import com.localllm.android.model.GenerationSettings
 import com.localllm.android.model.LlmModel
 import org.json.JSONArray
@@ -62,12 +64,13 @@ internal object ApiPayloadMapper {
 
         for (i in 0 until messagesArray.length()) {
             val msgObj = messagesArray.optJSONObject(i) ?: continue
-            val role = msgObj.optString("role", "user")
-            val content = extractTextContent(msgObj.opt("content"))
-            if (i == messagesArray.length() - 1 && role == "user") {
+            val rawRole = msgObj.optString("role", "user")
+            val content = extractMessageContent(msgObj, rawRole)
+            val normalizedRole = if (rawRole == "tool") "user" else rawRole
+            if (i == messagesArray.length() - 1 && normalizedRole == "user") {
                 lastUserPrompt = content
             } else {
-                historyList.add(role to content)
+                historyList.add(normalizedRole to content)
             }
         }
 
@@ -80,6 +83,51 @@ internal object ApiPayloadMapper {
         }
 
         return historyList to lastUserPrompt
+    }
+
+    private fun extractMessageContent(msgObj: JSONObject, role: String): String {
+        val text = extractTextContent(msgObj.opt("content"))
+        if (role == "tool") {
+            val name = msgObj.optString("name", "tool")
+            return "<tool_result name=\"$name\" status=\"ok\">\n$text\n</tool_result>"
+        }
+        if (role == "assistant") {
+            val toolCalls = msgObj.optJSONArray("tool_calls")
+            if (toolCalls != null && toolCalls.length() > 0) {
+                val callsRendered = (0 until toolCalls.length()).mapNotNull { idx ->
+                    val tc = toolCalls.optJSONObject(idx) ?: return@mapNotNull null
+                    val fn = tc.optJSONObject("function") ?: tc
+                    val fnName = fn.optString("name", "")
+                    if (fnName.isBlank()) return@mapNotNull null
+                    val rawArgs = fn.opt("arguments")
+                    val argsStr = if (rawArgs is JSONObject) {
+                        rawArgs.toString()
+                    } else if (rawArgs is String) {
+                        rawArgs.ifBlank { "{}" }
+                    } else {
+                        "{}"
+                    }
+                    "<tool_call>{\"name\":${JSONObject.quote(fnName)},\"arguments\":$argsStr}</tool_call>"
+                }.joinToString("\n")
+                return if (text.isBlank()) callsRendered else "$text\n$callsRendered"
+            }
+        }
+        return text
+    }
+
+    fun parseOpenAiTools(json: JSONObject): List<McpTool> {
+        val arr = json.optJSONArray("tools") ?: return emptyList()
+        val out = mutableListOf<McpTool>()
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            val fn = item.optJSONObject("function") ?: item
+            val name = fn.optString("name", "").trim()
+            if (name.isBlank()) continue
+            val desc = fn.optString("description", "")
+            val params = fn.opt("parameters")?.toString() ?: "{}"
+            out += McpTool(name = name, description = desc, parameters = params)
+        }
+        return out
     }
 
     fun extractTextContent(raw: Any?): String = when (raw) {
@@ -186,7 +234,42 @@ internal object ApiPayloadMapper {
         return "data: $obj\n\n"
     }
 
-    fun buildOpenAiCompletionJson(chatId: String, modelName: String, fullAnswer: String, totalTokens: Int): String =
+    fun buildOpenAiToolCallSseChunk(chatId: String, modelName: String, calls: List<McpToolCall>): String {
+        val toolCallsArray = JSONArray()
+        calls.forEachIndexed { idx, call ->
+            toolCallsArray.put(
+                JSONObject().apply {
+                    put("index", idx)
+                    put("id", "call_${chatId.takeLast(8)}_$idx")
+                    put("type", "function")
+                    put("function", JSONObject().apply {
+                        put("name", call.name)
+                        put("arguments", call.argumentsJson)
+                    })
+                }
+            )
+        }
+        val obj = JSONObject().apply {
+            put("id", chatId)
+            put("object", "chat.completion.chunk")
+            put("created", System.currentTimeMillis() / 1000)
+            put("model", modelName)
+            put("choices", JSONArray().put(JSONObject().apply {
+                put("index", 0)
+                put("delta", JSONObject().put("tool_calls", toolCallsArray))
+                put("finish_reason", JSONObject.NULL)
+            }))
+        }
+        return "data: $obj\n\n"
+    }
+
+    fun buildOpenAiCompletionJson(
+        chatId: String,
+        modelName: String,
+        fullAnswer: String,
+        totalTokens: Int,
+        toolCalls: List<McpToolCall> = emptyList()
+    ): String =
         JSONObject().apply {
             put("id", chatId)
             put("object", "chat.completion")
@@ -196,9 +279,27 @@ internal object ApiPayloadMapper {
                 put("index", 0)
                 put("message", JSONObject().apply {
                     put("role", "assistant")
-                    put("content", fullAnswer)
+                    if (toolCalls.isEmpty()) {
+                        put("content", fullAnswer)
+                    } else {
+                        put("content", if (fullAnswer.isBlank()) JSONObject.NULL else fullAnswer)
+                        val arr = JSONArray()
+                        toolCalls.forEachIndexed { idx, call ->
+                            arr.put(
+                                JSONObject().apply {
+                                    put("id", "call_${chatId.takeLast(8)}_$idx")
+                                    put("type", "function")
+                                    put("function", JSONObject().apply {
+                                        put("name", call.name)
+                                        put("arguments", call.argumentsJson)
+                                    })
+                                }
+                            )
+                        }
+                        put("tool_calls", arr)
+                    }
                 })
-                put("finish_reason", "stop")
+                put("finish_reason", if (toolCalls.isNotEmpty()) "tool_calls" else "stop")
             }))
             put("usage", JSONObject().apply {
                 put("completion_tokens", totalTokens)

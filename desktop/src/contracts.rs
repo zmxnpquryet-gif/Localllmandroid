@@ -164,6 +164,20 @@ impl ToolCallRecord {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct OpenAiFunctionCall {
+    pub name: String,
+    pub arguments: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct OpenAiToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub function: OpenAiFunctionCall,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
@@ -171,6 +185,8 @@ pub struct ChatMessage {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<OpenAiToolCall>>,
 }
 
 impl ChatMessage {
@@ -180,6 +196,51 @@ impl ChatMessage {
             content: content.into(),
             name: None,
             tool_call_id: None,
+            tool_calls: None,
+        }
+    }
+
+    pub fn assistant_with_tool_calls(content: impl Into<String>, calls: &[ToolCallRecord]) -> Self {
+        let mapped = calls
+            .iter()
+            .enumerate()
+            .map(|(idx, call)| OpenAiToolCall {
+                id: call
+                    .id
+                    .clone()
+                    .filter(|id| !id.is_empty())
+                    .unwrap_or_else(|| format!("call_{idx}")),
+                kind: "function".into(),
+                function: OpenAiFunctionCall {
+                    name: call.name.clone(),
+                    arguments: if call.arguments.trim().is_empty() {
+                        "{}".into()
+                    } else {
+                        call.arguments.clone()
+                    },
+                },
+            })
+            .collect();
+        Self {
+            role: "assistant".into(),
+            content: content.into(),
+            name: None,
+            tool_call_id: None,
+            tool_calls: Some(mapped),
+        }
+    }
+
+    pub fn tool_result(
+        tool_call_id: impl Into<String>,
+        name: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
+        Self {
+            role: "tool".into(),
+            content: content.into(),
+            name: Some(name.into()),
+            tool_call_id: Some(tool_call_id.into()),
+            tool_calls: None,
         }
     }
 }

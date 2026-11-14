@@ -179,6 +179,7 @@
     <string name="vm_notice_model_load_failed">Model load failed: %1$s. Check the model status in the Model Hub.</string>
     <string name="vm_error_prefix">Error: %1$s</string>
     <string name="vm_error_inference_generic">Something went wrong during inference.</string>
+    <string name="vm_error_busy">The previous generation is still finishing. Please try again in a moment.</string>
     <string name="vm_voice_no_model">No downloaded local model. Please download one from the Model Hub first.</string>
     <string name="vm_voice_load_failed">Model load failed: %1$s</string>
     <string name="vm_voice_error">An error occurred during the voice conversation.</string>
@@ -580,9 +581,11 @@
     <string name="cry_corrupt">Corrupt Base64 ciphertext data.</string>
     <string name="cry_bad_length">Invalid ciphertext data length (at least %1$s bytes required).</string>
     <string name="cry_decrypt_fail">Decryption failed: integrity check failed or the key does not match.</string>
-    <string name="sys_prompt">You are a friendly and capable AI assistant that runs entirely locally on an Android device. You generate all answers on-device, without any external servers.</string>
+    <string name="sys_prompt">You are a friendly and capable AI assistant.</string>
     <string name="sys_ctx_header">[Current device local context and tool information]:</string>
     <string name="sys_think">When writing your answer, always put your thinking and reasoning process inside &lt;think&gt;…&lt;/think&gt; tags.</string>
+    <string name="sys_reasoning_low">Only reason briefly inside &lt;think&gt;…&lt;/think&gt; tags if strictly needed; prefer answering directly and concisely.</string>
+    <string name="sys_reasoning_deep">Think carefully and thoroughly step by step inside &lt;think&gt;…&lt;/think&gt; tags before writing your final answer.</string>
     <string name="gen_effort_low">Low</string>
     <string name="gen_effort_medium">Medium</string>
     <string name="gen_effort_high">High</string>

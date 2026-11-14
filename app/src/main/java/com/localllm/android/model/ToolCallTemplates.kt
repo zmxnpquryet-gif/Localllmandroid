@@ -25,6 +25,35 @@ object ToolCallTemplates {
             listOf("minicpm5", "minicpm-5")
                 .any { it in haystack } -> ToolCallTemplate.MINICPM5
 
+            // Qwen 3.5 moved to the bare function-name XML form.
+            listOf("qwen3.5", "qwen3_5", "qwen 3.5")
+                .any { it in haystack } -> ToolCallTemplate.QWEN_XML
+
+            // LFM 3 (LiquidAI) shares Qwen's XML dialect.
+            listOf("lfm-3", "lfm3", "lfm 3")
+                .any { it in haystack } -> ToolCallTemplate.QWEN_XML
+
+            // GLM / ChatGLM / Zhipu models close their call with a reply tag.
+            listOf("glm", "chatglm", "zhipu")
+                .any { it in haystack } -> ToolCallTemplate.GLM4
+
+            // DeepSeek V3/R1 use fullwidth-token call blocks.
+            "deepseek" in haystack -> ToolCallTemplate.DEEPSEEK
+
+            // Phi-3/4 emit the tool name, '>' and a JSON object.
+            listOf("phi-3", "phi3", "phi-4", "phi4")
+                .any { it in haystack } -> ToolCallTemplate.PHI4
+
+            // Cohere Command models wrap calls in a tool_calls JSON array.
+            listOf("cohere", "command-r", "commandr")
+                .any { it in haystack } -> ToolCallTemplate.COHERE
+
+            // xLAM replies with a bare JSON array of calls.
+            "xlam" in haystack -> ToolCallTemplate.XLAM
+
+            // Gemma 4 models are trained on the Gemma tool_call block.
+            "gemma" in haystack -> ToolCallTemplate.GEMMA4
+
             // Qwen / Hermes / Nous models are trained on the <tool_call> block.
             listOf("qwen", "hermes", "nous", "functionary")
                 .any { it in haystack } -> ToolCallTemplate.HERMES

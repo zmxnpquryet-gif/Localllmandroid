@@ -309,10 +309,15 @@ internal class ChatTurnRunner(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            // A resend right after Stop can race the still-unwinding native
+            // completion; show a friendly hint instead of the raw BUSY tag.
+            val friendly = e.localizedMessage?.contains("BUSY_INFERENCE") == true
+            val rawMessage = e.localizedMessage ?: strings.get(R.string.vm_error_inference_generic)
+            val display = if (friendly) strings.get(R.string.vm_error_busy) else rawMessage
             val errorMsg = turnPlaceholder.copy(
                 content = strings.get(
                     R.string.vm_error_prefix,
-                    e.localizedMessage ?: strings.get(R.string.vm_error_inference_generic)
+                    display
                 ),
                 isStreaming = false
             )

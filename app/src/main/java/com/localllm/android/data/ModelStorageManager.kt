@@ -85,7 +85,7 @@ class ModelStorageManager(private val context: Context) {
                         localMtpDrafterPath = saved.localMtpDrafterPath,
                         localTemplatePath = saved.localTemplatePath,
                         downloadStatus = saved.downloadStatus,
-                        supportsReasoning = saved.supportsReasoning,
+                        supportsReasoning = saved.supportsReasoning || defaultModel.supportsReasoning,
                         hasMmproj = saved.hasMmproj,
                         mmprojSizeBytes = if (saved.mmprojSizeBytes > 0L) saved.mmprojSizeBytes else defaultModel.mmprojSizeBytes,
                         supportsMtp = saved.supportsMtp,
@@ -133,6 +133,16 @@ class ModelStorageManager(private val context: Context) {
 
         val effectiveHasMmproj = model.hasMmproj || (detected?.hasVisionTower == true)
         val effectiveSupportsMtp = model.supportsMtp || (detected?.hasDrafter == true)
+        val effectiveSupportsReasoning = model.supportsReasoning || (detected?.isReasoning == true)
+        val effectivePromptTemplate = if (
+            model.id.startsWith("custom-") &&
+            model.promptTemplateType == com.localllm.android.model.PromptTemplateType.CHATML &&
+            detected?.detectedTemplate != null
+        ) {
+            detected.detectedTemplate
+        } else {
+            model.promptTemplateType
+        }
 
         // Imported models are assigned by detected file format. Old unknown
         // runtime values (including removed experimental runtimes) fall back to llama.cpp.
@@ -186,8 +196,10 @@ class ModelStorageManager(private val context: Context) {
 
         return model.copy(
             runtimeType = effectiveRuntime,
+            promptTemplateType = effectivePromptTemplate,
             hasMmproj = effectiveHasMmproj,
             supportsMtp = effectiveSupportsMtp,
+            supportsReasoning = effectiveSupportsReasoning,
             isDownloaded = mainExists,
             downloadStatus = if (mainExists) "COMPLETED" else if (model.isDownloading) "DOWNLOADING" else "IDLE",
             localFilePath = if (mainExists) mainFile.absolutePath else null,
@@ -307,6 +319,7 @@ class ModelStorageManager(private val context: Context) {
         obj.put("fileName", m.fileName)
         obj.put("runtimeType", m.runtimeType.name)
         obj.put("runtimeTypeOverrideByUser", m.runtimeTypeOverrideByUser)
+        obj.put("promptTemplateType", m.promptTemplateType.name)
         obj.put("sizeBytes", m.sizeBytes)
         obj.put("supportsMtp", m.supportsMtp)
         obj.put("supportsReasoning", m.supportsReasoning)
@@ -351,6 +364,17 @@ class ModelStorageManager(private val context: Context) {
             ModelRuntimeType.LLAMA_CPP
         }
 
+        val promptTemplateStr = obj.optString("promptTemplateType", "")
+        val promptTemplateType = try {
+            if (promptTemplateStr.isNotBlank()) {
+                com.localllm.android.model.PromptTemplateType.valueOf(promptTemplateStr)
+            } else {
+                com.localllm.android.model.PromptTemplateType.CHATML
+            }
+        } catch (_: Exception) {
+            com.localllm.android.model.PromptTemplateType.CHATML
+        }
+
         return LlmModel(
             id = obj.getString("id"),
             name = obj.optString("name", "Unnamed Model"),
@@ -358,6 +382,7 @@ class ModelStorageManager(private val context: Context) {
             fileName = obj.optString("fileName", "model.gguf"),
             runtimeType = runtimeType,
             runtimeTypeOverrideByUser = obj.optBoolean("runtimeTypeOverrideByUser", false),
+            promptTemplateType = promptTemplateType,
             sizeBytes = obj.optLong("sizeBytes", 2_000_000_000L),
             supportsMtp = obj.optBoolean("supportsMtp", false),
             supportsReasoning = obj.optBoolean("supportsReasoning", false),

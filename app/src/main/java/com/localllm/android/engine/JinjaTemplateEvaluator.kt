@@ -16,28 +16,29 @@ object JinjaTemplateEvaluator {
         history: List<Pair<String, String>>,
         userPrompt: String,
         toolsContext: String? = null,
-        supportsReasoning: Boolean = false
+        supportsReasoning: Boolean = false,
+        effort: Float = 0.5f
     ): String? {
         val trimmedTemplate = templateText.trim()
         if (trimmedTemplate.isBlank()) return null
 
         if (trimmedTemplate.contains("<start_of_turn>")) {
-            return PromptFormatter.formatGemma(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
+            return PromptFormatter.formatGemma(systemPrompt, history, userPrompt, toolsContext, supportsReasoning, effort = effort)
         }
         if (trimmedTemplate.contains("<|im_start|>")) {
-            return PromptFormatter.formatChatML(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
+            return PromptFormatter.formatChatML(systemPrompt, history, userPrompt, toolsContext, supportsReasoning, effort = effort)
         }
         if (trimmedTemplate.contains("<|start_header_id|>")) {
-            return PromptFormatter.formatLlama3(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
+            return PromptFormatter.formatLlama3(systemPrompt, history, userPrompt, toolsContext, supportsReasoning, effort = effort)
         }
         if (trimmedTemplate.contains("<|user|>") && (trimmedTemplate.contains("<|end|>") || trimmedTemplate.contains("<|assistant|>"))) {
-            return PromptFormatter.formatPhi(systemPrompt, history, userPrompt, toolsContext, supportsReasoning)
+            return PromptFormatter.formatPhi(systemPrompt, history, userPrompt, toolsContext, supportsReasoning, effort = effort)
         }
 
         return try {
             val messages = mutableListOf<Map<String, String>>()
             if (systemPrompt.isNotBlank() || !toolsContext.isNullOrBlank() || supportsReasoning) {
-                val fullSystem = PromptFormatter.buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning)
+                val fullSystem = PromptFormatter.buildSystemInstruction(systemPrompt, toolsContext, supportsReasoning, effort = effort)
                 messages.add(mapOf("role" to "system", "content" to fullSystem))
             }
             for ((role, text) in PromptFormatter.normalizedHistory(history)) {

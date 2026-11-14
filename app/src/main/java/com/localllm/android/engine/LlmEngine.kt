@@ -46,7 +46,7 @@ class LlmEngine(private val context: Context) {
 
     companion object {
         const val KEY_LITERT_GPU_UNAVAILABLE = "litert_gpu_unavailable"
-        private const val INFERENCE_UNWIND_GRACE_MS = 5_000L
+        private const val INFERENCE_UNWIND_GRACE_MS = 15_000L
         private const val MEDIA_MARKER = "<__media__>"
     }
 
@@ -273,7 +273,8 @@ class LlmEngine(private val context: Context) {
             toolsContext = mcpToolsContext,
             supportsReasoning = model.supportsReasoning,
             includeBuiltInSystemPrompt = settings.builtInSystemPromptEnabled,
-            documentContext = documentContext
+            documentContext = documentContext,
+            effort = settings.reasoningEffort
         )
 
         val startTime = System.currentTimeMillis()

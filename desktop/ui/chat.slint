@@ -1,4 +1,4 @@
-// OffconAI Desktop — Chat transcript, calm empty state, and composer.
+// OffconAI Desktop — Chat transcript, tool approval gate, calm empty state, and composer.
 
 import { ScrollView } from "std-widgets.slint";
 import { ChatTurn, Ui } from "theme.slint";
@@ -97,16 +97,20 @@ export component ChatWorkspace inherits VerticalLayout {
     in property <string> empty-engine;
     in property <bool> model-loaded;
     in property <bool> busy;
+    in property <bool> awaiting-tool-approval;
+    in property <string> pending-tool-title;
+    in property <string> pending-tool-args;
     in-out property <string> input-text;
 
     callback send-requested();
     callback stop-requested();
+    callback approve-tool-requested();
+    callback decline-tool-requested();
 
     spacing: 8px;
     horizontal-stretch: 1;
     vertical-stretch: 1;
 
-    // Instrument readout header above the transcript card.
     HorizontalLayout {
         height: 18px;
         spacing: 8px;
@@ -209,7 +213,55 @@ export component ChatWorkspace inherits VerticalLayout {
         }
     }
 
-    // Flat surface composer with 72px text well + action strip.
+    if root.awaiting-tool-approval : Rectangle {
+        background: Ui.surface;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: Ui.accent;
+
+        HorizontalLayout {
+            padding: 12px;
+            spacing: 12px;
+            alignment: stretch;
+
+            VerticalLayout {
+                spacing: 4px;
+                horizontal-stretch: 1;
+                Text {
+                    text: root.pending-tool-title;
+                    font-size: 12px;
+                    font-weight: 500;
+                    color: Ui.text;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.pending-tool-args;
+                    font-size: 11px;
+                    font-family: Ui.font-mono;
+                    color: Ui.muted;
+                    overflow: elide;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+
+                FlatButton {
+                    label: "Decline";
+                    height: 32px;
+                    clicked => { root.decline-tool-requested(); }
+                }
+                FlatButton {
+                    label: "Run tool";
+                    primary: true;
+                    height: 32px;
+                    clicked => { root.approve-tool-requested(); }
+                }
+            }
+        }
+    }
+
     Rectangle {
         height: 96px;
         background: Ui.surface;

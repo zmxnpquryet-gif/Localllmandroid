@@ -4,9 +4,12 @@ import android.content.Context
 import android.util.Log
 import com.localllm.android.R
 import com.localllm.android.engine.LlmEngine
+import com.localllm.android.engine.McpToolProtocol
 import com.localllm.android.i18n.AppStrings
 import com.localllm.android.model.GenerationSettings
 import com.localllm.android.model.LlmModel
+import com.localllm.android.model.ToolCallTemplate
+import com.localllm.android.model.ToolCallTemplates
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -495,7 +498,8 @@ class OllamaApiServer(
     private suspend fun handleOpenAiChat(output: OutputStream, body: String, origin: String?) {
         val json = runCatching { JSONObject(body) }.getOrElse { JSONObject() }
         val isStream = json.optBoolean("stream", false)
-        val modelName = getActiveModel()?.name ?: "local-model"
+        val activeModel = getActiveModel()
+        val modelName = activeModel?.name ?: "local-model"
         val chatId = "chatcmpl-${System.currentTimeMillis()}"
 
         if (!llmEngine.isModelReady()) {
@@ -512,6 +516,18 @@ class OllamaApiServer(
         }
 
         val request = ApiPayloadMapper.resolveRequestOptions(json, getSettings())
+        val offeredTools = if (request.settings.toolCallsEnabled) {
+            ApiPayloadMapper.parseOpenAiTools(json)
+        } else {
+            emptyList()
+        }
+        val toolDialect = activeModel?.let { ToolCallTemplates.resolve(it, null) } ?: ToolCallTemplate.HERMES
+        val toolsPrompt = if (offeredTools.isNotEmpty() && toolDialect != ToolCallTemplate.NONE) {
+            McpToolProtocol.buildToolsPrompt("OpenAI Client", offeredTools, toolDialect)
+        } else {
+            null
+        }
+
         if (!generationSlots.tryAcquire()) {
             val err = JSONObject().put("error", JSONObject().put("message", "Server is busy: another generation is already running.")).toString()
             HttpWireWriter.sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
@@ -521,16 +537,31 @@ class OllamaApiServer(
         try {
             if (isStream) {
                 HttpWireWriter.sendStreamHeaders(output, "text/event-stream", origin)
+                var finalContentText = ""
+                var emittedVisibleLen = 0
                 try {
                     llmEngine.streamGenerate(
                         prompt = lastUserPrompt,
                         history = historyList,
                         settings = request.settings,
                         attachment = null,
+                        mcpToolsContext = toolsPrompt,
                         numPredictOverride = request.numPredict
                     ).collect { chunk ->
-                        if (chunk.token.isNotEmpty()) {
-                            HttpWireWriter.sendChunk(output, ApiPayloadMapper.buildOpenAiSseChunk(chatId, modelName, chunk.token, null))
+                        finalContentText = chunk.currentContentText
+                        if (toolsPrompt == null) {
+                            if (chunk.token.isNotEmpty()) {
+                                HttpWireWriter.sendChunk(output, ApiPayloadMapper.buildOpenAiSseChunk(chatId, modelName, chunk.token, null))
+                            }
+                        } else {
+                            val visible = McpToolProtocol.visibleText(finalContentText, toolDialect)
+                            if (visible.length > emittedVisibleLen && visible.startsWith(finalContentText.take(emittedVisibleLen).let { McpToolProtocol.visibleText(it, toolDialect) })) {
+                                val delta = visible.substring(emittedVisibleLen)
+                                if (delta.isNotEmpty()) {
+                                    HttpWireWriter.sendChunk(output, ApiPayloadMapper.buildOpenAiSseChunk(chatId, modelName, delta, null))
+                                }
+                                emittedVisibleLen = visible.length
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -545,11 +576,25 @@ class OllamaApiServer(
                     HttpWireWriter.endChunk(output)
                     return
                 }
-                HttpWireWriter.sendChunk(output, ApiPayloadMapper.buildOpenAiSseChunk(chatId, modelName, null, "stop"))
+                val parsedBatch = if (toolsPrompt != null) {
+                    McpToolProtocol.parseBatch(finalContentText, offeredTools, template = toolDialect)
+                } else null
+                if (parsedBatch != null && parsedBatch.calls.isNotEmpty()) {
+                    HttpWireWriter.sendChunk(output, ApiPayloadMapper.buildOpenAiToolCallSseChunk(chatId, modelName, parsedBatch.calls))
+                    HttpWireWriter.sendChunk(output, ApiPayloadMapper.buildOpenAiSseChunk(chatId, modelName, null, "tool_calls"))
+                } else {
+                    if (toolsPrompt != null && finalContentText.length > emittedVisibleLen) {
+                        val rest = finalContentText.substring(emittedVisibleLen)
+                        if (rest.isNotEmpty()) {
+                            HttpWireWriter.sendChunk(output, ApiPayloadMapper.buildOpenAiSseChunk(chatId, modelName, rest, null))
+                        }
+                    }
+                    HttpWireWriter.sendChunk(output, ApiPayloadMapper.buildOpenAiSseChunk(chatId, modelName, null, "stop"))
+                }
                 HttpWireWriter.sendChunk(output, "data: [DONE]\n\n")
                 HttpWireWriter.endChunk(output)
             } else {
-                val answer = StringBuilder()
+                var finalContentText = ""
                 var totalTokens = 0
                 try {
                     llmEngine.streamGenerate(
@@ -557,9 +602,10 @@ class OllamaApiServer(
                         history = historyList,
                         settings = request.settings,
                         attachment = null,
+                        mcpToolsContext = toolsPrompt,
                         numPredictOverride = request.numPredict
                     ).collect { chunk ->
-                        if (chunk.token.isNotEmpty()) answer.append(chunk.token)
+                        finalContentText = chunk.currentContentText
                         totalTokens = chunk.totalTokens
                     }
                 } catch (e: Exception) {
@@ -575,12 +621,20 @@ class OllamaApiServer(
                     HttpWireWriter.sendResponse(output, status, statusLabel, "application/json", err, origin)
                     return
                 }
+                val parsedBatch = if (toolsPrompt != null) {
+                    McpToolProtocol.parseBatch(finalContentText, offeredTools, template = toolDialect)
+                } else null
+                val responseBody = if (parsedBatch != null && parsedBatch.calls.isNotEmpty()) {
+                    ApiPayloadMapper.buildOpenAiCompletionJson(chatId, modelName, parsedBatch.prose, totalTokens, parsedBatch.calls)
+                } else {
+                    ApiPayloadMapper.buildOpenAiCompletionJson(chatId, modelName, finalContentText, totalTokens)
+                }
                 HttpWireWriter.sendResponse(
                     output,
                     200,
                     "OK",
                     "application/json",
-                    ApiPayloadMapper.buildOpenAiCompletionJson(chatId, modelName, answer.toString(), totalTokens),
+                    responseBody,
                     origin
                 )
             }

@@ -52,7 +52,7 @@ fun SettingsScreen(
     val memoryGuardState by viewModel.memoryGuardState.collectAsStateWithLifecycle()
     val llamaGpuOffloadAvailable = remember { viewModel.isLlamaGpuOffloadAvailable() }
     val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
-    val activeToolTemplate by viewModel.activeToolTemplate.collectAsStateWithLifecycle()
+    val selectedToolTemplate by viewModel.selectedToolTemplateChoice.collectAsStateWithLifecycle()
     val documentStats by viewModel.documentStats.collectAsStateWithLifecycle()
 
     var showClearDialog by remember { mutableStateOf(false) }
@@ -131,7 +131,7 @@ fun SettingsScreen(
                 ToolDialectSettingsSection(
                     settings = settings,
                     activeModel = activeModel,
-                    activeToolTemplate = activeToolTemplate,
+                    activeToolTemplate = selectedToolTemplate,
                     onSetTemplate = viewModel::setToolCallTemplate,
                     onUpdateSettings = viewModel::updateSettings
                 )

@@ -4,6 +4,7 @@ pub mod backends;
 pub mod contracts;
 pub mod controller;
 pub mod image_backend;
+pub mod mcp;
 pub mod process;
 pub mod session;
 pub mod transport;

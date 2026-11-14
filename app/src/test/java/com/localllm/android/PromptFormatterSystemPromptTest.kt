@@ -69,4 +69,104 @@ class PromptFormatterSystemPromptTest {
         )
         assertTrue(out.contains("CUSTOM INSTRUCTION"))
     }
+
+    @Test
+    fun `reasoning effort selects low, default, and deep system instructions`() {
+        val low = PromptFormatter.buildSystemInstruction(
+            systemPrompt = "",
+            toolsContext = null,
+            supportsReasoning = true,
+            effort = 0.2f
+        )
+        val medium = PromptFormatter.buildSystemInstruction(
+            systemPrompt = "",
+            toolsContext = null,
+            supportsReasoning = true,
+            effort = 0.5f
+        )
+        val deep = PromptFormatter.buildSystemInstruction(
+            systemPrompt = "",
+            toolsContext = null,
+            supportsReasoning = true,
+            effort = 0.9f
+        )
+
+        assertTrue(low.contains(AppStrings.get(R.string.sys_reasoning_low)))
+        assertFalse(low.contains(AppStrings.get(R.string.sys_think)))
+        assertTrue(medium.contains(AppStrings.get(R.string.sys_think)))
+        assertTrue(deep.contains(AppStrings.get(R.string.sys_reasoning_deep)))
+        assertFalse(deep.contains(AppStrings.get(R.string.sys_think)))
+    }
+
+    @Test
+    fun `low reasoning effort closes native think blocks on qwen35, gemma4, and lfm3`() {
+        val qwenLow = PromptFormatter.formatPrompt(
+            templateType = PromptTemplateType.QWEN35,
+            templateJsonPath = null,
+            systemPrompt = "",
+            history = emptyList(),
+            userPrompt = "hi",
+            toolsContext = null,
+            supportsReasoning = true,
+            effort = 0.2f
+        )
+        val qwenHigh = PromptFormatter.formatPrompt(
+            templateType = PromptTemplateType.QWEN35,
+            templateJsonPath = null,
+            systemPrompt = "",
+            history = emptyList(),
+            userPrompt = "hi",
+            toolsContext = null,
+            supportsReasoning = true,
+            effort = 0.8f
+        )
+        assertTrue(qwenLow.endsWith("</think>\n\n"))
+        assertFalse(qwenHigh.endsWith("</think>\n\n"))
+
+        val gemmaLow = PromptFormatter.formatPrompt(
+            templateType = PromptTemplateType.GEMMA4,
+            templateJsonPath = null,
+            systemPrompt = "",
+            history = emptyList(),
+            userPrompt = "hi",
+            toolsContext = null,
+            supportsReasoning = true,
+            effort = 0.2f
+        )
+        val gemmaHigh = PromptFormatter.formatPrompt(
+            templateType = PromptTemplateType.GEMMA4,
+            templateJsonPath = null,
+            systemPrompt = "",
+            history = emptyList(),
+            userPrompt = "hi",
+            toolsContext = null,
+            supportsReasoning = true,
+            effort = 0.8f
+        )
+        assertFalse(gemmaLow.contains("<|think|>"))
+        assertTrue(gemmaHigh.contains("<|think|>"))
+
+        val lfmLow = PromptFormatter.formatPrompt(
+            templateType = PromptTemplateType.LFM3,
+            templateJsonPath = null,
+            systemPrompt = "",
+            history = emptyList(),
+            userPrompt = "hi",
+            toolsContext = null,
+            supportsReasoning = true,
+            effort = 0.2f
+        )
+        val lfmHigh = PromptFormatter.formatPrompt(
+            templateType = PromptTemplateType.LFM3,
+            templateJsonPath = null,
+            systemPrompt = "",
+            history = emptyList(),
+            userPrompt = "hi",
+            toolsContext = null,
+            supportsReasoning = true,
+            effort = 0.8f
+        )
+        assertTrue(lfmLow.length > lfmHigh.length)
+        assertTrue(lfmLow.contains("</think>"))
+    }
 }

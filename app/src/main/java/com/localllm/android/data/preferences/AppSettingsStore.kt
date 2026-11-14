@@ -119,11 +119,20 @@ class AppSettingsStore(private val prefs: SharedPreferences) {
 
     fun getToolTemplateOverride(modelId: String): String? =
         prefs.getString(toolTemplatePrefKey(modelId), null)
+            ?: prefs.getString(DEFAULT_TOOL_TEMPLATE_KEY, null)
 
-    fun setToolTemplateOverride(modelId: String, template: ToolCallTemplate) {
+    fun getDefaultToolTemplateOverride(): String? =
+        prefs.getString(DEFAULT_TOOL_TEMPLATE_KEY, null)
+
+    fun setToolTemplateOverride(modelId: String?, template: ToolCallTemplate) {
         prefs.edit().apply {
-            if (template == ToolCallTemplate.AUTO) remove(toolTemplatePrefKey(modelId))
-            else putString(toolTemplatePrefKey(modelId), template.id)
+            if (modelId != null) {
+                if (template == ToolCallTemplate.AUTO) remove(toolTemplatePrefKey(modelId))
+                else putString(toolTemplatePrefKey(modelId), template.id)
+            } else {
+                if (template == ToolCallTemplate.AUTO) remove(DEFAULT_TOOL_TEMPLATE_KEY)
+                else putString(DEFAULT_TOOL_TEMPLATE_KEY, template.id)
+            }
             apply()
         }
     }
@@ -137,6 +146,7 @@ class AppSettingsStore(private val prefs: SharedPreferences) {
     companion object {
         const val PREFS_NAME = "app_settings_prefs"
         private const val KEY_RUNTIME = "runtime"
+        private const val DEFAULT_TOOL_TEMPLATE_KEY = "tool_call_template__default"
 
         private fun toolTemplatePrefKey(modelId: String) = "tool_call_template_$modelId"
 

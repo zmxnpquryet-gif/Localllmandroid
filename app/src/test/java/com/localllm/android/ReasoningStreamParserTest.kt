@@ -198,4 +198,21 @@ class ReasoningStreamParserTest {
         assertEquals("", parser.reasoningBuffer.toString())
         assertEquals("Hello", parser.contentBuffer.toString())
     }
+
+    @Test
+    fun `gemma4 thought channel routes to reasoning and rescues tool calls if unclosed`() {
+        val gemmaParser = ReasoningStreamParser()
+        gemmaParser.processChunk("<|channel>thought\nI should check weather<channel|><|tool_call>call:get_weather{city:<|\"|>Seoul<|\"|>}<tool_call|>")
+        gemmaParser.finish()
+        assertFalse(gemmaParser.isInReasoningMode)
+        assertEquals("I should check weather", gemmaParser.reasoningBuffer.toString())
+        assertEquals("<|tool_call>call:get_weather{city:<|\"|>Seoul<|\"|>}<tool_call|>", gemmaParser.contentBuffer.toString())
+
+        val unclosedThinkParser = ReasoningStreamParser(startInReasoning = true)
+        unclosedThinkParser.processChunk("Need a tool\n<tool_call>{\"name\":\"add\",\"arguments\":{}}</tool_call>")
+        unclosedThinkParser.finish()
+        assertFalse(unclosedThinkParser.isInReasoningMode)
+        assertEquals("Need a tool\n", unclosedThinkParser.reasoningBuffer.toString())
+        assertEquals("<tool_call>{\"name\":\"add\",\"arguments\":{}}</tool_call>", unclosedThinkParser.contentBuffer.toString())
+    }
 }

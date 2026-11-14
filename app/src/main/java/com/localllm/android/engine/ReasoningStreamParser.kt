@@ -1,15 +1,28 @@
 ﻿package com.localllm.android.engine
 
 /**
- * Robust streaming parser for reasoning models (e.g. DeepSeek-R1, Qwen-Thinking).
- * Correctly handles `<think>` and `</think>` tags even when tokens are split
- * across chunk boundaries (e.g. "<th" in chunk N, "ink>" in chunk N+1).
+ * Streaming parser for reasoning channels across model families:
+ *  - `<think>...</think>` (DeepSeek, Qwen 3/3.5, LFM3, MiniCPM5)
+ *  - `<|channel>thought...<channel|>` (Gemma 4)
+ *
+ * Also rescues tool-call blocks (`<tool_call>`, `<|tool_call>`, `<|tool_call_start|>`,
+ * `<|python_tag|>`, `[TOOL_CALLS]`, `<function`) if a small model starts emitting a
+ * tool call without first closing an open reasoning block.
  */
 class ReasoningStreamParser(startInReasoning: Boolean = false) {
 
     companion object {
-        private const val OPEN_TAG = "<think>"
-        private const val CLOSE_TAG = "</think>"
+        private val OPEN_TAGS = listOf("<think>", "<|channel>thought\n", "<|channel>thought")
+        private val CLOSE_TAGS = listOf("</think>", "<channel|>")
+        private val TOOL_RESCUE_MARKERS = listOf(
+            "<tool_call>",
+            "<|tool_call>",
+            "<|tool_call_start|>",
+            "<|python_tag|>",
+            "[TOOL_CALLS]",
+            "<function=",
+            "<function name=\""
+        )
     }
 
     var isInReasoningMode: Boolean = startInReasoning
@@ -20,12 +33,6 @@ class ReasoningStreamParser(startInReasoning: Boolean = false) {
 
     private val pendingBuffer = StringBuilder()
 
-    /**
-     * Processes an incoming raw token chunk and updates the reasoning and content buffers.
-     *
-     * @param chunk The raw token chunk received from the model stream.
-     * @return Pair of (isReasoningMode, deltaContentText)
-     */
     @Synchronized
     fun processChunk(chunk: String): Boolean {
         if (chunk.isEmpty()) return isInReasoningMode
@@ -33,62 +40,88 @@ class ReasoningStreamParser(startInReasoning: Boolean = false) {
         pendingBuffer.append(chunk)
 
         while (pendingBuffer.isNotEmpty()) {
-            // A template that opens an empty thinking block can make the model
-            // emit the closing tag as its first token. Drop that tag instead of
-            // printing it as answer text.
+            val current = pendingBuffer.toString()
+
             if (!isInReasoningMode && contentBuffer.isEmpty() && reasoningBuffer.isEmpty()) {
-                val firstNonWhitespace = pendingBuffer.indexOfFirst { !it.isWhitespace() }
-                if (firstNonWhitespace >= 0 && pendingBuffer.startsWith(CLOSE_TAG, firstNonWhitespace)) {
-                    pendingBuffer.delete(0, firstNonWhitespace + CLOSE_TAG.length)
-                    continue
+                val firstNonWhitespace = current.indexOfFirst { !it.isWhitespace() }
+                if (firstNonWhitespace >= 0) {
+                    val strayClose = CLOSE_TAGS.firstOrNull { current.startsWith(it, firstNonWhitespace) }
+                    if (strayClose != null) {
+                        pendingBuffer.delete(0, firstNonWhitespace + strayClose.length)
+                        continue
+                    }
                 }
             }
+
             if (!isInReasoningMode) {
-                val openIdx = pendingBuffer.indexOf(OPEN_TAG)
-                if (openIdx >= 0) {
-                    // Everything before <think> belongs to content
-                    if (openIdx > 0) {
-                        contentBuffer.append(pendingBuffer.substring(0, openIdx))
+                // Wait if "<|channel>thought" matched at the very end without trailing '\n',
+                // so "<|channel>thought\n" can consume the newline cleanly on the next chunk.
+                if (current.endsWith("<|channel>thought")) {
+                    val safeLen = current.length - "<|channel>thought".length
+                    if (safeLen > 0) {
+                        contentBuffer.append(current.substring(0, safeLen))
+                        pendingBuffer.delete(0, safeLen)
                     }
-                    pendingBuffer.delete(0, openIdx + OPEN_TAG.length)
+                    break
+                }
+
+                val openMatch = findEarliestMatch(current, OPEN_TAGS)
+                if (openMatch != null) {
+                    val (openIdx, tag) = openMatch
+                    if (openIdx > 0) {
+                        contentBuffer.append(current.substring(0, openIdx))
+                    }
+                    pendingBuffer.delete(0, openIdx + tag.length)
                     isInReasoningMode = true
                 } else {
-                    // Check if pendingBuffer ends with a prefix of "<think>"
-                    val potentialPrefixLen = findPotentialPrefixLength(pendingBuffer.toString(), OPEN_TAG)
-                    if (potentialPrefixLen > 0) {
-                        // Safe to emit everything before the potential prefix
-                        val safeLen = pendingBuffer.length - potentialPrefixLen
+                    val holdLen = maxPotentialPrefixLength(current, OPEN_TAGS)
+                    if (holdLen > 0) {
+                        val safeLen = current.length - holdLen
                         if (safeLen > 0) {
-                            contentBuffer.append(pendingBuffer.substring(0, safeLen))
+                            contentBuffer.append(current.substring(0, safeLen))
                             pendingBuffer.delete(0, safeLen)
                         }
-                        break // Wait for next chunk to determine if it's really "<think>"
+                        break
                     } else {
-                        contentBuffer.append(pendingBuffer.toString())
+                        contentBuffer.append(current)
                         pendingBuffer.clear()
                     }
                 }
             } else {
-                val closeIdx = pendingBuffer.indexOf(CLOSE_TAG)
-                if (closeIdx >= 0) {
-                    // Everything before </think> belongs to reasoning
+                val closeMatch = findEarliestMatch(current, CLOSE_TAGS)
+                val rescueMatch = findEarliestMatch(current, TOOL_RESCUE_MARKERS)
+
+                if (closeMatch != null && (rescueMatch == null || closeMatch.first <= rescueMatch.first)) {
+                    val (closeIdx, tag) = closeMatch
                     if (closeIdx > 0) {
-                        reasoningBuffer.append(pendingBuffer.substring(0, closeIdx))
+                        reasoningBuffer.append(current.substring(0, closeIdx))
                     }
-                    pendingBuffer.delete(0, closeIdx + CLOSE_TAG.length)
+                    pendingBuffer.delete(0, closeIdx + tag.length)
+                    isInReasoningMode = false
+                } else if (rescueMatch != null) {
+                    // Model jumped straight from thinking into a tool call without emitting
+                    // </think> or <channel|>. Flush preceding reasoning and switch to content
+                    // WITHOUT consuming the tool marker itself.
+                    val toolIdx = rescueMatch.first
+                    if (toolIdx > 0) {
+                        reasoningBuffer.append(current.substring(0, toolIdx))
+                        pendingBuffer.delete(0, toolIdx)
+                    }
                     isInReasoningMode = false
                 } else {
-                    // Check if pendingBuffer ends with a prefix of "</think>"
-                    val potentialPrefixLen = findPotentialPrefixLength(pendingBuffer.toString(), CLOSE_TAG)
-                    if (potentialPrefixLen > 0) {
-                        val safeLen = pendingBuffer.length - potentialPrefixLen
+                    val holdLen = maxOf(
+                        maxPotentialPrefixLength(current, CLOSE_TAGS),
+                        maxPotentialPrefixLength(current, TOOL_RESCUE_MARKERS)
+                    )
+                    if (holdLen > 0) {
+                        val safeLen = current.length - holdLen
                         if (safeLen > 0) {
-                            reasoningBuffer.append(pendingBuffer.substring(0, safeLen))
+                            reasoningBuffer.append(current.substring(0, safeLen))
                             pendingBuffer.delete(0, safeLen)
                         }
-                        break // Wait for next chunk to determine if it's really "</think>"
+                        break
                     } else {
-                        reasoningBuffer.append(pendingBuffer.toString())
+                        reasoningBuffer.append(current)
                         pendingBuffer.clear()
                     }
                 }
@@ -98,33 +131,47 @@ class ReasoningStreamParser(startInReasoning: Boolean = false) {
         return isInReasoningMode
     }
 
-    /**
-     * Called when stream generation is complete to flush any buffered potential tag characters.
-     */
     @Synchronized
     fun finish() {
         if (pendingBuffer.isNotEmpty()) {
-            if (isInReasoningMode) {
-                reasoningBuffer.append(pendingBuffer.toString())
+            val remaining = pendingBuffer.toString()
+            if (!isInReasoningMode && remaining == "<|channel>thought") {
+                isInReasoningMode = true
+            } else if (isInReasoningMode) {
+                reasoningBuffer.append(remaining)
             } else {
-                contentBuffer.append(pendingBuffer.toString())
+                contentBuffer.append(remaining)
             }
             pendingBuffer.clear()
         }
     }
 
-    /**
-     * Checks if [text] ends with a non-empty prefix of [targetTag] (e.g. "<", "</", "</th").
-     * Returns the length of the matching prefix, or 0 if none matches.
-     */
-    private fun findPotentialPrefixLength(text: String, targetTag: String): Int {
-        val maxCheckLen = minOf(text.length, targetTag.length - 1)
-        for (len in maxCheckLen downTo 1) {
-            val suffix = text.substring(text.length - len)
-            if (targetTag.startsWith(suffix)) {
-                return len
+    private fun findEarliestMatch(text: String, tags: List<String>): Pair<Int, String>? {
+        var bestIdx = Int.MAX_VALUE
+        var bestTag: String? = null
+        for (tag in tags) {
+            val idx = text.indexOf(tag)
+            if (idx >= 0 && (idx < bestIdx || (idx == bestIdx && tag.length > (bestTag?.length ?: 0)))) {
+                bestIdx = idx
+                bestTag = tag
             }
         }
-        return 0
+        return bestTag?.let { bestIdx to it }
+    }
+
+    private fun maxPotentialPrefixLength(text: String, tags: List<String>): Int {
+        var best = 0
+        for (tag in tags) {
+            val maxCheckLen = minOf(text.length, tag.length - 1)
+            for (len in maxCheckLen downTo 1) {
+                if (len <= best) break
+                val suffix = text.substring(text.length - len)
+                if (tag.startsWith(suffix)) {
+                    best = len
+                    break
+                }
+            }
+        }
+        return best
     }
 }

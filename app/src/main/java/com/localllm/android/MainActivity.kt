@@ -9,7 +9,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -27,6 +29,7 @@ import com.localllm.android.ui.chat.ChatScreen
 import com.localllm.android.ui.models.ModelManagerScreen
 import com.localllm.android.ui.settings.SettingsScreen
 import com.localllm.android.ui.glass.GlassTheme
+import com.localllm.android.ui.glass.LocalHostNavBarInsets
 import com.localllm.android.ui.voice.VoiceModeScreen
 import java.util.Locale
 
@@ -41,6 +44,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by viewModel.settings.collectAsStateWithLifecycle()
             val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
+
+            // Capture the Activity window's real navigation-bar insets. Dialog
+            // windows (GSheet) on some OEM builds report zero nav-bar insets
+            // when drawing edge-to-edge; sheets fall back to this value.
+            val hostNavBarInsets = WindowInsets.navigationBars
 
             BackHandler(enabled = currentScreen != AppScreen.CHAT) {
                 viewModel.navigateTo(AppScreen.CHAT)
@@ -70,7 +78,8 @@ class MainActivity : ComponentActivity() {
                 // The localized wrapper above is not an Activity, so the registry owner
                 // lookup via LocalContext would fail (launch crash). Pin the real one.
                 LocalActivityResultRegistryOwner provides this@MainActivity,
-                LocalConfiguration provides localizedContext.resources.configuration
+                LocalConfiguration provides localizedContext.resources.configuration,
+                LocalHostNavBarInsets provides hostNavBarInsets
             ) {
                 GlassTheme(
                     darkModePreference = settings.darkModePreference,

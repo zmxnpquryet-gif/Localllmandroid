@@ -255,16 +255,71 @@ void emit_audio_pcm16(JNIEnv * env, jobject target, const float * samples, size_
     }
 }
 
-std::string token_to_piece(const llama_vocab * vocab, llama_token token) {
+std::string raw_token_piece(const llama_vocab * vocab, llama_token token, bool special) {
     char buffer[256];
-    int32_t written = llama_token_to_piece(vocab, token, buffer, sizeof(buffer), 0, false);
+    int32_t written = llama_token_to_piece(vocab, token, buffer, sizeof(buffer), 0, special);
     if (written > 0 && static_cast<size_t>(written) <= sizeof(buffer)) {
         return std::string(buffer, static_cast<size_t>(written));
     }
     if (written < 0) {
         std::vector<char> larger(static_cast<size_t>(-written));
-        written = llama_token_to_piece(vocab, token, larger.data(), static_cast<int32_t>(larger.size()), 0, false);
+        written = llama_token_to_piece(vocab, token, larger.data(), static_cast<int32_t>(larger.size()), 0, special);
         if (written > 0) return std::string(larger.data(), static_cast<size_t>(written));
+    }
+    return {};
+}
+
+bool is_turn_boundary_special(const std::string & piece) {
+    return piece == "<|im_end|>" ||
+           piece == "<|eot_id|>" ||
+           piece == "<end_of_turn>" ||
+           piece == "<turn|>" ||
+           piece == "<|end|>" ||
+           piece == "</s>" ||
+           piece == "<|endoftext|>" ||
+           piece == "<|end_of_text|>" ||
+           piece == "<|im_start|>" ||
+           piece == "<start_of_turn>" ||
+           piece == "<|turn>";
+}
+
+bool is_semantic_special(const std::string & piece) {
+    return piece == "<tool_call>" ||
+           piece == "</tool_call>" ||
+           piece == "<|python_tag|>" ||
+           piece == "[TOOL_CALLS]" ||
+           piece == "<|tool_call>" ||
+           piece == "<tool_call|>" ||
+           piece == "<|\"|>" ||
+           piece == "<|tool_call_start|>" ||
+           piece == "<|tool_call_end|>" ||
+           piece == "<think>" ||
+           piece == "</think>" ||
+           piece == "<|channel>" ||
+           piece == "<channel|>" ||
+           piece == "<|thought|>" ||
+           piece == "<thought>" ||
+           piece == "</thought>";
+}
+
+// Converts a sampled token into UTF-8 text while preserving special tool-call and
+// reasoning delimiters (which llama_token_to_piece(..., special=false) drops).
+std::string token_to_piece(const llama_vocab * vocab, llama_token token, bool & stop_turn) {
+    stop_turn = false;
+    std::string normal = raw_token_piece(vocab, token, false);
+    if (!normal.empty()) {
+        return normal;
+    }
+    std::string special = raw_token_piece(vocab, token, true);
+    if (special.empty()) {
+        return {};
+    }
+    if (is_turn_boundary_special(special)) {
+        stop_turn = true;
+        return {};
+    }
+    if (is_semantic_special(special)) {
+        return special;
     }
     return {};
 }
@@ -289,13 +344,19 @@ bool decode_tokens(
         llama_context * ctx,
         int n_batch,
         const std::vector<llama_token> & tokens,
-        int n_past) {
+        int n_past,
+        std::atomic<bool> * stop_flag = nullptr) {
     if (tokens.empty()) return true;
     llama_batch batch = llama_batch_init(n_batch, 0, 1);
     if (batch.token == nullptr) return false;
 
     bool ok = true;
     for (size_t offset = 0; offset < tokens.size(); offset += static_cast<size_t>(n_batch)) {
+        // Prompt evaluation used to be uninterruptible, so a Stop request
+        // during a long prefill kept the context busy for the whole decode
+        // and a follow-up message immediately failed with BUSY_INFERENCE.
+        // Check the stop flag between batches so Stop takes effect quickly.
+        if (stop_flag != nullptr && stop_flag->load()) break;
         const int count = static_cast<int>(std::min<size_t>(n_batch, tokens.size() - offset));
         batch.n_tokens = count;
         for (int i = 0; i < count; ++i) {
@@ -650,7 +711,8 @@ Java_com_localllm_android_engine_llama_LlamaContext_nativeCompletion(
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     int n_past = 0;
-    LOGI("native Omni completion: evaluating audio turn");
+    LOGI("native completion: evaluating prompt (%d chars, image=%s)",
+         static_cast<int>(prompt.size()), !image_path.empty() ? "yes" : "no");
     jint status = STATUS_OK;
     if (!image_path.empty()) {
         if (!eval_multimodal(session.get(), prompt, image_path, n_past)) {
@@ -662,7 +724,7 @@ Java_com_localllm_android_engine_llama_LlamaContext_nativeCompletion(
             status = STATUS_PROMPT_FAILED;
         } else if (static_cast<int>(tokens.size()) >= session->n_ctx) {
             status = STATUS_CONTEXT_OVERFLOW;
-        } else if (!decode_tokens(session->ctx, session->n_batch, tokens, 0)) {
+        } else if (!decode_tokens(session->ctx, session->n_batch, tokens, 0, &session->stop)) {
             status = STATUS_DECODE_FAILED;
         } else {
             n_past = static_cast<int>(tokens.size());
@@ -694,7 +756,9 @@ Java_com_localllm_android_engine_llama_LlamaContext_nativeCompletion(
                 }
                 if (llama_vocab_is_eog(session->vocab, token)) break;
 
-                pending += token_to_piece(session->vocab, token);
+                bool stop_turn = false;
+                pending += token_to_piece(session->vocab, token, stop_turn);
+                if (stop_turn) break;
                 const size_t hold = utf8_incomplete_suffix(pending);
                 const size_t ready = pending.size() - hold;
                 if (ready > 0) {
@@ -853,7 +917,7 @@ Java_com_localllm_android_engine_llama_LlamaContext_nativeOmniCompletion(
         if (sampled != LLAMA_TOKEN_NULL && !frame_stop &&
             !llama_vocab_is_control(session->vocab, sampled) &&
             !llama_vocab_is_eog(session->vocab, sampled)) {
-            pending_text += token_to_piece(session->vocab, sampled);
+            pending_text += raw_token_piece(session->vocab, sampled, false);
             const size_t hold = utf8_incomplete_suffix(pending_text);
             const size_t ready = pending_text.size() - hold;
             if (ready > 0) {

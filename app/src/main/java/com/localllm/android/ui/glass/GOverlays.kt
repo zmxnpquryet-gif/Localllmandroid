@@ -21,16 +21,21 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -166,6 +171,17 @@ fun GMenuItem(
     }
 }
 
+/**
+ * Navigation-bar insets captured from the host Activity window.
+ *
+ * Dialog windows on some OEM builds (e.g. Samsung One UI with 3-button
+ * navigation) report zero navigation-bar insets when
+ * `decorFitsSystemWindows = false`, so sheet content drawn inside a Dialog
+ * would extend behind the nav bar and its lowest rows become untappable.
+ * MainActivity provides the Activity's real insets here as a fallback.
+ */
+val LocalHostNavBarInsets = staticCompositionLocalOf { WindowInsets(0, 0, 0, 0) }
+
 /** Bottom sheet replacing M3 ModalBottomSheet. */
 @Composable
 fun GSheet(
@@ -199,7 +215,15 @@ fun GSheet(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
                         .background(GlassTheme.colors.surface.copy(alpha = 0.92f))
-                        .navigationBarsPadding()
+                        // Dialog windows may not report navigation-bar insets on all
+                        // OEM builds; fall back to the host Activity's captured insets.
+                        .windowInsetsPadding(
+                            if (WindowInsets.navigationBars.getBottom(LocalDensity.current) > 0) {
+                                WindowInsets.navigationBars
+                            } else {
+                                LocalHostNavBarInsets.current
+                            }
+                        )
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),

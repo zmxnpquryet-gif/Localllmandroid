@@ -179,6 +179,7 @@
     <string name="vm_notice_model_load_failed">모델 로드 실패: %1$s. 모델 관리자에서 모델 상태를 확인해 주세요.</string>
     <string name="vm_error_prefix">오류 발생: %1$s</string>
     <string name="vm_error_inference_generic">추론 중 문제가 발생했습니다.</string>
+    <string name="vm_error_busy">이전 생성이 아직 종료되는 중입니다. 잠시 후 다시 시도해 주세요.</string>
     <string name="vm_voice_no_model">다운로드된 로컬 모델이 없습니다. 모델 관리자에서 모델을 먼저 다운로드해 주세요.</string>
     <string name="vm_voice_load_failed">모델 로드 실패: %1$s</string>
     <string name="vm_voice_error">음성 대화 중 오류가 발생했습니다.</string>
@@ -580,9 +581,11 @@
     <string name="cry_corrupt">손상된 Base64 암호문 데이터입니다.</string>
     <string name="cry_bad_length">암호문 데이터 길이가 유효하지 않습니다 (최소 %1$s바이트 필요).</string>
     <string name="cry_decrypt_fail">암호문 복호화 실패: 무결성 검증에 실패했거나 키가 일치하지 않습니다.</string>
-    <string name="sys_prompt">당신은 Android 기기에서 완전히 로컬로 실행되는 친절하고 유능한 AI 어시스턴트입니다. 외부 서버 없이 기기 내부에서 모든 답변을 생성합니다.</string>
+    <string name="sys_prompt">당신은 친절하고 유능한 AI 어시스턴트입니다.</string>
     <string name="sys_ctx_header">[현재 기기 로컬 컨텍스트 및 도구 정보]:</string>
     <string name="sys_think">답변을 작성할 때 사고 및 추론 과정은 반드시 &lt;think&gt;…&lt;/think&gt; 태그 안에 작성하세요.</string>
+    <string name="sys_reasoning_low">꼭 필요한 경우에만 &lt;think&gt;…&lt;/think&gt; 태그 안에서 짧게 추론하고, 가능하면 바로 간결하게 답변하세요.</string>
+    <string name="sys_reasoning_deep">최종 답변을 작성하기 전에 &lt;think&gt;…&lt;/think&gt; 태그 안에서 단계별로 깊고 꼼꼼하게 추론하세요.</string>
     <string name="gen_effort_low">낮음 (Low)</string>
     <string name="gen_effort_medium">보통 (Medium)</string>
     <string name="gen_effort_high">높음 (High)</string>

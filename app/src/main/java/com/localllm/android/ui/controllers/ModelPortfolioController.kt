@@ -16,6 +16,7 @@ import com.localllm.android.memory.MemoryGuardStore
 import com.localllm.android.model.GenerationSettings
 import com.localllm.android.model.LlmModel
 import com.localllm.android.model.ModelRuntimeType
+import com.localllm.android.model.PromptTemplateType
 import com.localllm.android.model.ToolCallTemplate
 import com.localllm.android.model.ToolCallTemplates
 import com.localllm.android.service.ModelDownloadService
@@ -59,6 +60,11 @@ internal class ModelPortfolioController(
 
     private val _activeToolTemplate = MutableStateFlow(ToolCallTemplate.NONE)
     val activeToolTemplate: StateFlow<ToolCallTemplate> = _activeToolTemplate.asStateFlow()
+
+    private val _selectedToolTemplateChoice = MutableStateFlow(
+        settingsStore.getDefaultToolTemplateOverride()?.let(ToolCallTemplate::fromId) ?: ToolCallTemplate.AUTO
+    )
+    val selectedToolTemplateChoice: StateFlow<ToolCallTemplate> = _selectedToolTemplateChoice.asStateFlow()
 
     private val _voiceAudioDecision = MutableStateFlow<VoiceAudioDecision?>(null)
     val voiceAudioDecision: StateFlow<VoiceAudioDecision?> = _voiceAudioDecision.asStateFlow()
@@ -108,16 +114,22 @@ internal class ModelPortfolioController(
 
     fun activateModelMetadata(model: LlmModel?) {
         _activeModel.value = model
+        val rawOverride = if (model != null) {
+            settingsStore.getToolTemplateOverride(model.id)
+        } else {
+            settingsStore.getDefaultToolTemplateOverride()
+        }
+        _selectedToolTemplateChoice.value = rawOverride?.let(ToolCallTemplate::fromId) ?: ToolCallTemplate.AUTO
         _activeToolTemplate.value = model?.let { active ->
-            ToolCallTemplates.resolve(active, settingsStore.getToolTemplateOverride(active.id))
-        } ?: ToolCallTemplate.NONE
+            ToolCallTemplates.resolve(active, rawOverride)
+        } ?: (_selectedToolTemplateChoice.value.takeIf { it != ToolCallTemplate.AUTO } ?: ToolCallTemplate.HERMES)
         _voiceAudioDecision.value = AudioInputRouter.route(model)
         onRefreshMcpToolsContext()
     }
 
     fun setToolCallTemplate(template: ToolCallTemplate) {
-        val model = _activeModel.value ?: return
-        settingsStore.setToolTemplateOverride(model.id, template)
+        val model = _activeModel.value
+        settingsStore.setToolTemplateOverride(model?.id, template)
         activateModelMetadata(model)
     }
 
@@ -432,10 +444,12 @@ internal class ModelPortfolioController(
             finalFileName.substringBeforeLast('.').ifBlank { "Custom Model" }
         }
         val effectiveReasoning = supportsReasoning ||
-            modelName.contains("R1", ignoreCase = true) ||
-            modelName.contains("Reasoning", ignoreCase = true) ||
-            modelName.contains("Thinking", ignoreCase = true) ||
-            finalFileName.contains("R1", ignoreCase = true)
+            GgufMetadataDetector.inferReasoningSupport(
+                fileNameLower = "$modelName $finalFileName $cleanMain"
+            )
+        val detectedTemplate = GgufMetadataDetector.inferPromptTemplate(
+            fileNameLower = "$modelName $finalFileName $cleanMain"
+        ) ?: PromptTemplateType.CHATML
 
         val autoDetectedVision = GgufMetadataDetector.isVisionModel(finalFileName) || GgufMetadataDetector.isVisionModel(modelName)
         val autoDetectedDrafter = GgufMetadataDetector.isDrafterModel(finalFileName) || GgufMetadataDetector.isDrafterModel(modelName)
@@ -468,6 +482,7 @@ internal class ModelPortfolioController(
             repoId = "external/custom-model",
             fileName = finalFileName,
             runtimeType = runtime,
+            promptTemplateType = detectedTemplate,
             sizeBytes = 2_100_000_000L,
             supportsMtp = effectiveMtp,
             supportsReasoning = effectiveReasoning,
@@ -534,7 +549,9 @@ internal class ModelPortfolioController(
                     repoId = if (isLiteRt) "local/litert-imported" else "local/imported",
                     fileName = targetFileName,
                     runtimeType = detected.detectedRuntime,
+                    promptTemplateType = detected.detectedTemplate ?: PromptTemplateType.CHATML,
                     sizeBytes = destFile.length(),
+                    supportsReasoning = detected.isReasoning,
                     isDownloaded = true,
                     downloadStatus = "COMPLETED",
                     localFilePath = destFile.absolutePath,

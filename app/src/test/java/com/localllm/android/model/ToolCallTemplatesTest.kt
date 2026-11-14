@@ -25,9 +25,17 @@ class ToolCallTemplatesTest {
         assertEquals(ToolCallTemplate.LLAMA3_JSON, ToolCallTemplates.detect("Llama-3.2-3B-Instruct", ""))
         assertEquals(ToolCallTemplate.LLAMA3_JSON, ToolCallTemplates.detect("Meta-Llama-3.1-8B", ""))
         assertEquals(ToolCallTemplate.HERMES, ToolCallTemplates.detect("Qwen3-4B-Instruct", ""))
+        // Family detection covers the newer catalogs too.
+        assertEquals(ToolCallTemplate.GEMMA4, ToolCallTemplates.detect("Gemma 4 E2B", ""))
+        assertEquals(ToolCallTemplate.QWEN_XML, ToolCallTemplates.detect("LFM 3 1.2B", ""))
+        assertEquals(ToolCallTemplate.QWEN_XML, ToolCallTemplates.detect("Qwen3.5-2B", ""))
+        assertEquals(ToolCallTemplate.GLM4, ToolCallTemplates.detect("GLM-4.5-Flash", ""))
+        assertEquals(ToolCallTemplate.DEEPSEEK, ToolCallTemplates.detect("DeepSeek-R1-0528-Qwen3-8B", ""))
+        assertEquals(ToolCallTemplate.PHI4, ToolCallTemplates.detect("phi-4-mini", ""))
+        assertEquals(ToolCallTemplate.COHERE, ToolCallTemplates.detect("Command-R-Plus", ""))
+        assertEquals(ToolCallTemplate.XLAM, ToolCallTemplates.detect("Salesforce/xLAM-2-1b-fc-r", ""))
         // Unknown families keep the app's previous behaviour.
-        assertEquals(ToolCallTemplate.HERMES, ToolCallTemplates.detect("Gemma 4 E2B", ""))
-        assertEquals(ToolCallTemplate.HERMES, ToolCallTemplates.detect("LFM 3 1.2B", ""))
+        assertEquals(ToolCallTemplate.HERMES, ToolCallTemplates.detect("StableLM-4B", ""))
     }
 
     @Test

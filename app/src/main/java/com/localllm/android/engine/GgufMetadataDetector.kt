@@ -5,6 +5,7 @@ import com.localllm.android.i18n.AppStrings
 
 import android.util.Log
 import com.localllm.android.model.ModelRuntimeType
+import com.localllm.android.model.PromptTemplateType
 import com.localllm.android.engine.gguf.GgufReader
 import java.io.File
 import java.io.FileInputStream
@@ -16,7 +17,9 @@ data class GgufFeatureDetection(
     val detectedRuntime: ModelRuntimeType = ModelRuntimeType.LLAMA_CPP,
     val isUnifiedBundle: Boolean = false,
     val expertCount: Int = 0,
-    val architecture: String? = null
+    val architecture: String? = null,
+    val detectedTemplate: PromptTemplateType? = null,
+    val isReasoning: Boolean = false
 ) {
     val hasVision: Boolean get() = hasVisionTower
 
@@ -135,12 +138,16 @@ object GgufMetadataDetector {
             // to contain words like "siglip" or "vision".
             var expertCount = 0
             var architecture: String? = null
+            var generalName: String? = null
+            var chatTemplate: String? = null
             var structuredHits = ""
             if (hasGgufMagic) {
                 try {
                     val reader = GgufReader.open(file)
                     try {
                         architecture = reader.architecture()
+                        generalName = reader.string("general.name")
+                        chatTemplate = reader.string("tokenizer.chat_template")
                         expertCount = reader.archU32("expert_count")?.toInt() ?: 0
                         structuredHits = (reader.metadata.keys + reader.tensors.map { it.name })
                             .joinToString("\n").lowercase()
@@ -151,6 +158,19 @@ object GgufMetadataDetector {
                     Log.d(TAG, "GGUF metadata peek failed for ${file.name}: ${t.message}")
                 }
             }
+
+            val detectedTemplate = inferPromptTemplate(
+                fileNameLower = fileNameLower,
+                architecture = architecture,
+                generalName = generalName,
+                chatTemplate = chatTemplate
+            )
+            val isReasoning = inferReasoningSupport(
+                fileNameLower = fileNameLower,
+                architecture = architecture,
+                generalName = generalName,
+                chatTemplate = chatTemplate
+            )
 
             // Vision projector / encoder indicators in metadata keys or tensor names.
             val metaHasVision = VISION_STRUCTURED_HITS.any { structuredHits.contains(it) }
@@ -191,11 +211,71 @@ object GgufMetadataDetector {
                 detectedRuntime = detectedRuntime,
                 isUnifiedBundle = isUnified,
                 expertCount = expertCount,
-                architecture = architecture
+                architecture = architecture,
+                detectedTemplate = detectedTemplate,
+                isReasoning = isReasoning
             )
         } catch (e: Exception) {
             Log.w(TAG, "Error detecting model features: ${e.message}")
             GgufFeatureDetection(hasVisionTower = false, hasDrafter = false)
         }
+    }
+
+    private val R1_REGEX = Regex("""(^|[^a-z0-9])r1([^a-z0-9]|$)""")
+
+    fun inferPromptTemplate(
+        fileNameLower: String,
+        architecture: String? = null,
+        generalName: String? = null,
+        chatTemplate: String? = null
+    ): PromptTemplateType? {
+        val hint = listOfNotNull(fileNameLower, architecture, generalName).joinToString(" ").lowercase()
+        val tpl = chatTemplate.orEmpty()
+        return when {
+            tpl.contains("<|turn>") -> PromptTemplateType.GEMMA4
+            tpl.contains("<start_of_turn>") -> PromptTemplateType.GEMMA
+            tpl.contains("<|start_header_id|>") -> PromptTemplateType.LLAMA3
+            tpl.contains("<|user|>") && (tpl.contains("<|end|>") || tpl.contains("<|assistant|>")) -> PromptTemplateType.PHI
+            tpl.contains("<|im_start|>") -> when {
+                hint.contains("lfm3") || hint.contains("lfm-3") || hint.contains("lfm 3") ||
+                    (architecture?.lowercase()?.startsWith("lfm") == true && tpl.contains("<think>")) -> PromptTemplateType.LFM3
+                hint.contains("minicpm5") || hint.contains("minicpm-5") -> PromptTemplateType.MINICPM5
+                hint.contains("qwen3.5") || hint.contains("qwen3_5") || hint.contains("qwen 3.5") ||
+                    (tpl.contains("<think>") && hint.contains("qwen")) -> PromptTemplateType.QWEN35
+                else -> PromptTemplateType.CHATML
+            }
+            hint.contains("lfm3") || hint.contains("lfm-3") || hint.contains("lfm 3") -> PromptTemplateType.LFM3
+            hint.contains("gemma4") || hint.contains("gemma-4") || hint.contains("gemma 4") -> PromptTemplateType.GEMMA4
+            hint.contains("gemma") -> PromptTemplateType.GEMMA
+            hint.contains("minicpm5") || hint.contains("minicpm-5") -> PromptTemplateType.MINICPM5
+            hint.contains("qwen3.5") || hint.contains("qwen3_5") || hint.contains("qwen 3.5") -> PromptTemplateType.QWEN35
+            hint.contains("llama-3") || hint.contains("llama3") || hint.contains("llama 3") ||
+                hint.contains("llama-4") || hint.contains("llama4") || hint.contains("llama 4") -> PromptTemplateType.LLAMA3
+            hint.contains("phi-3") || hint.contains("phi3") || hint.contains("phi-4") || hint.contains("phi4") -> PromptTemplateType.PHI
+            else -> null
+        }
+    }
+
+    fun inferReasoningSupport(
+        fileNameLower: String,
+        architecture: String? = null,
+        generalName: String? = null,
+        chatTemplate: String? = null
+    ): Boolean {
+        val hint = listOfNotNull(fileNameLower, architecture, generalName).joinToString(" ").lowercase()
+        val tpl = chatTemplate.orEmpty()
+        if (tpl.contains("<think>") || tpl.contains("<|think|>") || tpl.contains("enable_thinking")) {
+            return true
+        }
+        return R1_REGEX.containsMatchIn(hint) ||
+            hint.contains("reasoning") ||
+            hint.contains("thinking") ||
+            hint.contains("qwq") ||
+            hint.contains("deepseek") ||
+            hint.contains("lfm3") || hint.contains("lfm-3") || hint.contains("lfm 3") ||
+            hint.contains("qwen3") || hint.contains("qwen 3") ||
+            hint.contains("gemma4") || hint.contains("gemma-4") || hint.contains("gemma 4") ||
+            hint.contains("minicpm5") || hint.contains("minicpm-5") ||
+            hint.contains("agents-a1")
     }
 }

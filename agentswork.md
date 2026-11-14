@@ -560,6 +560,61 @@
   - 의도된 소스·테스트·워크플로·문서 파일만 스테이징하여 `main`에 커밋(로컬 스크린샷·로그 등 임시 미추적 파일 제외).
   - `git pull --rebase origin main`으로 원격 최신 상태를 반영한 뒤 `origin/main` 및 태그 `v2.0.0` 푸시, `gh release create v2.0.0`로 정식 릴리스 및 바이너리 자산 게시 수행.
 
+## 2026-11-14 — Android & Desktop 도구 호출(Tool Calling) 전체 원인 진단 및 수정
+
+- **배경 및 증상**: 사용자 보고("툴 호출이 안되는데!")에 따라 Android(네이티브 `llama_jni.cpp`, 프롬프트/스트림 파서, 네트워크 정책, API 서버)와 Desktop(Rust + Slint MCP 연동) 전 구간을 정밀 추적하여 5가지 핵심 원인을 모두 해결했다.
+- **발견된 근본 원인 및 수정 내역**:
+  1. **네이티브 `llama_jni.cpp` 특수 토큰 삭제 버그 (`app/src/main/cpp/llama_jni.cpp`)**:
+     - 원인: `token_to_piece`가 `llama_token_to_piece(..., special = false)`만 호출하여 Qwen 3.5 / LFM3 / Gemma 4 / Llama 3 / Mistral 어휘에서 `CONTROL` 특수 토큰으로 등록된 `<tool_call>`, `</tool_call>`, `</think>`, `<|tool_call>`, `<tool_call|>`, `<|"|>`, `<|tool_call_start|>`, `<|tool_call_end|>`, `<|python_tag|>`, `[TOOL_CALLS]`, `<|channel>`, `<channel|>`가 빈 문자열(`""`)로 증발했다. 이로 인해 모델이 정상적으로 도구 호출 토큰이나 `</think>`를 출력해도 상위 파서가 태그를 전혀 볼 수 없었다.
+     - 수정: (기존 `llama_jni.cpp`의 `token_to_piece`를 수정한 이유: `special = false` 호출 시 제어 토큰으로 정의된 도구/추론 구분자가 전부 누락되었기 때문이며, 일반 토큰 변환 결과가 비었을 때 `special = true` 문자열을 확인하여 추론·도구 구분자 토큰은 그대로 방출하고 `<|im_end|>`·`<turn|>` 등 턴 경계 토큰은 즉시 루프 종료 신호로 처리하도록 변경했다.)
+  2. **2026 카탈로그 모델군(LFM3 · Qwen 3.5 · Gemma 4) 고유 도구 호출 문법 및 추론 채널 지원 (`Gemma4ToolCodec.kt`, `McpToolProtocol.kt`, `LlmModel.kt`, `ReasoningStreamParser.kt`, `PromptFormatter.kt`)**:
+     - 원인: 업스트림 `LFM3.jinja`와 `Qwen3.5-4B.jinja`는 `<tools>...</tools>` 선언 및 `<tool_call>\n<function=이름>\n<parameter=키>\n값\n</parameter>\n</function>\n</tool_call>` 형식을 사용하고, `Gemma 4`는 `<|channel>thought...<channel|>` 추론 채널과 `<|tool_call>call:이름{키:<|"|>값<|"|>}<tool_call|>` 문법을 사용하는데 기존 코드에는 해당 방언 선언·인코더·Gemma 4 파서가 없었고, 소형 모델이 `</think>`를 닫지 않은 채 `<tool_call>`을 출력할 경우 본문이 아닌 추론 버퍼에 갇혔다.
+     - 생성 및 수정: `engine/Gemma4ToolCodec.kt`를 새로 생성해 Gemma 4 `<|tool_call>call:...<tool_call|>` 및 LFM Pythonic `<|tool_call_start|>[...]<|tool_call_end|>` 코덱을 구현했다. (기존 `LlmModel.kt`, `McpToolProtocol.kt`, `ReasoningStreamParser.kt`, `PromptFormatter.kt`를 수정한 이유: LFM3·Qwen 3.5·Gemma 4의 실제 학습된 도구/추론 포맷과 일치시키고 미종료 `<think>` 내부의 도구 태그를 본문 버퍼로 구출하기 위함이며, `QWEN_XML`·`GEMMA4` 방언과 `<|channel>thought...<channel|>` 파싱 및 이중 `<think>` 지시 제거를 적용했다.)
+  3. **Android 평문 HTTP 로컬/LAN MCP 서버 차단 해결 (`app/src/main/AndroidManifest.xml`)**:
+     - 원인: `McpClient`는 `http://127.0.0.1` 및 사설 LAN `http://192.168.x.x` MCP 서버를 허용하도록 설계되어 있었으나 `targetSdk = 36` 기본 정책으로 인해 OS가 소켓 연결 전에 `CLEARTEXT communication not permitted` 예외를 발생시켰다.
+     - 수정: (`AndroidManifest.xml`에 `android:usesCleartextTraffic="true"`를 추가한 이유: 로컬/사설망 HTTP MCP 서버 연결 차단을 해제하기 위함이며, 공인 호스트 평문 HTTP로의 토큰 전송 차단은 `McpClient.isTokenSafeTransport`와 `ModelDownloader.isHuggingFaceApiHost`에서 그대로 강제된다.)
+  4. **설정 화면 도구 방언 선택 버그 및 Android 로컬 API 서버 `:11434` 도구 호출 지원 (`AppSettingsStore.kt`, `ModelPortfolioController.kt`, `SettingsScreen.kt`, `ApiPayloadMapper.kt`, `OllamaApiServer.kt`)**:
+     - 수정: (기존 설정/서버 파일을 수정한 이유: 모델 미로드 상태에서 도구 형식 칩 클릭이 무시되고 `Auto` 선택 상태가 표시되지 않던 문제와 `/v1/chat/completions`에서 `"tools"` 요청을 무시하던 한계를 해결하기 위해 기본 오버라이드 키 저장 및 OpenAI `tools` → `tool_calls` 변환을 추가했다.)
+  5. **Desktop Rust + Slint 앱 엔드투엔드 MCP 클라이언트 및 멀티라운드 도구 실행 구현 (`desktop/src/mcp.rs`, `contracts.rs`, `session.rs`, `controller.rs`, `desktop/ui/*.slint`)**:
+     - 원인: 기존 데스크톱 앱에는 MCP 서버 연결 UI/클라이언트가 없었고 `ChatRequest.tools`가 항상 빈 배열로 전송되었으며 도구 실행 후 재질의 루프가 없었다.
+     - 생성 및 수정: `desktop/src/mcp.rs`(JSON-RPC 2.0 `initialize` / `tools/list` / `tools/call` 클라이언트)를 새로 생성하고, 사이드바 **MCP Tools** 연결 카드와 채팅 화면 **Run tool / Decline** 승인 바 및 최대 3라운드 자동 후속 생성 루프(구조화 `delta.tool_calls` 및 인라인 `<tool_call>` 모두 지원)를 구현했다.
+- **검증 결과**:
+  - Desktop `cargo test`: **15/15 통과** (모의 JSON-RPC MCP 핸드셰이크/목록/호출 테스트 및 인라인 Qwen XML 파싱 테스트 포함).
+  - Android `:app:testDebugUnitTest` 및 `:app:assembleDebug`(CMake `arm64-v8a`·`x86_64` 포함), `:app:assembleRelease`, `:desktop:installDist`: 모두 성공.
+
+## 2026-11-14 — Galaxy S25 FE 실기기 QA 진행 중: Vision 동작 확인 및 버그 수정
+
+- **실기기 QA 경과 (SM-S731N, Android 16, 3버튼 내비, 한국어)**:
+  - **Vision 첨부 이미지 질의: 실제로는 동작함.** 이전 단계에서 "멈춤"으로 보였던 것은 이미지 임베딩 평가가 매우 느려서였음 — `LlamaJNI: completion finished: status=0, 65 token(s), n_past=2853` (15:28:11 시작 → 15:30:33 완료, 약 2분 22초). 프롬프트 토큰이 810 → 2853으로 증가한 것이 이미지(약 2,043 토큰)가 실제로 처리된 근거. 모델은 첨부된 스크린샷을 정확히 묘사했다("light gray/off-white, black UI elements, Korean text with purple accent"). 다만 UX 문제로, 이미지 인코딩 중 PP 6 t/s 수준의 긴 대기에 진행 표시가 전혀 없음 → 개선 필요 목록에 기록.
+  - **첨부 시트 문서 옵션 도달 불가 버그 확인 (치명적)**: 3버튼 내비게이션에서 첨부 바텀시트의 "문서 및 텍스트 파일 첨부" 옵션이 내비게이션 바에 가려져 탭이 전혀 먹히지 않음 → 문서 RAG 테스트가 UI로는 불가능. 시트는 스크롤도 안 됨.
+  - **한국어 문자열 오탈자 아니었음 확인**: 스크린샷에서 "종지"로 보였던 것은 렌더링 판독 오류였고 실제 strings.xml은 `중지되었습니다`로 정상.
+- **이번 단계에서 수정한 버그 (실기기 확인 원인 기반)**:
+  1. **`GSheet` 내비게이션 바 인셋 무시 (`ui/glass/GOverlays.kt`, `MainActivity.kt`)** — 수정한 이유: `Dialog(decorFitsSystemWindows = false)` 창이 삼성 One UI 3버튼 내비에서 네비게이션 바 인셋을 0으로 보고하여 `.navigationBarsPadding()`이 적용되지 않았고, 시트 최하단 옵션이 내비게이션 바 뒤로 가려 탭 불가 상태가 되었기 때문. 수정: `LocalHostNavBarInsets` CompositionLocal을 신설해 MainActivity 창의 실제 인셋을 공급하고, `GSheet`에서 Dialog 창 인셋이 0이면 호스트 인셋으로 폴백하도록 변경. 모든 GSheet 사용처(첨부 시트, 모델 관리 등)가 일괄 해결된다.
+  2. **Stop 직후 재전송 시 `BUSY_INFERENCE` 원 에러 노출 (`llama_jni.cpp`, `LlmEngine.kt`, `ChatTurnRunner.kt`, strings 3개 언어)** — 수정한 이유: 원인 분석 결과 Stop 플래그는 생성 루프에서만 검사되고 프롬프트 전처리(`decode_tokens`, 810 토큰 × PP 38 ≈ 21초) 중에는 무시되어, 5초 추론 잠금 유예가 만료된 뒤 재전송이 `BUSY_INFERENCE: 다른 추론 요청이 진행 중입니다` 원문으로 채팅에 표시되었기 때문. 수정: (a) 네이티브 `decode_tokens`에 배치 간 `session->stop` 검사를 추가해 프롬프트 전처리 중단을 가능하게 하고, (b) 잠금 유예를 5초→15초로 연장하며, (c) ChatTurnRunner가 `BUSY_INFERENCE` 예외를 잡으면 신규 스트링 `vm_error_busy`(ko/en/zh)로 친절한 안내 문구를 표시하도록 변경.
+  3. **상태바 아이콘 흰색으로 안 보임 (`ui/glass/GlassTheme.kt`)** — 수정한 이유: One UI에서 `enableEdgeToEdge()`의 자동 스타일이 잘못된 아이콘 외형(appearance)으로 결정되어 밝은 배경에 흰 아이콘이 그려졌기 때문. 수정: `GlassTheme`가 해석한 다크 여부에 따라 `isAppearanceLightStatusBars/NavigationBars`를 SideEffect로 강제 동기화(앱 내 다크 모드 선호가 시스템과 다를 때도 올바르게 따라감).
+  4. **오해를 부르는 네이티브 로그 (`llama_jni.cpp`)** — "native Omni completion: evaluating audio turn" 로그가 텍스트/이미지 경로에서도 찍혀 원인 파악을 방해했으므로, 프롬프트 길이와 이미지 경로 여부를 함께 남기는 정확한 로그로 교체.
+- **빌드·재설치 후 재검증 결과 (실기기)**:
+  1. **상태바 아이콘 수정 검증됨** — 픽셀 측정: 수정 전 출시 화면 carrier 텍스트 영역 darkest=251(흰색, 안 보임) → 수정 후 darkest=75(어두운 글자, 정상 표시).
+  2. **GSheet 내비게이션 바 인셋 수정 검증됨** — 첨부 시트의 "문서 및 텍스트 파일 첨부" 옵션이 내비게이션 바 위에 온전히 표시되고 탭이 정상 동작함.
+  3. **문서 RAG 엔드투엔드 검증됨** — 문서 선택기에서 `offcon_secret_doc.txt` 선택 → 배너 "'offcon_secret_doc.txt'에서 1개 청크를 인덱싱했습니다" → "What is the secret launch code in this document" 질의 → 답변 "The secret launch code in the document is ALPHA-7749-SEOUL." 정확 회상 (4420자 프롬프트, PP 40, 19.0 t/s, 21 tok, n_past=980).
+  - 테스트 보조 이슈: Samsung 키보드에서 `adb shell input text`의 `%s` 공백 처리 확인(리터럴 `%20`은 그대로 입력됨), IME 위 전송 버튼 좌표는 키보드 상태에 따라 변동.
+  4. **Stop→재전송 레이스 수정 검증됨** — 긴 스토리 생성 중 Stop(9 tok, stopped=true, 부분 답변 "In the heart of a sprawling," 저장) → 2초 내 "Hi" 재전송 → BUSY_INFERENCE 에러 없이 15:48:47에 새 추론 시작 → "Hello! How can I assist you today?" 정상 응답. 네이티브 프롬프트 전처리 중단(4436자 prefill에서도 Stop 플래그가 배치 간 확인됨)과 15초 유예가 함께 동작.
+  5. **Voice Mode 라이프사이클 검증됨** — 진입(LFM3 Omni 2B · Native Voice 표시) → "대화 시작" → AudioRecord 활성(시스템 녹음 인디케이터, `AudioRecordingConfiguration` 로그) → "음성을 듣고 있습니다…" → X 종료 → 채팅 복귀, 크래시 없음. 화면 하단 "Native Omni session / 16 kHz PCM…" 설명은 한국어 로케일에서도 영어로 고정(현지화 누락, 개선 목록).
+  - 판독 정정: 스크린샷 저해상도 판독으로 의심했던 "음니 모델"·"놀러"·"종지" 오타는 모두 실제 strings.xml에는 정확한 표기("옴니 모델", "눌러", "중지")로 확인됨.
+- **추가 반영: 기본 시스템 프롬프트 정리 (사용자 요청)** — `sys_prompt` 문자열(ko/en/zh)에서 "Android 기기에서 완전히 로컬로 실행 / 외부 서버 없이 기기 내부에서 답변 생성" 문장을 제거하고 "당신은 친절하고 유능한 AI 어시스턴트입니다."로 축약. 사용자가 시스템 프롬프트에 포함된 온디바이스·오프라인 강조 문구를 원하지 않는다고 요청했기 때문. `R.string.sys_prompt`는 `PromptFormatter`에서 그대로 삽입되므로 별도 코드 변경 없음. R8 릴리스로 재빌드 후 기기에 업데이트 설치(업로드 키 서명, 데이터 유지) 완료.
+- **디버그 APK 서명 불일치 확인**: 기기에 설치된 앱이 공식 업로드 키 서명 릴리스 빌드이므로 디버그 APK는 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`로 거부됨 → 모든 기기 검증은 `assembleRelease` 산출물로 진행.
 
 
 
+## 2026-11-14 v2.1.0 round: LiteRT catalog + tool dialects
+- LlmModel.kt: added 6 ToolCallTemplate enum entries (GLM4, DEEPSEEK, PHI4, COHERE, XLAM, REACT) after MINICPM5; displayNames deliberately avoid the raw Hermes marker literal (harness-safety + mirrors file style).
+- LlmModel.kt: replaced Gemma 4 E2B/E4B QAT GGUF catalog entries with LiteRT-LM entries (litert-community gemma-4-E{2,4}B-it-litert-lm, verified sizes 2,588,147,712 / 3,659,530,240 B, GEMMA4 template+tool dialect, templateFileUrl -> chat_template.jinja, no vision tower).
+- LlmModel.kt: appended 4 LiteRT entries per user-approved set: Qwen3.5-0.8B int8 (964,657,152 B), Qwen3.5-2B int8 (2,119,843,840 B), LFM2.5-1.2B-Instruct int4 (736,015,744 B, CHATML/no reasoning), Agents-A1-4B mixed int4 (2,754,461,696 B); Qwen/Agents use QWEN35+QWEN_XML with reasoning.
+- LlmModel.kt: LFM3 Omni 2B supportsReasoning set to true (why: enables the reasoning-effort control for the device model).
+
+- llama.cpp submodule upgraded v0.8.0 -> v1.0.0 (user request: reflect the big upstream release; why: v1.0.0 removes 35 deprecated APIs, promotes NextN API, mtmd consolidation, ggml 1.0.0). Checked out tag b1b770d; JNI wrapper greps clean for removed symbols (no llama_set_warmup/defrag/embd_state_src/clip.h usage); native compile will be validated by :app:assembleRelease.
+
+- McpToolProtocol.kt: added GLM4/DEEPSEEK/PHI4/COHERE/XLAM/REACT dialect support (why: user asked for a broad set of tool-call dialects). Constants for the GLM reply-tag closer (built by string concatenation for harness/source safety), DeepSeek fullwidth tokens, Cohere tool_calls key; extended DIALECTS recovery order; example() texts; collect dispatch + six collectors (Glm4 handles both closers, Phi4 tries Hermes-first then its own shape, DeepSeek lenient decoder, Cohere scans JSON objects, XLAM bare arrays, ReAct with fence skip); encodeCall branches; markerOf adds GLM4/DEEPSEEK/COHERE (Phi4/XLAM/REACT explicit-selection only); decodeCall gains a Phi-style name>json fallback; parseBatch now lets drift-dialect incompleteness fall through (only the selected dialect short-circuits); collectHermes defers to GLM4 when the reply-tag closer is present. ToolCallTemplates.detect() extended (qwen3.5/lfm3 -> QWEN_XML, glm/chatglm/zhipu -> GLM4, deepseek -> DEEPSEEK, phi-3/4 -> PHI4, cohere/command-r -> COHERE, xlam -> XLAM, gemma -> GEMMA4). Tests: ToolCallTemplatesTest expectations updated; ToolCallDialectsTest gained shared echo/prompt coverage + 5 new dialect tests using constant references instead of raw marker literals.
+
+- Reasoning effort wiring & auto-detection: threaded effort (Float = 0.5f) across PromptFormatter (formatPrompt, formatConversation, buildSystemInstruction, all format* helpers, tryFormatWithTemplateFile), JinjaTemplateEvaluator.evaluate, and LlmEngine (passing settings.reasoningEffort). Added sys_reasoning_low / sys_reasoning_deep strings across en/ko/zh locales; low effort (<= 0.25f) closes native think blocks on Qwen35/MiniCPM5/LFM3/Gemma4 and emits low-effort guidance; >= 0.85f emits deep-reasoning guidance. Extended GgufMetadataDetector (detectedTemplate, isReasoning from chat_template/architecture/general.name/filename), ModelPortfolioController (importLocalModel & importCustomModel heuristics), and ModelStorageManager (preserves supportsReasoning via OR with catalog defaults, serializes/deserializes promptTemplateType, and auto-upgrades existing custom GGUF entries during reconcileWithDisk without wiping app data).
+- Validation & release prep: added effort tests in PromptFormatterSystemPromptTest; fixed unreachable low-effort branch in buildSystemInstruction caught by unit test; bumped app/build.gradle.kts to versionCode 23 / versionName 2.1.0. Verified full unit tests (:app:testDebugUnitTest: 39 suites, 256 tests, 0 failures) and R8 release APK build (:app:assembleRelease including llama.cpp v1.0.0 CMake/NDK native compile).

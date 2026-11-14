@@ -12,7 +12,7 @@ export { ChatTurn, Ui }
 export component MainWindow inherits Window {
     title: "OffconAI Desktop";
     preferred-width: 1180px;
-    preferred-height: 800px;
+    preferred-height: 820px;
     min-width: 980px;
     min-height: 700px;
     background: Ui.canvas;
@@ -29,13 +29,21 @@ export component MainWindow inherits Window {
     in-out property <bool> status-error: false;
     in-out property <string> model-indicator: "No model";
     in-out property <string> resources: "No runtime resources";
-    in-out property <string> empty-engine: "llama.cpp · local runtime";
+    in-out property <string> empty-engine: "llama.cpp \u{00B7} local runtime";
 
     in-out property <[ChatTurn]> turns: [];
     in-out property <string> input-text: "";
     in-out property <int> scroll-tick: 0;
 
-    // Runtime + backend + sampling configuration (owned by Rust controller).
+    in-out property <bool> mcp-connected: false;
+    in-out property <string> mcp-status: "Disconnected";
+    in-out property <string> mcp-url: "";
+    in-out property <string> mcp-token: "";
+
+    in-out property <bool> awaiting-tool-approval: false;
+    in-out property <string> pending-tool-title: "";
+    in-out property <string> pending-tool-args: "";
+
     in-out property <string> model-label: "local-model";
     in-out property <string> llama-executable: "llama-server";
     in-out property <string> llama-model-path: "";
@@ -69,6 +77,10 @@ export component MainWindow inherits Window {
     callback stop-requested();
     callback generate-image-requested();
     callback backend-changed();
+    callback mcp-connect-requested();
+    callback mcp-disconnect-requested();
+    callback approve-tool-requested();
+    callback decline-tool-requested();
 
     property <bool> image-edition: edition-index == 1;
     property <bool> chat-tab: tab-index == 0;
@@ -81,7 +93,6 @@ export component MainWindow inherits Window {
         height: 100%;
         spacing: 0px;
 
-        // -------------------------------------------------------------- header
         Rectangle {
             height: 56px;
             background: Ui.surface;
@@ -180,7 +191,6 @@ export component MainWindow inherits Window {
             background: Ui.hairline;
         }
 
-        // -------------------------------------------------------------- body
         HorizontalLayout {
             vertical-stretch: 1;
             padding-left: 24px;
@@ -193,6 +203,8 @@ export component MainWindow inherits Window {
                 backend-index: root.backend-index;
                 busy: root.busy;
                 model-loaded: root.model-loaded;
+                mcp-connected: root.mcp-connected;
+                mcp-status: root.mcp-status;
 
                 model-label <=> root.model-label;
                 llama-executable <=> root.llama-executable;
@@ -212,9 +224,14 @@ export component MainWindow inherits Window {
                 temperature-text <=> root.temperature-text;
                 max-tokens-text <=> root.max-tokens-text;
 
+                mcp-url <=> root.mcp-url;
+                mcp-token <=> root.mcp-token;
+
                 load-requested => { root.load-requested(); }
                 unload-requested => { root.unload-requested(); }
                 new-chat-requested => { root.new-chat-requested(); }
+                mcp-connect-requested => { root.mcp-connect-requested(); }
+                mcp-disconnect-requested => { root.mcp-disconnect-requested(); }
             }
 
             VerticalLayout {
@@ -247,10 +264,15 @@ export component MainWindow inherits Window {
                     empty-engine: root.empty-engine;
                     model-loaded: root.model-loaded;
                     busy: root.busy;
+                    awaiting-tool-approval: root.awaiting-tool-approval;
+                    pending-tool-title: root.pending-tool-title;
+                    pending-tool-args: root.pending-tool-args;
                     input-text <=> root.input-text;
 
                     send-requested => { root.send-requested(); }
                     stop-requested => { root.stop-requested(); }
+                    approve-tool-requested => { root.approve-tool-requested(); }
+                    decline-tool-requested => { root.decline-tool-requested(); }
                 }
 
                 if !root.chat-tab : ImageWorkspace {
@@ -273,7 +295,6 @@ export component MainWindow inherits Window {
             background: Ui.hairline;
         }
 
-        // -------------------------------------------------------------- footer
         Rectangle {
             height: 38px;
             background: Ui.surface;
