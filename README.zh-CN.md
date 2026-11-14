@@ -97,7 +97,7 @@ LFM3 Omni 2B 已接入应用的原生音频路径：
 
 | Android | 桌面端 |
 | --- | --- |
-| llama.cpp、LiteRT-LM、libmtmd | Java 17 应用 |
+| llama.cpp、LiteRT-LM、libmtmd | 原生 Rust + Slint 应用 |
 | GGUF 与 LiteRT 模型格式 | 独立的 llama.cpp、vLLM 与 Strata 适配器 |
 | CPU 回退与能力检测 | LLM Edition 与 All-in-One Edition |
 | 带明确状态码的 JNI 桥接 | 后端专属配置与资源监控 |
@@ -143,7 +143,7 @@ curl http://<phone-ip>:11434/v1/models \
 
 ~~~text
 app/       Android 界面、llama.cpp/LiteRT 运行时、语音、存储与 API 服务器
-desktop/   Java 17 桌面版本与独立后端适配器
+desktop/   原生 Rust + Slint 桌面工作区与独立后端适配器
 docs/      架构、模型目录、界面方向与 GitHub Pages
 ~~~
 

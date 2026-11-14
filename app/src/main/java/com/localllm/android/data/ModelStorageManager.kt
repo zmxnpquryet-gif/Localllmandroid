@@ -192,11 +192,11 @@ class ModelStorageManager(private val context: Context) {
             downloadStatus = if (mainExists) "COMPLETED" else if (model.isDownloading) "DOWNLOADING" else "IDLE",
             localFilePath = if (mainExists) mainFile.absolutePath else null,
             isVisionDownloaded = isVisionReady,
-            localMmprojPath = if (externalVisionExists) visionFile?.absolutePath else null,
+            localMmprojPath = if (externalVisionExists) visionFile.absolutePath else null,
             isMtpDownloaded = isMtpReady,
-            localMtpDrafterPath = if (externalMtpExists) mtpFile?.absolutePath else null,
+            localMtpDrafterPath = if (externalMtpExists) mtpFile.absolutePath else null,
             isTemplateDownloaded = templateExists,
-            localTemplatePath = if (templateExists) templateFile?.absolutePath else null
+            localTemplatePath = if (templateExists) templateFile.absolutePath else null
         )
     }
 
@@ -369,7 +369,7 @@ class ModelStorageManager(private val context: Context) {
             nativeAudioProtocol = obj.optString("nativeAudioProtocol", ""),
             maxContextTokens = obj.optInt("maxContextTokens", 0),
             minDeviceRamMb = obj.optInt("minDeviceRamMb", 0),
-            toolCallTemplate = ToolCallTemplate.fromId(obj.optString("toolCallTemplate", null)),
+            toolCallTemplate = ToolCallTemplate.fromId(obj.optString("toolCallTemplate", "").ifBlank { null }),
             mtpDrafterFileName = obj.optString("mtpDrafterFileName", "").ifBlank { null },
             templateFileName = obj.optString("templateFileName", "").ifBlank { null },
             templateFileUrl = obj.optString("templateFileUrl", ""),

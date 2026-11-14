@@ -1,11 +1,10 @@
 package com.localllm.android.server
 
-import com.localllm.android.R
-import com.localllm.android.i18n.AppStrings
-
 import android.content.Context
 import android.util.Log
+import com.localllm.android.R
 import com.localllm.android.engine.LlmEngine
+import com.localllm.android.i18n.AppStrings
 import com.localllm.android.model.GenerationSettings
 import com.localllm.android.model.LlmModel
 import kotlinx.coroutines.CancellationException
@@ -25,20 +24,11 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 import java.util.concurrent.Semaphore
 
 /**
- * Hardened lightweight HTTP server running on port 11434 (compatible with standard Ollama & OpenAI protocols).
- * Connects directly to the real on-device inference engine (llmEngine.streamGenerate).
- * Features:
- *  - Secure localhost binding by default (127.0.0.1) with optional LAN mode.
- *  - Token-based authentication (Authorization: Bearer <api_key> / X-API-Key).
- *  - Strict origin validation instead of wildcard CORS (Access-Control-Allow-Origin: * removed).
- *  - Supports /api/tags, /api/show, /api/version, /api/generate, /api/chat, /v1/models, /v1/chat/completions.
+ * Hardened lightweight HTTP server running on port 11434 (Ollama & OpenAI protocols).
+ * Delegates wire formatting to [HttpWireWriter] and payload mapping to [ApiPayloadMapper].
  */
 class OllamaApiServer(
     private val context: Context,
@@ -53,47 +43,18 @@ class OllamaApiServer(
         private const val TAG = "OllamaApiServer"
         private const val MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024
         private const val MAX_HEADER_COUNT = 100
-        /**
-         * Wall-clock budget for the header and body phases. `socket.soTimeout`
-         * alone only bounds a single read, so a client sending one byte just
-         * before each timeout could otherwise keep a pre-auth slot forever.
-         */
         private const val MAX_HEADER_PHASE_MS = 20_000L
         private const val MAX_BODY_PHASE_MS = 60_000L
-        /**
-         * Exactly one: the engine serializes inference behind a single mutex, so a
-         * second slot would only pass admission and then die mid-stream with
-         * BUSY_INFERENCE after the 200 headers already went out. Contenders get an
-         * honest 429 instead.
-         */
         private const val MAX_CONCURRENT_GENERATIONS = 1
-        /**
-         * Accept-loop admission: each connection parks a thread on blocking reads
-         * (up to the 120s socket timeout) on the shared Dispatchers.IO pool
-         * (default 64 threads, shared with the rest of the app). Without a cap,
-         * a few dozen keyless slow connections starve all app IO. Excess sockets
-         * are closed immediately instead of queuing.
-         */
         private const val MAX_CONNECTIONS = 32
-        /**
-         * Handshake-phase admission: keyless slow connections must never exhaust
-         * the total cap and lock out legitimate traffic for the whole socket
-         * timeout. Only 8 sockets may sit in request-line/header/auth at once;
-         * past that the socket is closed immediately.
-         */
         private const val MAX_PREAUTH_CONNECTIONS = 8
 
-        /**
-         * Loopback-only CORS allow-list matched on parsed host, never on string prefix.
-         * Prefix matching would accept "http://localhost.evil.example" as well.
-         */
         internal fun isAllowedCorsOrigin(origin: String?): Boolean {
             if (origin.isNullOrBlank()) return false
             return try {
                 val uri = java.net.URI(origin.trim())
                 val scheme = uri.scheme?.lowercase() ?: return false
                 if (scheme != "http" && scheme != "https") return false
-                // Reject origins carrying user-info or paths that smuggle extra authority.
                 if (uri.rawUserInfo != null) return false
                 val host = uri.host?.lowercase() ?: return false
                 host == "localhost" || host == "127.0.0.1" || host == "::1"
@@ -147,14 +108,15 @@ class OllamaApiServer(
             val random = SecureRandom()
             val bytes = ByteArray(18)
             random.nextBytes(bytes)
-            return "sk-local-" + android.util.Base64.encodeToString(bytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+            return "sk-local-" + android.util.Base64.encodeToString(
+                bytes,
+                android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING
+            )
         }
 
-        /** Instance-independent for unit tests (no server instance needed). */
         internal fun checkAuthorization(headers: Map<String, String>, expectedKey: String): Boolean {
             val authHeader = headers["authorization"]
             if (!authHeader.isNullOrBlank()) {
-                // RFC 7235: the auth scheme is case-insensitive ("Bearer", "bearer", ...).
                 val token = authHeader.replaceFirst(Regex("^bearer\\s+", RegexOption.IGNORE_CASE), "").trim()
                 if (constantTimeEquals(token, expectedKey)) return true
             }
@@ -187,7 +149,6 @@ class OllamaApiServer(
     var currentApiKey: String = initialApiKey
         private set
 
-    /** Adopts a persisted key (service reload path). Blank values are ignored. */
     fun setApiKey(key: String) {
         if (key.isNotBlank()) currentApiKey = key
     }
@@ -195,7 +156,6 @@ class OllamaApiServer(
     var boundHost: String = "127.0.0.1"
         private set
 
-    // Request statistics for UI. Atomic/volatile: updated on IO threads, read on main.
     private val requestCounter = java.util.concurrent.atomic.AtomicInteger(0)
     val requestCount: Int get() = requestCounter.get()
     @Volatile
@@ -207,7 +167,6 @@ class OllamaApiServer(
     var onRequestProcessed: ((Int) -> Unit)? = null
 
     fun isServerRunning(): Boolean = isRunning
-
     fun getPort(): Int = DEFAULT_PORT
 
     fun regenerateApiKey(): String {
@@ -223,7 +182,7 @@ class OllamaApiServer(
 
         try {
             val settings = getSettings()
-            boundHost = if (settings.apiServerBindAddress.isNotBlank()) settings.apiServerBindAddress else "127.0.0.1"
+            boundHost = settings.apiServerBindAddress.ifBlank { "127.0.0.1" }
             val bindAddress = InetAddress.getByName(boundHost)
 
             serverSocket = ServerSocket().apply {
@@ -232,7 +191,11 @@ class OllamaApiServer(
             }
             isRunning = true
 
-            val hostLabel = if (boundHost == "127.0.0.1") AppStrings.get(R.string.aps_loopback) else AppStrings.get(R.string.aps_alliface, boundHost)
+            val hostLabel = if (boundHost == "127.0.0.1") {
+                AppStrings.get(R.string.aps_loopback)
+            } else {
+                AppStrings.get(R.string.aps_alliface, boundHost)
+            }
             onStatusChange(true, AppStrings.get(R.string.aps_started, hostLabel, DEFAULT_PORT))
 
             serverJob = scope.launch {
@@ -240,10 +203,7 @@ class OllamaApiServer(
                     try {
                         val clientSocket = serverSocket?.accept() ?: break
                         if (!connectionSlots.tryAcquire()) {
-                            try {
-                                clientSocket.close()
-                            } catch (_: Exception) {
-                            }
+                            runCatching { clientSocket.close() }
                             Log.w(TAG, "Connection cap ($MAX_CONNECTIONS) hit, socket closed")
                             continue
                         }
@@ -286,18 +246,11 @@ class OllamaApiServer(
 
     private suspend fun handleClientSocket(socket: Socket) {
         if (!preAuthSlots.tryAcquire()) {
-            try {
-                socket.close()
-            } catch (_: Exception) {
-            }
+            runCatching { socket.close() }
             return
         }
         var preAuthReleased = false
         try {
-            // The per-read timeout plus the wall-clock deadlines below bound
-            // slowloris: a client cannot hold a socket by sending a byte just
-            // before every timeout. Generation streams are not affected because
-            // they happen after the request has been fully read.
             socket.soTimeout = 30000
             val input = socket.getInputStream().buffered()
             val output = socket.getOutputStream()
@@ -310,24 +263,23 @@ class OllamaApiServer(
             val method = parts[0].uppercase()
             val uri = parts[1]
 
-            // Read HTTP headers (unavoidable before auth: the key arrives in a header).
             var contentLength = 0
             var contentLengthSeen = false
             var badContentLength = false
             val headers = mutableMapOf<String, String>()
-            var line: String?
             var headerCount = 0
-            while (readHttpLine(input, headerDeadline).also { line = it } != null) {
-                if (line.isNullOrEmpty()) break
+            while (true) {
+                val line = readHttpLine(input, headerDeadline) ?: break
+                if (line.isEmpty()) break
                 headerCount++
                 if (headerCount > MAX_HEADER_COUNT) {
-                    sendResponse(output, 431, "Request Header Fields Too Large", "application/json", "{\"error\":\"Too many headers\"}", headers["origin"])
+                    HttpWireWriter.sendResponse(output, 431, "Request Header Fields Too Large", "application/json", "{\"error\":\"Too many headers\"}", headers["origin"])
                     return
                 }
-                val colonIdx = line!!.indexOf(':')
+                val colonIdx = line.indexOf(':')
                 if (colonIdx > 0) {
-                    val key = line!!.substring(0, colonIdx).trim().lowercase()
-                    val value = line!!.substring(colonIdx + 1).trim()
+                    val key = line.substring(0, colonIdx).trim().lowercase()
+                    val value = line.substring(colonIdx + 1).trim()
                     headers[key] = value
                     if (key == "content-length") {
                         val parsed = value.toLongOrNull()
@@ -335,8 +287,6 @@ class OllamaApiServer(
                             parsed == null || parsed < 0 -> badContentLength = true
                             contentLengthSeen && parsed != contentLength.toLong() -> badContentLength = true
                             parsed > Int.MAX_VALUE -> {
-                                // Clamped so the size check below answers 413 instead
-                                // of silently treating the body as empty.
                                 contentLength = MAX_REQUEST_BODY_BYTES + 1
                                 contentLengthSeen = true
                             }
@@ -350,50 +300,36 @@ class OllamaApiServer(
             }
 
             val clientOrigin = headers["origin"]
-
             if (badContentLength) {
-                sendResponse(output, 400, "Bad Request", "application/json", "{\"error\":\"Invalid Content-Length\"}", clientOrigin)
+                HttpWireWriter.sendResponse(output, 400, "Bad Request", "application/json", "{\"error\":\"Invalid Content-Length\"}", clientOrigin)
                 return
             }
             if (headers["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true) {
-                // Chunked request bodies are not decoded; answer explicitly instead
-                // of running the request against an empty body.
-                sendResponse(output, 411, "Length Required", "application/json", "{\"error\":\"Chunked request bodies are not supported\"}", clientOrigin)
+                HttpWireWriter.sendResponse(output, 411, "Length Required", "application/json", "{\"error\":\"Chunked request bodies are not supported\"}", clientOrigin)
                 return
             }
-
-            // Handle CORS Preflight
             if (method == "OPTIONS") {
-                sendCorsPreflight(output, clientOrigin)
+                HttpWireWriter.sendCorsPreflight(output, clientOrigin)
                 return
             }
 
-            // Authentication Check
             val settings = getSettings()
             if (settings.apiServerRequireAuth && uri != "/") {
-                val isAuthorized = checkAuthorization(headers)
-                if (!isAuthorized) {
-                    val unauthorizedJson = JSONObject().apply {
-                        // API bodies stay English: external clients can't be expected
-                        // to read the phone's UI language.
-                        put("error", "Authentication failed: a valid API key is required. Send 'Authorization: Bearer <api_key>' or the 'X-API-Key' header.")
-                    }.toString()
-                    sendResponse(output, 401, "Unauthorized", "application/json", unauthorizedJson, clientOrigin)
+                if (!checkAuthorization(headers, currentApiKey)) {
+                    val unauthorizedJson = JSONObject()
+                        .put("error", "Authentication failed: a valid API key is required. Send 'Authorization: Bearer <api_key>' or the 'X-API-Key' header.")
+                        .toString()
+                    HttpWireWriter.sendResponse(output, 401, "Unauthorized", "application/json", unauthorizedJson, clientOrigin)
                     return
                 }
             }
-            // Keep the pre-auth slot through the body read: otherwise a client
-            // that authenticated (or runs with auth disabled) can open many
-            // sockets and dribble a declared body to exhaust the connection cap.
-            // UI statistics update only for authenticated traffic: scanners hitting
-            // the port must not pollute the request count / last-client display.
+
             lastClientIp = socket.inetAddress?.hostAddress
             lastEndpoint = "$method $uri"
             onRequestProcessed?.invoke(requestCounter.incrementAndGet())
 
-            // Read Body if any
             if (contentLength !in 0..MAX_REQUEST_BODY_BYTES) {
-                sendResponse(output, 413, "Content Too Large", "application/json", "{\"error\":\"Request body too large\"}", clientOrigin)
+                HttpWireWriter.sendResponse(output, 413, "Content Too Large", "application/json", "{\"error\":\"Request body too large\"}", clientOrigin)
                 return
             }
             val bodyDeadline = System.nanoTime() + MAX_BODY_PHASE_MS * 1_000_000L
@@ -401,461 +337,155 @@ class OllamaApiServer(
             preAuthSlots.release()
             preAuthReleased = true
 
-            // Routing
-            when {
-                // Root status check
-                uri == "/" -> {
-                    sendResponse(output, 200, "OK", "text/plain", "Ollama is running on OffconAI\n", clientOrigin)
-                }
-
-                // Ollama /api/tags
-                uri.startsWith("/api/tags") -> {
-                    handleOllamaTags(output, clientOrigin)
-                }
-
-                // OpenAI /v1/models
-                uri.startsWith("/v1/models") -> {
-                    handleOpenAiModels(output, clientOrigin)
-                }
-
-                // Ollama /api/show
-                uri.startsWith("/api/show") -> {
-                    handleOllamaShow(output, body, clientOrigin)
-                }
-
-                // Ollama /api/version
-                uri.startsWith("/api/version") -> {
-                    // Deliberately reports a fixed Ollama version, not the app's own
-                    // version: desktop clients and Ollama SDKs gate feature/capability
-                    // checks on a minimum version string. 0.5.x advertises the API
-                    // surface this server actually implements.
-                    val json = JSONObject().put("version", "0.5.1").toString()
-                    sendResponse(output, 200, "OK", "application/json", json, clientOrigin)
-                }
-
-                // Ollama /api/generate
-                uri.startsWith("/api/generate") && method == "POST" -> {
-                    handleGenerate(output, body, clientOrigin)
-                }
-
-                // Ollama /api/chat
-                uri.startsWith("/api/chat") && method == "POST" -> {
-                    handleOllamaChat(output, body, clientOrigin)
-                }
-
-                // OpenAI /v1/chat/completions
-                uri.startsWith("/v1/chat/completions") && method == "POST" -> {
-                    handleOpenAiChat(output, body, clientOrigin)
-                }
-
-                else -> {
-                    val errorJson = JSONObject().put("error", "Endpoint not found: $uri").toString()
-                    sendResponse(output, 404, "Not Found", "application/json", errorJson, clientOrigin)
-                }
-            }
+            routeRequest(method, uri, body, output, clientOrigin)
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Log.e(TAG, "Error handling client request", e)
         } finally {
             if (!preAuthReleased) preAuthSlots.release()
-            try {
-                socket.close()
-            } catch (_: Exception) {}
+            runCatching { socket.close() }
         }
     }
 
-    private fun checkAuthorization(headers: Map<String, String>): Boolean =
-        checkAuthorization(headers, currentApiKey)
-
-    private fun handleOllamaTags(output: OutputStream, origin: String?) {
-        val models = getAllModels()
-        val active = getActiveModel()
-        val modelsArray = JSONArray()
-
-        models.forEach { m ->
-            val obj = JSONObject()
-            obj.put("name", m.name)
-            obj.put("model", m.name)
-            obj.put("modified_at", getIsoTimestamp())
-            obj.put("size", m.sizeBytes)
-            obj.put("digest", m.id)
-            obj.put("details", JSONObject().apply {
-                put("format", m.runtimeType.badge)
-                put("family", m.runtimeType.label)
-                put("parameter_size", "Local")
-                put("quantization_level", m.quantization)
-            })
-            modelsArray.put(obj)
-        }
-
-        if (modelsArray.length() == 0 && active != null) {
-            modelsArray.put(JSONObject().apply {
-                put("name", active.name)
-                put("model", active.name)
-                put("modified_at", getIsoTimestamp())
-                put("size", active.sizeBytes)
-                put("digest", active.id)
-            })
-        }
-
-        val resJson = JSONObject().put("models", modelsArray).toString()
-        sendResponse(output, 200, "OK", "application/json", resJson, origin)
-    }
-
-    private fun handleOpenAiModels(output: OutputStream, origin: String?) {
-        val models = getAllModels()
-        val active = getActiveModel()
-        val dataArray = JSONArray()
-
-        models.forEach { m ->
-            dataArray.put(JSONObject().apply {
-                put("id", m.name)
-                put("object", "model")
-                put("created", System.currentTimeMillis() / 1000)
-                put("owned_by", "local-device")
-            })
-        }
-
-        if (dataArray.length() == 0 && active != null) {
-            dataArray.put(JSONObject().apply {
-                put("id", active.name)
-                put("object", "model")
-                put("created", System.currentTimeMillis() / 1000)
-                put("owned_by", "local-device")
-            })
-        }
-
-        val resJson = JSONObject().apply {
-            put("object", "list")
-            put("data", dataArray)
-        }.toString()
-
-        sendResponse(output, 200, "OK", "application/json", resJson, origin)
-    }
-
-    private fun handleOllamaShow(output: OutputStream, body: String, origin: String?) {
-        val currentModel = getActiveModel()
-        val serving = getSettings()
-        val detailsJson = JSONObject().apply {
-            put("license", "Open")
-            put("modelfile", "# Modelfile generated by OffconAI\nFROM ${currentModel?.fileName ?: "model.gguf"}")
-            put("parameters", "temperature ${serving.temperature}\ntop_p ${serving.topP}")
-            put("template", "{{ .Prompt }}")
-            put("details", JSONObject().apply {
-                put("parent_model", "")
-                put("format", currentModel?.runtimeType?.badge ?: "GGUF")
-                put("family", currentModel?.runtimeType?.label ?: "llama.cpp")
-                put("parameter_size", "Local")
-                put("quantization_level", currentModel?.quantization ?: "Q4_K_M")
-            })
-        }.toString()
-
-        sendResponse(output, 200, "OK", "application/json", detailsJson, origin)
-    }
-
-    private data class EffectiveRequestOptions(
-        val settings: GenerationSettings,
-        /** GGUF n_predict override; null = unlimited (-1). LiteRT applies sampler only. */
-        val numPredict: Int?
-    )
-
-    /**
-     * Honors per-request sampling options instead of silently ignoring them.
-     * Reads Ollama-style `options` object + top-level fields, and OpenAI-style
-     * `temperature` / `top_p` / `max_tokens`. Values are clamped to the same ranges
-     * the app itself uses.
-     */
-    private fun resolveRequestOptions(json: JSONObject, base: GenerationSettings): EffectiveRequestOptions {
-        val options = json.optJSONObject("options")
-        fun optDouble(vararg keys: String, fallback: Double): Double {
-            for (key in keys) {
-                if (json.has(key) && !json.isNull(key)) {
-                    val v = json.optDouble(key, Double.NaN)
-                    if (!v.isNaN()) return v
-                }
-                if (options != null && options.has(key) && !options.isNull(key)) {
-                    val v = options.optDouble(key, Double.NaN)
-                    if (!v.isNaN()) return v
-                }
+    private suspend fun routeRequest(
+        method: String,
+        uri: String,
+        body: String,
+        output: OutputStream,
+        clientOrigin: String?
+    ) {
+        when {
+            uri == "/" ->
+                HttpWireWriter.sendResponse(output, 200, "OK", "text/plain", "Ollama is running on OffconAI\n", clientOrigin)
+            uri.startsWith("/api/tags") ->
+                HttpWireWriter.sendResponse(output, 200, "OK", "application/json", ApiPayloadMapper.buildOllamaTagsJson(getAllModels(), getActiveModel()), clientOrigin)
+            uri.startsWith("/v1/models") ->
+                HttpWireWriter.sendResponse(output, 200, "OK", "application/json", ApiPayloadMapper.buildOpenAiModelsJson(getAllModels(), getActiveModel()), clientOrigin)
+            uri.startsWith("/api/show") ->
+                HttpWireWriter.sendResponse(output, 200, "OK", "application/json", ApiPayloadMapper.buildOllamaShowJson(getActiveModel(), getSettings()), clientOrigin)
+            uri.startsWith("/api/version") ->
+                HttpWireWriter.sendResponse(output, 200, "OK", "application/json", JSONObject().put("version", "0.5.1").toString(), clientOrigin)
+            uri.startsWith("/api/generate") && method == "POST" ->
+                handleOllamaCompletion(output, body, clientOrigin, chatFormat = false)
+            uri.startsWith("/api/chat") && method == "POST" ->
+                handleOllamaCompletion(output, body, clientOrigin, chatFormat = true)
+            uri.startsWith("/v1/chat/completions") && method == "POST" ->
+                handleOpenAiChat(output, body, clientOrigin)
+            else -> {
+                val errorJson = JSONObject().put("error", "Endpoint not found: $uri").toString()
+                HttpWireWriter.sendResponse(output, 404, "Not Found", "application/json", errorJson, clientOrigin)
             }
-            return fallback
         }
-        fun optInt(vararg keys: String, fallback: Int): Int {
-            for (key in keys) {
-                if (json.has(key) && !json.isNull(key)) {
-                    val v = json.optInt(key, Int.MIN_VALUE)
-                    if (v != Int.MIN_VALUE) return v
-                }
-                if (options != null && options.has(key) && !options.isNull(key)) {
-                    val v = options.optInt(key, Int.MIN_VALUE)
-                    if (v != Int.MIN_VALUE) return v
-                }
-            }
-            return fallback
-        }
-
-        val temperature = optDouble("temperature", fallback = base.temperature.toDouble()).coerceIn(0.0, 2.0).toFloat()
-        val topP = optDouble("top_p", fallback = base.topP.toDouble()).coerceIn(0.01, 1.0).toFloat()
-        val topK = optInt("top_k", fallback = base.topK).coerceIn(1, 200)
-        val numPredictRaw = optInt("num_predict", "max_tokens", "num_predict", fallback = Int.MIN_VALUE)
-        val numPredict = if (numPredictRaw == Int.MIN_VALUE) null else numPredictRaw.coerceIn(1, 16384)
-
-        return EffectiveRequestOptions(
-            settings = base.copy(temperature = temperature, topP = topP, topK = topK),
-            numPredict = numPredict
-        )
     }
 
     private fun isBusyError(e: Throwable): Boolean =
         e.message?.contains("BUSY_INFERENCE") == true
 
-    private suspend fun handleGenerate(output: OutputStream, body: String, origin: String?) {
-        val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
-        val prompt = json.optString("prompt", "")
+    private suspend fun handleOllamaCompletion(
+        output: OutputStream,
+        body: String,
+        origin: String?,
+        chatFormat: Boolean
+    ) {
+        val json = runCatching { JSONObject(body) }.getOrElse { JSONObject() }
         val isStream = json.optBoolean("stream", true)
-        val currentModel = getActiveModel()
+        val modelName = getActiveModel()?.name ?: "local-model"
+
+        val (history, prompt) = if (chatFormat) {
+            ApiPayloadMapper.parseMessages(json.optJSONArray("messages") ?: JSONArray())
+        } else {
+            emptyList<Pair<String, String>>() to json.optString("prompt", "")
+        }
 
         if (prompt.isBlank()) {
-            val err = JSONObject().put("error", "Prompt cannot be empty").toString()
-            sendResponse(output, 400, "Bad Request", "application/json", err, origin)
+            val errMsg = if (chatFormat) "No user message to respond to" else "Prompt cannot be empty"
+            HttpWireWriter.sendResponse(output, 400, "Bad Request", "application/json", JSONObject().put("error", errMsg).toString(), origin)
             return
         }
-
         if (!llmEngine.isModelReady()) {
             val err = JSONObject().put("error", "No local model is selected or loaded. Load a model in the app first.").toString()
-            sendResponse(output, 503, "Service Unavailable", "application/json", err, origin)
+            HttpWireWriter.sendResponse(output, 503, "Service Unavailable", "application/json", err, origin)
             return
         }
 
-        val settings = getSettings()
-        val modelName = currentModel?.name ?: "local-model"
-        val request = resolveRequestOptions(json, settings)
-
+        val request = ApiPayloadMapper.resolveRequestOptions(json, getSettings())
         if (!generationSlots.tryAcquire()) {
             val err = JSONObject().put("error", "Server is busy: another generation is already running.").toString()
-            sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
+            HttpWireWriter.sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
             return
         }
+
+        fun buildOllamaLine(content: String, done: Boolean, error: String? = null, evalCount: Int? = null): String =
+            JSONObject().apply {
+                put("model", modelName)
+                if (error == null) put("created_at", HttpWireWriter.isoTimestamp())
+                if (chatFormat) {
+                    put("message", JSONObject().put("role", "assistant").put("content", content))
+                } else {
+                    put("response", content)
+                }
+                put("done", done)
+                if (evalCount != null) put("eval_count", evalCount)
+                if (error != null) put("error", error)
+            }.toString()
+
         try {
             if (isStream) {
-                sendStreamHeaders(output, "application/x-ndjson", origin)
+                HttpWireWriter.sendStreamHeaders(output, "application/x-ndjson", origin)
                 var failed = false
                 try {
                     llmEngine.streamGenerate(
                         prompt = prompt,
-                        history = emptyList(),
+                        history = history,
                         settings = request.settings,
                         attachment = null,
                         numPredictOverride = request.numPredict
                     ).collect { chunk ->
                         if (chunk.token.isNotEmpty()) {
-                            val chunkObj = JSONObject().apply {
-                                put("model", modelName)
-                                put("created_at", getIsoTimestamp())
-                                put("response", chunk.token)
-                                put("done", false)
-                            }
-                            sendChunk(output, chunkObj.toString() + "\n")
+                            HttpWireWriter.sendChunk(output, buildOllamaLine(chunk.token, done = false) + "\n")
                         }
                     }
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     failed = true
-                    if (isBusyError(e)) {
-                        val busyObj = JSONObject().apply {
-                            put("model", modelName)
-                            put("response", "")
-                            put("done", true)
-                            put("error", "Server is busy: another generation is already running.")
-                        }
-                        sendChunk(output, busyObj.toString() + "\n")
+                    val errText = if (isBusyError(e)) {
+                        "Server is busy: another generation is already running."
                     } else {
-                        val errObj = JSONObject().apply {
-                            put("model", modelName)
-                            put("response", "")
-                            put("done", true)
-                            put("error", "Inference failed: ${e.localizedMessage}")
-                        }
-                        sendChunk(output, errObj.toString() + "\n")
+                        "Inference failed: ${e.localizedMessage}"
                     }
+                    HttpWireWriter.sendChunk(output, buildOllamaLine("", done = true, error = errText) + "\n")
                 }
-
                 if (!failed) {
-                    val finalObj = JSONObject().apply {
-                        put("model", modelName)
-                        put("created_at", getIsoTimestamp())
-                        put("response", "")
-                        put("done", true)
-                    }
-                    sendChunk(output, finalObj.toString() + "\n")
+                    HttpWireWriter.sendChunk(output, buildOllamaLine("", done = true) + "\n")
                 }
-                endChunk(output)
-
+                HttpWireWriter.endChunk(output)
             } else {
-                var fullResponse = ""
+                val answer = StringBuilder()
                 var totalTokens = 0
                 try {
                     llmEngine.streamGenerate(
                         prompt = prompt,
-                        history = emptyList(),
+                        history = history,
                         settings = request.settings,
                         attachment = null,
                         numPredictOverride = request.numPredict
                     ).collect { chunk ->
-                        if (chunk.token.isNotEmpty()) {
-                            fullResponse += chunk.token
-                        }
+                        if (chunk.token.isNotEmpty()) answer.append(chunk.token)
                         totalTokens = chunk.totalTokens
                     }
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
-                    if (isBusyError(e)) {
-                        val err = JSONObject().put("error", "Server is busy: another generation is already running.").toString()
-                        sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
+                    val status = if (isBusyError(e)) 429 else 500
+                    val statusLabel = if (status == 429) "Too Many Requests" else "Internal Server Error"
+                    val errText = if (status == 429) {
+                        "Server is busy: another generation is already running."
                     } else {
-                        val err = JSONObject().put("error", "Inference failed: ${e.localizedMessage}").toString()
-                        sendResponse(output, 500, "Internal Server Error", "application/json", err, origin)
+                        "Inference failed: ${e.localizedMessage}"
                     }
+                    HttpWireWriter.sendResponse(output, status, statusLabel, "application/json", JSONObject().put("error", errText).toString(), origin)
                     return
                 }
-
-                val responseJson = JSONObject().apply {
-                    put("model", modelName)
-                    put("created_at", getIsoTimestamp())
-                    put("response", fullResponse)
-                    put("done", true)
-                    put("eval_count", totalTokens)
-                }.toString()
-
-                sendResponse(output, 200, "OK", "application/json", responseJson, origin)
-            }
-        } finally {
-            generationSlots.release()
-        }
-    }
-
-    private suspend fun handleOllamaChat(output: OutputStream, body: String, origin: String?) {
-        val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
-        val messagesArray = json.optJSONArray("messages") ?: JSONArray()
-        val isStream = json.optBoolean("stream", true)
-        val currentModel = getActiveModel()
-        val modelName = currentModel?.name ?: "local-model"
-
-        if (!llmEngine.isModelReady()) {
-            val err = JSONObject().put("error", "No local model is selected or loaded. Load a model in the app first.").toString()
-            sendResponse(output, 503, "Service Unavailable", "application/json", err, origin)
-            return
-        }
-
-        val (historyList, lastUserPrompt) = parseMessages(messagesArray)
-        val settings = getSettings()
-        val request = resolveRequestOptions(json, settings)
-
-        if (lastUserPrompt.isBlank()) {
-            val err = JSONObject().put("error", "No user message to respond to").toString()
-            sendResponse(output, 400, "Bad Request", "application/json", err, origin)
-            return
-        }
-
-        if (!generationSlots.tryAcquire()) {
-            val err = JSONObject().put("error", "Server is busy: another generation is already running.").toString()
-            sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
-            return
-        }
-        try {
-            if (isStream) {
-                sendStreamHeaders(output, "application/x-ndjson", origin)
-                var failed = false
-                try {
-                    llmEngine.streamGenerate(
-                        prompt = lastUserPrompt,
-                        history = historyList,
-                        settings = request.settings,
-                        attachment = null,
-                        numPredictOverride = request.numPredict
-                    ).collect { chunk ->
-                        if (chunk.token.isNotEmpty()) {
-                            val chunkObj = JSONObject().apply {
-                                put("model", modelName)
-                                put("created_at", getIsoTimestamp())
-                                put("message", JSONObject().apply {
-                                    put("role", "assistant")
-                                    put("content", chunk.token)
-                                })
-                                put("done", false)
-                            }
-                            sendChunk(output, chunkObj.toString() + "\n")
-                        }
-                    }
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    failed = true
-                    val errObj = JSONObject().apply {
-                        put("model", modelName)
-                        put("message", JSONObject().apply {
-                            put("role", "assistant")
-                            put("content", "")
-                        })
-                        put("done", true)
-                        put("error", if (isBusyError(e)) "Server is busy: another generation is already running." else "Inference failed: ${e.localizedMessage}")
-                    }
-                    sendChunk(output, errObj.toString() + "\n")
-                }
-
-                if (!failed) {
-                    val finalObj = JSONObject().apply {
-                        put("model", modelName)
-                        put("created_at", getIsoTimestamp())
-                        put("message", JSONObject().apply {
-                            put("role", "assistant")
-                            put("content", "")
-                        })
-                        put("done", true)
-                    }
-                    sendChunk(output, finalObj.toString() + "\n")
-                }
-                endChunk(output)
-
-            } else {
-                var fullAnswer = ""
-                var totalTokens = 0
-                try {
-                    llmEngine.streamGenerate(
-                        prompt = lastUserPrompt,
-                        history = historyList,
-                        settings = request.settings,
-                        attachment = null,
-                        numPredictOverride = request.numPredict
-                    ).collect { chunk ->
-                        if (chunk.token.isNotEmpty()) {
-                            fullAnswer += chunk.token
-                        }
-                        totalTokens = chunk.totalTokens
-                    }
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    if (isBusyError(e)) {
-                        val err = JSONObject().put("error", "Server is busy: another generation is already running.").toString()
-                        sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
-                    } else {
-                        val err = JSONObject().put("error", "Inference failed: ${e.localizedMessage}").toString()
-                        sendResponse(output, 500, "Internal Server Error", "application/json", err, origin)
-                    }
-                    return
-                }
-
-                val resultJson = JSONObject().apply {
-                    put("model", modelName)
-                    put("created_at", getIsoTimestamp())
-                    put("message", JSONObject().apply {
-                        put("role", "assistant")
-                        put("content", fullAnswer)
-                    })
-                    put("done", true)
-                    put("eval_count", totalTokens)
-                }.toString()
-
-                sendResponse(output, 200, "OK", "application/json", resultJson, origin)
+                HttpWireWriter.sendResponse(output, 200, "OK", "application/json", buildOllamaLine(answer.toString(), done = true, evalCount = totalTokens), origin)
             }
         } finally {
             generationSlots.release()
@@ -863,37 +493,34 @@ class OllamaApiServer(
     }
 
     private suspend fun handleOpenAiChat(output: OutputStream, body: String, origin: String?) {
-        val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
-        val messagesArray = json.optJSONArray("messages") ?: JSONArray()
+        val json = runCatching { JSONObject(body) }.getOrElse { JSONObject() }
         val isStream = json.optBoolean("stream", false)
-        val currentModel = getActiveModel()
-        val modelName = currentModel?.name ?: "local-model"
+        val modelName = getActiveModel()?.name ?: "local-model"
         val chatId = "chatcmpl-${System.currentTimeMillis()}"
 
         if (!llmEngine.isModelReady()) {
             val err = JSONObject().put("error", JSONObject().put("message", "No local model is selected or loaded.")).toString()
-            sendResponse(output, 503, "Service Unavailable", "application/json", err, origin)
+            HttpWireWriter.sendResponse(output, 503, "Service Unavailable", "application/json", err, origin)
             return
         }
 
-        val (historyList, lastUserPrompt) = parseMessages(messagesArray)
-        val settings = getSettings()
-        val request = resolveRequestOptions(json, settings)
-
+        val (historyList, lastUserPrompt) = ApiPayloadMapper.parseMessages(json.optJSONArray("messages") ?: JSONArray())
         if (lastUserPrompt.isBlank()) {
             val err = JSONObject().put("error", JSONObject().put("message", "No user message to respond to")).toString()
-            sendResponse(output, 400, "Bad Request", "application/json", err, origin)
+            HttpWireWriter.sendResponse(output, 400, "Bad Request", "application/json", err, origin)
             return
         }
 
+        val request = ApiPayloadMapper.resolveRequestOptions(json, getSettings())
         if (!generationSlots.tryAcquire()) {
             val err = JSONObject().put("error", JSONObject().put("message", "Server is busy: another generation is already running.")).toString()
-            sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
+            HttpWireWriter.sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
             return
         }
+
         try {
             if (isStream) {
-                sendStreamHeaders(output, "text/event-stream", origin)
+                HttpWireWriter.sendStreamHeaders(output, "text/event-stream", origin)
                 try {
                     llmEngine.streamGenerate(
                         prompt = lastUserPrompt,
@@ -903,58 +530,26 @@ class OllamaApiServer(
                         numPredictOverride = request.numPredict
                     ).collect { chunk ->
                         if (chunk.token.isNotEmpty()) {
-                            val sseData = JSONObject().apply {
-                                put("id", chatId)
-                                put("object", "chat.completion.chunk")
-                                put("created", System.currentTimeMillis() / 1000)
-                                put("model", modelName)
-                                put("choices", JSONArray().put(JSONObject().apply {
-                                    put("index", 0)
-                                    put("delta", JSONObject().put("content", chunk.token))
-                                    put("finish_reason", JSONObject.NULL)
-                                }))
-                            }
-                            sendChunk(output, "data: $sseData\n\n")
+                            HttpWireWriter.sendChunk(output, ApiPayloadMapper.buildOpenAiSseChunk(chatId, modelName, chunk.token, null))
                         }
                     }
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
-                    val errData = JSONObject().apply {
-                        put("id", chatId)
-                        put("object", "chat.completion.chunk")
-                        put("choices", JSONArray().put(JSONObject().apply {
-                            put("index", 0)
-                            put("delta", JSONObject())
-                            put("finish_reason", "stop")
-                        }))
-                        put("error", JSONObject().put(
-                            "message",
-                            if (isBusyError(e)) "Server is busy: another generation is already running." else "Inference failed: ${e.localizedMessage}"
-                        ))
+                    val errText = if (isBusyError(e)) {
+                        "Server is busy: another generation is already running."
+                    } else {
+                        "Inference failed: ${e.localizedMessage}"
                     }
-                    sendChunk(output, "data: $errData\n\n")
-                    sendChunk(output, "data: [DONE]\n\n")
-                    endChunk(output)
+                    HttpWireWriter.sendChunk(output, ApiPayloadMapper.buildOpenAiSseChunk(chatId, modelName, null, "stop", errText))
+                    HttpWireWriter.sendChunk(output, "data: [DONE]\n\n")
+                    HttpWireWriter.endChunk(output)
                     return
                 }
-
-                val finalSse = JSONObject().apply {
-                    put("id", chatId)
-                    put("object", "chat.completion.chunk")
-                    put("created", System.currentTimeMillis() / 1000)
-                    put("model", modelName)
-                    put("choices", JSONArray().put(JSONObject().apply {
-                        put("index", 0)
-                        put("delta", JSONObject())
-                        put("finish_reason", "stop")
-                    }))
-                }
-                sendChunk(output, "data: $finalSse\n\n")
-                sendChunk(output, "data: [DONE]\n\n")
-                endChunk(output)
-
+                HttpWireWriter.sendChunk(output, ApiPayloadMapper.buildOpenAiSseChunk(chatId, modelName, null, "stop"))
+                HttpWireWriter.sendChunk(output, "data: [DONE]\n\n")
+                HttpWireWriter.endChunk(output)
             } else {
-                var fullAnswer = ""
+                val answer = StringBuilder()
                 var totalTokens = 0
                 try {
                     llmEngine.streamGenerate(
@@ -964,183 +559,33 @@ class OllamaApiServer(
                         attachment = null,
                         numPredictOverride = request.numPredict
                     ).collect { chunk ->
-                        if (chunk.token.isNotEmpty()) {
-                            fullAnswer += chunk.token
-                        }
+                        if (chunk.token.isNotEmpty()) answer.append(chunk.token)
                         totalTokens = chunk.totalTokens
                     }
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
-                    if (isBusyError(e)) {
-                        val err = JSONObject().put("error", JSONObject().put("message", "Server is busy: another generation is already running.")).toString()
-                        sendResponse(output, 429, "Too Many Requests", "application/json", err, origin)
+                    val status = if (isBusyError(e)) 429 else 500
+                    val statusLabel = if (status == 429) "Too Many Requests" else "Internal Server Error"
+                    val errText = if (status == 429) {
+                        "Server is busy: another generation is already running."
                     } else {
-                        val err = JSONObject().put("error", JSONObject().put("message", "Inference failed: ${e.localizedMessage}")).toString()
-                        sendResponse(output, 500, "Internal Server Error", "application/json", err, origin)
+                        "Inference failed: ${e.localizedMessage}"
                     }
+                    val err = JSONObject().put("error", JSONObject().put("message", errText)).toString()
+                    HttpWireWriter.sendResponse(output, status, statusLabel, "application/json", err, origin)
                     return
                 }
-
-                val resultJson = JSONObject().apply {
-                    put("id", chatId)
-                    put("object", "chat.completion")
-                    put("created", System.currentTimeMillis() / 1000)
-                    put("model", modelName)
-                    put("choices", JSONArray().put(JSONObject().apply {
-                        put("index", 0)
-                        put("message", JSONObject().apply {
-                            put("role", "assistant")
-                            put("content", fullAnswer)
-                        })
-                        put("finish_reason", "stop")
-                    }))
-                    put("usage", JSONObject().apply {
-                        put("completion_tokens", totalTokens)
-                        put("total_tokens", totalTokens)
-                    })
-                }.toString()
-
-                sendResponse(output, 200, "OK", "application/json", resultJson, origin)
+                HttpWireWriter.sendResponse(
+                    output,
+                    200,
+                    "OK",
+                    "application/json",
+                    ApiPayloadMapper.buildOpenAiCompletionJson(chatId, modelName, answer.toString(), totalTokens),
+                    origin
+                )
             }
         } finally {
             generationSlots.release()
         }
-    }
-
-    private fun parseMessages(messagesArray: JSONArray): Pair<List<Pair<String, String>>, String> {
-        val historyList = mutableListOf<Pair<String, String>>()
-        var lastUserPrompt = ""
-
-        for (i in 0 until messagesArray.length()) {
-            val msgObj = messagesArray.optJSONObject(i) ?: continue
-            val role = msgObj.optString("role", "user")
-            val content = extractTextContent(msgObj.opt("content"))
-            if (i == messagesArray.length() - 1 && role == "user") {
-                lastUserPrompt = content
-            } else {
-                historyList.add(Pair(role, content))
-            }
-        }
-
-        if (lastUserPrompt.isBlank() && historyList.isNotEmpty()) {
-            // Only a user message may become the prompt: with a trailing
-            // assistant/system/tool message (prefill, tool round) the engine must
-            // not be fed its own previous reply as the question. The message stays
-            // in place so the chronology is preserved; its content is reused as
-            // the turn to answer.
-            val idx = historyList.indexOfLast { it.first == "user" && it.second.isNotBlank() }
-            if (idx >= 0) {
-                lastUserPrompt = historyList[idx].second
-                // The prompt must not also stay in history: the engine would
-                // receive the same user turn twice and the model would answer a
-                // duplicated conversation.
-                historyList.removeAt(idx)
-            }
-        }
-
-        return Pair(historyList, lastUserPrompt)
-    }
-
-    /** OpenAI `content` may be a string or an array of typed parts. */
-    private fun extractTextContent(raw: Any?): String = when (raw) {
-        null, JSONObject.NULL -> ""
-        is JSONArray -> (0 until raw.length()).joinToString("") { i ->
-            val part = raw.optJSONObject(i)
-            if (part != null && part.optString("type", "text") == "text") part.optString("text", "") else ""
-        }
-        else -> raw.toString()
-    }
-
-    private fun getValidatedCorsOrigin(origin: String?): String? {
-        if (origin.isNullOrBlank()) return null
-        // Restrict CORS to loopback origins only to prevent drive-by attacks from arbitrary websites.
-        // Host is compared exactly after URI parsing; "http://localhost.evil.example" is rejected.
-        return if (isAllowedCorsOrigin(origin)) origin else null
-    }
-
-    private fun sendCorsPreflight(output: OutputStream, origin: String?) {
-        val allowedOrigin = getValidatedCorsOrigin(origin)
-        val header = buildString {
-            append("HTTP/1.1 204 No Content\r\n")
-            if (allowedOrigin != null) {
-                append("Access-Control-Allow-Origin: $allowedOrigin\r\n")
-                append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
-                append("Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key\r\n")
-            }
-            append("Connection: close\r\n\r\n")
-        }
-        output.write(header.toByteArray(StandardCharsets.UTF_8))
-        output.flush()
-    }
-
-    private fun sendStreamHeaders(output: OutputStream, contentType: String, origin: String?) {
-        val allowedOrigin = getValidatedCorsOrigin(origin)
-        val header = buildString {
-            append("HTTP/1.1 200 OK\r\n")
-            append("Content-Type: $contentType; charset=utf-8\r\n")
-            append("Transfer-Encoding: chunked\r\n")
-            // The socket is closed after one response (Connection: close model);
-            // advertising keep-alive makes well-behaved clients retry on a dead socket.
-            append("Connection: close\r\n")
-            if (allowedOrigin != null) {
-                append("Access-Control-Allow-Origin: $allowedOrigin\r\n")
-                append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
-                append("Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key\r\n")
-            }
-            append("\r\n")
-        }
-        output.write(header.toByteArray(StandardCharsets.UTF_8))
-        output.flush()
-    }
-
-    private fun sendChunk(output: OutputStream, text: String) {
-        val bytes = text.toByteArray(StandardCharsets.UTF_8)
-        if (bytes.isEmpty()) return
-        output.write(Integer.toHexString(bytes.size).toByteArray(StandardCharsets.US_ASCII))
-        output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
-        output.write(bytes)
-        output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
-        output.flush()
-    }
-
-    private fun endChunk(output: OutputStream) {
-        output.write("0\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
-        output.flush()
-    }
-
-    private fun sendResponse(
-        output: OutputStream,
-        statusCode: Int,
-        statusText: String,
-        contentType: String,
-        content: String,
-        origin: String?
-    ) {
-        val contentBytes = content.toByteArray(StandardCharsets.UTF_8)
-        val allowedOrigin = getValidatedCorsOrigin(origin)
-        val header = buildString {
-            append("HTTP/1.1 $statusCode $statusText\r\n")
-            append("Content-Type: $contentType; charset=utf-8\r\n")
-            append("Content-Length: ${contentBytes.size}\r\n")
-            append("Connection: close\r\n")
-            if (allowedOrigin != null) {
-                append("Access-Control-Allow-Origin: $allowedOrigin\r\n")
-                append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
-                append("Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key\r\n")
-            }
-            append("\r\n")
-        }
-
-        output.write(header.toByteArray(StandardCharsets.UTF_8))
-        if (contentBytes.isNotEmpty()) {
-            output.write(contentBytes)
-        }
-        output.flush()
-    }
-
-    private fun getIsoTimestamp(): String {
-        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
-        sdf.timeZone = TimeZone.getTimeZone("UTC")
-        return sdf.format(Date())
     }
 }

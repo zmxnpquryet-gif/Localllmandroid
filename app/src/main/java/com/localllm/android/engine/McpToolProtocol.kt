@@ -1,51 +1,13 @@
 package com.localllm.android.engine
 
+import com.localllm.android.engine.ToolTextSpans.fenceSpans
+import com.localllm.android.engine.ToolTextSpans.indexOfOutsideFences
+import com.localllm.android.engine.ToolTextSpans.matchDelimited
+import com.localllm.android.engine.ToolTextSpans.stripCodeFence
+import com.localllm.android.engine.ToolTextSpans.stripRanges
 import com.localllm.android.model.ToolCallTemplate
 import org.json.JSONArray
 import org.json.JSONObject
-
-/** A tool invocation the model asked for. Never executed without user confirmation. */
-data class McpToolCall(
-    val name: String,
-    /** Arguments as a JSON object string. */
-    val argumentsJson: String
-)
-
-data class ToolCallBatch(
-    val calls: List<McpToolCall>,
-    val prose: String,
-    val errors: List<String> = emptyList(),
-    val incomplete: Boolean = false
-) {
-    val hasWork: Boolean get() = calls.isNotEmpty() || errors.isNotEmpty() || incomplete
-}
-
-data class ToolExecution(
-    val call: McpToolCall,
-    val approved: Boolean,
-    val result: McpToolCallResult? = null,
-    val declined: Boolean = false
-)
-
-fun interface ToolApprovalPolicy {
-    suspend fun approve(call: McpToolCall): Boolean
-}
-
-fun interface ToolInvoker {
-    suspend fun invoke(call: McpToolCall): McpToolCallResult
-}
-
-/** What the parser made of a finished assistant turn. */
-sealed class ToolCallParse {
-    /** No tool call in the text. */
-    data object None : ToolCallParse()
-
-    /** A well-formed call to a tool that exists on the connected server. */
-    data class Call(val call: McpToolCall, val textBefore: String) : ToolCallParse()
-
-    /** The model tried to call a tool but got it wrong; [reason] is fed back to it. */
-    data class Invalid(val reason: String, val textBefore: String) : ToolCallParse()
-}
 
 /**
  * Text protocols for tool use with local models.
@@ -722,21 +684,6 @@ object McpToolProtocol {
         else -> null
     }
 
-    private fun stripRanges(text: String, ranges: List<IntRange>): String {
-        if (ranges.isEmpty()) return text
-        val sb = StringBuilder(text.length)
-        var cursor = 0
-        for (range in ranges.sortedBy { it.first }) {
-            if (range.first > cursor) sb.append(text, cursor, range.first)
-            cursor = maxOf(cursor, range.last + 1)
-        }
-        if (cursor < text.length) sb.append(text, cursor, text.length)
-        return sb.toString()
-            .replace(Regex("\\n{3,}"), "\n\n")
-            .replace(Regex(" {2,}"), " ")
-            .trim()
-    }
-
     private sealed interface Decoded {
         data class Valid(val call: McpToolCall) : Decoded
         data class Invalid(val reason: String) : Decoded
@@ -806,80 +753,9 @@ object McpToolProtocol {
         null
     }
 
-    /**
-     * Index of the delimiter that closes the one at [start], ignoring braces inside
-     * JSON strings. -1 when the text ends first (a truncated reply).
-     */
-    private fun matchDelimited(text: String, start: Int, open: Char, close: Char): Int {
-        var depth = 0
-        var i = start
-        var inString = false
-        var escaped = false
-        while (i < text.length) {
-            val c = text[i]
-            if (inString) {
-                when {
-                    escaped -> escaped = false
-                    c == '\\' -> escaped = true
-                    c == '"' -> inString = false
-                }
-            } else {
-                when (c) {
-                    '"' -> inString = true
-                    open -> depth++
-                    close -> {
-                        depth--
-                        if (depth == 0) return i
-                    }
-                }
-            }
-            i++
-        }
-        return -1
-    }
-
-    /**
-     * Ranges of triple-backtick fenced spans. An unclosed fence runs to the end of
-     * the text (a code block still being streamed is still a code block).
-     */
-    private fun fenceSpans(text: String): List<IntRange> {
-        val out = mutableListOf<IntRange>()
-        var from = 0
-        while (true) {
-            val start = text.indexOf("```", from)
-            if (start < 0) break
-            val end = text.indexOf("```", start + 3)
-            if (end < 0) {
-                out.add(start..text.length)
-                break
-            }
-            out.add(start..end + 2)
-            from = end + 3
-        }
-        return out
-    }
-
-    private fun indexOfOutsideFences(text: String, needle: String, fromIndex: Int): Int {
-        val fences = fenceSpans(text)
-        var at = text.indexOf(needle, fromIndex)
-        while (at >= 0 && fences.any { at in it }) {
-            at = text.indexOf(needle, at + 1)
-        }
-        return at
-    }
-
     /** Feedback for a call the parser rejected, so the model can correct itself. */
     fun formatInvalid(reason: String): String {
-        // The reason embeds server-controlled tool names ("Available tools: …"):
-        // neutralize tag-shaped breakouts the same way as result bodies.
         val safe = RESULT_TAG.replace(reason) { "<\\/tool_result>" }
         return "<tool_result status=\"error\">\n$safe\n</tool_result>"
-    }
-
-    private fun stripCodeFence(s: String): String {
-        val t = s.trim()
-        if (!t.startsWith("```")) return t
-        return t.removePrefix("```json").removePrefix("```JSON").removePrefix("```")
-            .removeSuffix("```").trim()
     }
 }

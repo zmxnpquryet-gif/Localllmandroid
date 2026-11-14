@@ -78,38 +78,14 @@ class ApiServerService : Service() {
             context.startService(Intent(context, ApiServerService::class.java).setAction(ACTION_STOP))
         }
 
-        internal const val PREFS_NAME = "app_settings_prefs"
+        internal const val PREFS_NAME = com.localllm.android.data.preferences.AppSettingsStore.PREFS_NAME
 
-        /** Unit-testable prefs helpers: same keys the ViewModel persists. */
-        internal fun loadOrCreateApiKey(prefs: SharedPreferences): String {
-            val secrets = SecretPrefs(prefs)
-            secrets.get(SecretPrefs.API_SERVER_KEY)?.let { return it }
-            return OllamaApiServer.generateSecureApiKey().also { secrets.put(SecretPrefs.API_SERVER_KEY, it) }
-        }
+        /** Unit-testable prefs helpers: delegates to [com.localllm.android.data.preferences.AppSettingsStore]. */
+        internal fun loadOrCreateApiKey(prefs: SharedPreferences): String =
+            com.localllm.android.data.preferences.AppSettingsStore.loadOrCreateApiKey(prefs)
 
-        internal fun readServingSettings(prefs: SharedPreferences): GenerationSettings {
-            val runtime = try {
-                val stored = prefs.getString("runtime", null)
-                if (stored.isNullOrBlank()) ModelRuntimeType.LLAMA_CPP else ModelRuntimeType.valueOf(stored)
-            } catch (_: Exception) {
-                ModelRuntimeType.LLAMA_CPP
-            }
-            return GenerationSettings(
-                runtime = runtime,
-                contextWindow = prefs.getInt("context_window", 4096),
-                temperature = prefs.getFloat("temperature", 0.7f),
-                topP = prefs.getFloat("top_p", 0.9f),
-                topK = prefs.getInt("top_k", 40),
-                apiServerBindAddress = prefs.getString("api_server_bind_address", "127.0.0.1") ?: "127.0.0.1",
-                apiServerRequireAuth = prefs.getBoolean("api_server_require_auth", true),
-                // Requests served over the API load models through the same engine, so
-                // the memory-mode choices must travel with the serving settings too.
-                kvCacheQuantization = KvCacheQuantization.fromId(prefs.getString("kv_cache_quantization", null)),
-                ignoreMemoryLimits = prefs.getBoolean("ignore_memory_limits", false),
-                toolCallsEnabled = prefs.getBoolean("tool_calls_enabled", true),
-                builtInSystemPromptEnabled = prefs.getBoolean("built_in_system_prompt_enabled", true)
-            )
-        }
+        internal fun readServingSettings(prefs: SharedPreferences): GenerationSettings =
+            com.localllm.android.data.preferences.AppSettingsStore.readServingSettings(prefs)
     }
 
     private val binder = ServerBinder()

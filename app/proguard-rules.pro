@@ -43,3 +43,6 @@
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -dontwarn javax.annotation.**
+
+# pdfbox-android optional JPEG2000 decoder (not bundled; text extraction never calls JPXFilter)
+-dontwarn com.gemalto.jp2.**

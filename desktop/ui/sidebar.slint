@@ -1,0 +1,268 @@
+// OffconAI Desktop — 300px runtime & backend configuration sidebar.
+
+import { Ui } from "theme.slint";
+import { Card, CheckRow, Field, FieldLabel, FlatButton, SectionLabel } from "widgets.slint";
+
+export component RuntimeSidebar inherits VerticalLayout {
+    in property <int> backend-index;
+    in property <bool> busy;
+    in property <bool> model-loaded;
+
+    in-out property <string> model-label;
+    in-out property <string> llama-executable;
+    in-out property <string> llama-model-path;
+    in-out property <string> llama-port;
+    in-out property <string> llama-context-size;
+    in-out property <string> llama-gpu-layers;
+
+    in-out property <string> vllm-endpoint;
+    in-out property <string> vllm-model-path;
+    in-out property <string> vllm-port;
+    in-out property <bool> vllm-managed;
+
+    in-out property <string> strata-endpoint;
+    in-out property <string> strata-launch;
+
+    in-out property <string> temperature-text;
+    in-out property <string> max-tokens-text;
+
+    callback load-requested();
+    callback unload-requested();
+    callback new-chat-requested();
+
+    width: 300px;
+    spacing: 8px;
+    alignment: start;
+
+    SectionLabel { text: "Runtime"; }
+    Card {
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            VerticalLayout {
+                spacing: 4px;
+                FieldLabel { text: "Model label / served id"; }
+                Field {
+                    text <=> root.model-label;
+                    placeholder: "local-model";
+                    field-enabled: !root.busy;
+                    monospace: true;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                height: 36px;
+
+                FlatButton {
+                    label: "Load / connect";
+                    primary: true;
+                    button-enabled: !root.busy;
+                    horizontal-stretch: 1;
+                    clicked => { root.load-requested(); }
+                }
+                FlatButton {
+                    label: "Unload";
+                    button-enabled: !root.busy && root.model-loaded;
+                    horizontal-stretch: 1;
+                    clicked => { root.unload-requested(); }
+                }
+            }
+
+            FlatButton {
+                label: "New conversation";
+                button-enabled: !root.busy;
+                height: 32px;
+                clicked => { root.new-chat-requested(); }
+            }
+        }
+    }
+
+    Rectangle { height: 4px; background: transparent; }
+    SectionLabel { text: "Backend"; }
+    Card {
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            if root.backend-index == 0 : VerticalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    spacing: 4px;
+                    FieldLabel { text: "llama-server binary"; }
+                    Field {
+                        text <=> root.llama-executable;
+                        placeholder: "llama-server";
+                        field-enabled: !root.busy;
+                        monospace: true;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    FieldLabel { text: "GGUF model path"; }
+                    Field {
+                        text <=> root.llama-model-path;
+                        placeholder: "C:\\models\\model.gguf";
+                        field-enabled: !root.busy;
+                        monospace: true;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        spacing: 4px;
+                        horizontal-stretch: 1;
+                        FieldLabel { text: "Port"; }
+                        Field {
+                            text <=> root.llama-port;
+                            placeholder: "8080";
+                            field-enabled: !root.busy;
+                            monospace: true;
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: 4px;
+                        horizontal-stretch: 1;
+                        FieldLabel { text: "Context"; }
+                        Field {
+                            text <=> root.llama-context-size;
+                            placeholder: "4096";
+                            field-enabled: !root.busy;
+                            monospace: true;
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: 4px;
+                        horizontal-stretch: 1;
+                        FieldLabel { text: "GPU layers"; }
+                        Field {
+                            text <=> root.llama-gpu-layers;
+                            placeholder: "0";
+                            field-enabled: !root.busy;
+                            monospace: true;
+                        }
+                    }
+                }
+            }
+
+            if root.backend-index == 1 : VerticalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    spacing: 4px;
+                    FieldLabel { text: "Endpoint"; }
+                    Field {
+                        text <=> root.vllm-endpoint;
+                        placeholder: "http://127.0.0.1:8000";
+                        field-enabled: !root.busy;
+                        monospace: true;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    FieldLabel { text: "Model path / Hugging Face id"; }
+                    Field {
+                        text <=> root.vllm-model-path;
+                        placeholder: "Qwen/Qwen3.5-4B-Instruct";
+                        field-enabled: !root.busy;
+                        monospace: true;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        spacing: 4px;
+                        width: 96px;
+                        FieldLabel { text: "Port"; }
+                        Field {
+                            text <=> root.vllm-port;
+                            placeholder: "8000";
+                            field-enabled: !root.busy;
+                            monospace: true;
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: 4px;
+                        horizontal-stretch: 1;
+                        FieldLabel { text: "Lifecycle"; }
+                        CheckRow {
+                            checked <=> root.vllm-managed;
+                            label: "Spawn vLLM";
+                            row-enabled: !root.busy;
+                        }
+                    }
+                }
+            }
+
+            if root.backend-index == 2 : VerticalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    spacing: 4px;
+                    FieldLabel { text: "Gateway endpoint"; }
+                    Field {
+                        text <=> root.strata-endpoint;
+                        placeholder: "http://127.0.0.1:9000";
+                        field-enabled: !root.busy;
+                        monospace: true;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    FieldLabel { text: "Launch command (optional)"; }
+                    Field {
+                        text <=> root.strata-launch;
+                        placeholder: "strata serve --port 9000";
+                        field-enabled: !root.busy;
+                        monospace: true;
+                    }
+                }
+                Text {
+                    width: 100%;
+                    text: "Strata deployments expose release-specific routes; connect an OpenAI-compatible gateway.";
+                    wrap: TextWrap.word-wrap;
+                    font-size: 11px;
+                    color: Ui.muted;
+                }
+            }
+        }
+    }
+
+    Rectangle { height: 4px; background: transparent; }
+    SectionLabel { text: "Sampling"; }
+    Card {
+        HorizontalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            VerticalLayout {
+                spacing: 4px;
+                horizontal-stretch: 1;
+                FieldLabel { text: "Temperature"; }
+                Field {
+                    text <=> root.temperature-text;
+                    placeholder: "0.7";
+                    field-enabled: !root.busy;
+                    monospace: true;
+                }
+            }
+            VerticalLayout {
+                spacing: 4px;
+                horizontal-stretch: 1;
+                FieldLabel { text: "Max tokens"; }
+                Field {
+                    text <=> root.max-tokens-text;
+                    placeholder: "1024";
+                    field-enabled: !root.busy;
+                    monospace: true;
+                }
+            }
+        }
+    }
+
+    Rectangle { vertical-stretch: 1; background: transparent; }
+    Text {
+        text: "Models and prompts stay on hardware you control.";
+        font-size: 11px;
+        color: Ui.muted;
+    }
+}

@@ -2,79 +2,39 @@ package com.localllm.android.ui.settings
 
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import com.localllm.android.ui.glass.GButton
-import com.localllm.android.ui.glass.GCard
-import com.localllm.android.ui.glass.GDialog
-import com.localllm.android.ui.glass.GFilterChip
-import com.localllm.android.ui.glass.GIcon
-import com.localllm.android.ui.glass.GIconButton
-import com.localllm.android.ui.glass.GIcons
-import com.localllm.android.ui.glass.GOutlineButton
-import com.localllm.android.ui.glass.GScaffold
-import com.localllm.android.ui.glass.GSlider
-import com.localllm.android.ui.glass.GSwitch
-import com.localllm.android.ui.glass.GText
-import com.localllm.android.ui.glass.GTextButton
-import com.localllm.android.ui.glass.GTextField
-import com.localllm.android.ui.glass.GTopBar
-import com.localllm.android.ui.glass.GlassTheme
-import com.localllm.android.ui.glass.LiquidBackground
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import com.localllm.android.R
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.localllm.android.model.GenerationSettings
-import com.localllm.android.model.KvCacheQuantization
-import com.localllm.android.model.ModelRuntimeType
-import com.localllm.android.model.ToolCallTemplate
-import com.localllm.android.memory.MemoryGuardStore
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.localllm.android.R
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
-import java.util.Locale
-
-@Composable
-private fun memoryLevelDescription(level: Int): String = stringResource(
-    when (level) {
-        0 -> R.string.settings_memory_level_0
-        1 -> R.string.settings_memory_level_1
-        2 -> R.string.settings_memory_level_2
-        3 -> R.string.settings_memory_level_3
-        else -> R.string.settings_memory_level_4
-    }
-)
+import com.localllm.android.ui.glass.GDialog
+import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIconButton
+import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GScaffold
+import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GTextButton
+import com.localllm.android.ui.glass.GTopBar
+import com.localllm.android.ui.glass.GlassTheme
 
 @Composable
 fun SettingsScreen(
@@ -85,6 +45,7 @@ fun SettingsScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val mcpStatusText by viewModel.mcpStatusText.collectAsStateWithLifecycle()
     val mcpTools by viewModel.mcpTools.collectAsStateWithLifecycle()
+    val tokenSaved by viewModel.mcpTokenSaved.collectAsStateWithLifecycle()
     val isApiModeEnabled by viewModel.isApiModeEnabled.collectAsStateWithLifecycle()
     val apiPort by viewModel.apiServerPort.collectAsStateWithLifecycle()
     val localIpAddress by viewModel.localIpAddress.collectAsStateWithLifecycle()
@@ -97,11 +58,6 @@ fun SettingsScreen(
     var showClearDialog by remember { mutableStateOf(false) }
     var showMemoryLog by remember { mutableStateOf(false) }
     var memoryLogText by remember { mutableStateOf("") }
-    var mcpUrlInput by remember { mutableStateOf(settings.mcpServerUrl) }
-    var mcpTokenInput by remember { mutableStateOf("") }
-    var mcpTokenTouched by remember { mutableStateOf(false) }
-    var hfTokenInput by remember { mutableStateOf(settings.hfToken) }
-    var isTokenVisible by remember { mutableStateOf(false) }
 
     GScaffold(
         topBar = {
@@ -128,864 +84,107 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    // Keeps the last card above the system taskbar / 3-button nav bar.
                     .navigationBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-            // 1. Runtime Selection (LiteRT LM vs llama.cpp)
-            SettingsCard(
-                title = stringResource(R.string.settings_runtime_title),
-                icon = GIcons.Memory
-            ) {
-                GText(
-                    text = stringResource(R.string.settings_runtime_desc),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
+                RuntimeSettingsSection(
+                    runtime = settings.runtime,
+                    onSwitchRuntime = viewModel::switchRuntime
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    GFilterChip(
-                        selected = settings.runtime == ModelRuntimeType.LLAMA_CPP,
-                        onClick = { viewModel.switchRuntime(ModelRuntimeType.LLAMA_CPP) },
-                        label = { GText("llama.cpp (GGUF)") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    GFilterChip(
-                        selected = settings.runtime == ModelRuntimeType.LITE_RT,
-                        onClick = { viewModel.switchRuntime(ModelRuntimeType.LITE_RT) },
-                        label = { GText("LiteRT LM (NPU)") },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-            }
 
-            // 2. Hardware Acceleration & MTP Options
-            SettingsCard(
-                title = stringResource(R.string.settings_performance_title),
-                icon = GIcons.Bolt
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        GText(stringResource(R.string.settings_mtp_title), style = GlassTheme.type.bodyMedium)
-                        GText(stringResource(R.string.settings_mtp_desc), fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
-                    }
-                    GSwitch(
-                        checked = settings.enableMtp,
-                        onCheckedChange = { viewModel.updateSettings(settings.copy(enableMtp = it)) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        GText(stringResource(R.string.settings_indexing_title), style = GlassTheme.type.bodyMedium)
-                        GText(stringResource(R.string.settings_indexing_desc), fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
-                    }
-                    GSwitch(
-                        checked = settings.enableIndexingAcceleration,
-                        onCheckedChange = { viewModel.updateSettings(settings.copy(enableIndexingAcceleration = it)) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        GText(stringResource(R.string.settings_metrics_title), style = GlassTheme.type.bodyMedium)
-                        GText(stringResource(R.string.settings_metrics_desc), fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
-                    }
-                    GSwitch(
-                        checked = settings.showPerformanceMetrics,
-                        onCheckedChange = { viewModel.updateSettings(settings.copy(showPerformanceMetrics = it)) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        GText(stringResource(R.string.settings_gpu_title), style = GlassTheme.type.bodyMedium)
-                        GText(stringResource(R.string.settings_gpu_desc), fontSize = 12.sp, color = GlassTheme.colors.onSurfaceVariant)
-                        GText(
-                            text = stringResource(
-                                if (llamaGpuOffloadAvailable) R.string.settings_llama_gpu_available
-                                else R.string.settings_llama_gpu_unavailable
-                            ),
-                            fontSize = 11.sp,
-                            color = if (llamaGpuOffloadAvailable) GlassTheme.colors.primary
-                            else GlassTheme.colors.onSurfaceVariant
-                        )
-                    }
-                    GSwitch(
-                        checked = settings.enableGpuAcceleration,
-                        onCheckedChange = { viewModel.updateSettings(settings.copy(enableGpuAcceleration = it)) }
-                    )
-                }
-            }
-
-            // 2b. Memory protection (abnormal-exit detection + automatic reduction)
-            SettingsCard(
-                title = stringResource(R.string.settings_memory_title),
-                icon = GIcons.Info
-            ) {
-                GText(
-                    text = stringResource(R.string.settings_memory_desc),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
+                HardwareSettingsSection(
+                    settings = settings,
+                    llamaGpuOffloadAvailable = llamaGpuOffloadAvailable,
+                    onUpdateSettings = viewModel::updateSettings
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        GText(
-                            text = stringResource(
-                                R.string.settings_memory_level,
-                                memoryGuardState.level,
-                                MemoryGuardStore.MAX_LEVEL
-                            ),
-                            style = GlassTheme.type.bodyMedium
-                        )
-                        GText(
-                            text = memoryLevelDescription(memoryGuardState.level),
-                            fontSize = 12.sp,
-                            color = GlassTheme.colors.onSurfaceVariant
-                        )
-                    }
-                    GSwitch(
-                        checked = memoryGuardState.enabled,
-                        onCheckedChange = { viewModel.setMemoryGuardEnabled(it) }
-                    )
-                }
 
-                Spacer(modifier = Modifier.height(10.dp))
-                GText(stringResource(R.string.settings_memory_incidents), style = GlassTheme.type.bodyMedium)
-                val incidents = memoryGuardState.incidents
-                if (incidents.isEmpty()) {
-                    GText(
-                        text = stringResource(R.string.settings_memory_no_incidents),
-                        fontSize = 12.sp,
-                        color = GlassTheme.colors.onSurfaceVariant
-                    )
-                } else {
-                    incidents.takeLast(3).reversed().forEach { incident ->
-                        GText(
-                            text = "• ${incident.cause} — ${incident.detail}",
-                            fontSize = 11.sp,
-                            color = GlassTheme.colors.onSurfaceVariant,
-                            maxLines = 2
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    GTextButton(onClick = {
+                MemoryGuardSettingsSection(
+                    memoryGuardState = memoryGuardState,
+                    onSetEnabled = viewModel::setMemoryGuardEnabled,
+                    onViewLog = {
                         memoryLogText = viewModel.memoryGuardLog().ifBlank { "—" }
                         showMemoryLog = true
-                    }) {
-                        GText(stringResource(R.string.settings_memory_view_log), color = GlassTheme.colors.primary)
-                    }
-                    GTextButton(onClick = { viewModel.resetMemoryGuard() }) {
-                        GText(stringResource(R.string.settings_memory_reset), color = GlassTheme.colors.primary)
-                    }
-                }
-            }
-
-            if (showMemoryLog) {
-                GDialog(
-                    onDismissRequest = { showMemoryLog = false },
-                    title = { GText(stringResource(R.string.settings_memory_log_title), style = GlassTheme.type.titleSmall) },
-                    text = {
-                        Column(
-                            modifier = Modifier
-                                .height(320.dp)
-                                .verticalScroll(rememberScrollState())
-                        ) {
-                            GText(text = memoryLogText, fontSize = 11.sp, color = GlassTheme.colors.onSurfaceVariant)
-                        }
                     },
-                    confirmButton = {
-                        GTextButton(onClick = { showMemoryLog = false }) {
-                            GText(stringResource(R.string.settings_memory_close), color = GlassTheme.colors.primary)
-                        }
-                    }
-                )
-            }
-
-            // 2c. KV cache precision and OOM-protection bypass
-            SettingsCard(
-                title = stringResource(R.string.settings_kv_title),
-                icon = GIcons.Tune
-            ) {
-                GText(
-                    text = stringResource(R.string.settings_kv_desc),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    KvCacheQuantization.entries.forEach { option ->
-                        GFilterChip(
-                            selected = settings.kvCacheQuantization == option,
-                            onClick = {
-                                viewModel.updateSettings(settings.copy(kvCacheQuantization = option))
-                            },
-                            label = { GText(option.label) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        GText(
-                            text = stringResource(R.string.settings_oom_bypass_title),
-                            style = GlassTheme.type.bodyMedium
-                        )
-                        GText(
-                            text = stringResource(R.string.settings_oom_bypass_desc),
-                            fontSize = 12.sp,
-                            color = GlassTheme.colors.onSurfaceVariant
-                        )
-                    }
-                    GSwitch(
-                        checked = settings.ignoreMemoryLimits,
-                        onCheckedChange = {
-                            viewModel.updateSettings(settings.copy(ignoreMemoryLimits = it))
-                        }
-                    )
-                }
-                if (settings.ignoreMemoryLimits) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    GText(
-                        text = stringResource(R.string.settings_oom_bypass_warning),
-                        fontSize = 11.sp,
-                        color = GlassTheme.colors.error
-                    )
-                }
-            }
-
-            // 3. Generation Hyperparameters (Context 4096 default, Temp, Top-P, Top-K)
-            SettingsCard(
-                title = stringResource(R.string.settings_params_title),
-                icon = GIcons.Tune
-            ) {
-                // Context Window
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    GText(stringResource(R.string.settings_context_window))
-                    GText(stringResource(R.string.settings_context_window_value, settings.contextWindow), color = GlassTheme.colors.primary)
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(2048, 4096, 8192, 16384).forEach { ctx ->
-                        GFilterChip(
-                            selected = settings.contextWindow == ctx,
-                            onClick = { viewModel.updateSettings(settings.copy(contextWindow = ctx)) },
-                            label = { GText("$ctx") }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Temperature
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    GText(stringResource(R.string.settings_temperature))
-                    GText(String.format(Locale.US, "%.2f", settings.temperature), color = GlassTheme.colors.primary)
-                }
-                GSlider(
-                    value = settings.temperature,
-                    onValueChange = { viewModel.updateSettings(settings.copy(temperature = it)) },
-                    valueRange = 0.0f..1.5f,
-                    steps = 14
+                    onReset = viewModel::resetMemoryGuard
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Top-P
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    GText(stringResource(R.string.settings_top_p_sampling))
-                    GText(String.format(Locale.US, "%.2f", settings.topP), color = GlassTheme.colors.primary)
-                }
-                GSlider(
-                    value = settings.topP,
-                    onValueChange = { viewModel.updateSettings(settings.copy(topP = it)) },
-                    valueRange = 0.1f..1.0f,
-                    steps = 9
+                KvCacheSettingsSection(
+                    settings = settings,
+                    onUpdateSettings = viewModel::updateSettings
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Top-K
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    GText("Top-K")
-                    GText("${settings.topK}", color = GlassTheme.colors.primary)
-                }
-                GSlider(
-                    value = settings.topK.toFloat(),
-                    onValueChange = { viewModel.updateSettings(settings.copy(topK = it.toInt())) },
-                    valueRange = 10f..100f,
-                    steps = 9
-                )
-            }
-
-            // 4. MCP (Model Context Protocol) URL Integration
-            SettingsCard(
-                title = stringResource(R.string.settings_mcp_section),
-                icon = GIcons.Hub
-            ) {
-                GText(
-                    text = stringResource(R.string.settings_mcp_desc),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                GTextField(
-                    value = mcpUrlInput,
-                    onValueChange = { mcpUrlInput = it },
-                    label = { GText("MCP Server URL") },
-                    placeholder = { GText("https://mcp.example.com/mcp") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                GTextField(
-                    value = mcpTokenInput,
-                    onValueChange = {
-                        mcpTokenInput = it
-                        mcpTokenTouched = true
-                    },
-                    label = { GText(stringResource(R.string.settings_mcp_token_label)) },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                GText(
-                    text = stringResource(R.string.settings_mcp_token_hint),
-                    fontSize = 11.sp,
-                    color = GlassTheme.colors.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val tokenSaved by viewModel.mcpTokenSaved.collectAsStateWithLifecycle()
-                    GText(
-                        text = stringResource(
-                            if (tokenSaved) R.string.settings_mcp_token_saved
-                            else R.string.settings_mcp_token_none
-                        ),
-                        fontSize = 11.sp,
-                        color = GlassTheme.colors.onSurfaceVariant,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (tokenSaved) {
-                        GTextButton(onClick = {
-                            viewModel.clearMcpToken()
-                            mcpTokenInput = ""
-                            mcpTokenTouched = false
-                        }) {
-                            GText(stringResource(R.string.settings_mcp_token_clear))
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    GText(
-                        text = stringResource(R.string.settings_mcp_status, mcpStatusText),
-                        fontSize = 12.sp,
-                        color = GlassTheme.colors.primary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    GButton(onClick = {
-                        // Untouched field keeps the stored token; typing (even blank) replaces it.
-                        viewModel.connectMcp(mcpUrlInput, if (mcpTokenTouched) mcpTokenInput else null)
-                    }) {
-                        GText(stringResource(R.string.settings_mcp_connect))
-                    }
-                }
-                if (mcpTools.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    GText(
-                        text = stringResource(R.string.settings_mcp_connected_tools, mcpTools.joinToString(", ") { it.name }),
-                        fontSize = 12.sp,
-                        color = GlassTheme.colors.onSurfaceVariant
-                    )
-                }
-            }
-
-            // 5b. Tool-call behavior and dialect
-            SettingsCard(
-                title = stringResource(R.string.settings_tool_template_title),
-                icon = GIcons.Bolt
-            ) {
-                GText(
-                    text = stringResource(R.string.settings_tool_template_desc),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                ToolCallTemplate.entries.chunked(3).forEach { chunk ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        chunk.forEach { option ->
-                            GFilterChip(
-                                selected = activeToolTemplate == option,
-                                onClick = { viewModel.setToolCallTemplate(option) },
-                                label = {
-                                    GText(
-                                        when (option) {
-                                            ToolCallTemplate.AUTO -> stringResource(R.string.settings_tool_template_auto)
-                                            ToolCallTemplate.NONE -> stringResource(R.string.settings_tool_template_off)
-                                            else -> option.shortLabel
-                                        }
-                                    )
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        repeat(3 - chunk.size) { Spacer(modifier = Modifier.weight(1f)) }
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                }
-                if (activeModel == null) {
-                    GText(
-                        text = stringResource(R.string.vm_status_no_default_model),
-                        fontSize = 11.sp,
-                        color = GlassTheme.colors.onSurfaceVariant
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        GText(
-                            text = stringResource(R.string.settings_tool_calls_title),
-                            style = GlassTheme.type.bodyMedium
-                        )
-                        GText(
-                            text = stringResource(R.string.settings_tool_calls_desc),
-                            fontSize = 12.sp,
-                            color = GlassTheme.colors.onSurfaceVariant
-                        )
-                    }
-                    GSwitch(
-                        checked = !settings.toolCallsEnabled,
-                        onCheckedChange = {
-                            viewModel.updateSettings(settings.copy(toolCallsEnabled = !it))
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        GText(
-                            text = stringResource(R.string.settings_builtin_prompt_title),
-                            style = GlassTheme.type.bodyMedium
-                        )
-                        GText(
-                            text = stringResource(R.string.settings_builtin_prompt_desc),
-                            fontSize = 12.sp,
-                            color = GlassTheme.colors.onSurfaceVariant
-                        )
-                    }
-                    GSwitch(
-                        checked = !settings.builtInSystemPromptEnabled,
-                        onCheckedChange = {
-                            viewModel.updateSettings(settings.copy(builtInSystemPromptEnabled = !it))
-                        }
-                    )
-                }
-            }
-
-            // 6. Hugging Face Personal Access Token (Optional)
-            SettingsCard(
-                title = stringResource(R.string.settings_hf_token_title),
-                icon = GIcons.Key
-            ) {
-                GText(
-                    text = stringResource(R.string.settings_hf_token_desc),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                GTextField(
-                    value = hfTokenInput,
-                    onValueChange = {
-                        hfTokenInput = it
-                        viewModel.updateHfToken(it)
-                    },
-                    label = { GText(stringResource(R.string.settings_hf_token_label)) },
-                    placeholder = { GText("hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") },
-                    singleLine = true,
-                    visualTransformation = if (isTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        GIconButton(onClick = { isTokenVisible = !isTokenVisible }) {
-                            GIcon(
-                                imageVector = if (isTokenVisible) GIcons.VisibilityOff else GIcons.Visibility,
-                                contentDescription = if (isTokenVisible) stringResource(R.string.settings_hide) else stringResource(R.string.settings_show)
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                GText(
-                    text = if (settings.hfToken.isNotBlank()) stringResource(R.string.settings_hf_token_set) else stringResource(R.string.settings_hf_token_unset),
-                    fontSize = 12.sp,
-                    color = if (settings.hfToken.isNotBlank()) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant
-                )
-            }
-
-            // 6.6 Model Download Source (Hugging Face official / hf-mirror)
-            SettingsCard(
-                title = stringResource(R.string.settings_hf_source_title),
-                icon = GIcons.CloudDownload
-            ) {
-                GText(
-                    text = stringResource(R.string.settings_hf_source_desc),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val hfSources = listOf(
-                        "official" to stringResource(R.string.settings_hf_source_official),
-                        "mirror" to stringResource(R.string.settings_hf_source_mirror)
-                    )
-                    hfSources.forEach { (code, label) ->
-                        GFilterChip(
-                            selected = settings.hfSource == code,
-                            onClick = { viewModel.setHfSource(code) },
-                            label = { GText(label) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-
-            // 7. Theme & Dark/Light Mode Personalization
-            SettingsCard(
-                title = stringResource(R.string.settings_theme_section),
-                icon = GIcons.Palette
-            ) {
-                GText(stringResource(R.string.settings_display_mode), style = GlassTheme.type.bodyMedium)
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    GFilterChip(
-                        selected = settings.darkModePreference == "dark",
-                        onClick = { viewModel.updateSettings(settings.copy(darkModePreference = "dark")) },
-                        label = { GText(stringResource(R.string.settings_theme_dark_on)) },
-                        leadingIcon = { GIcon(GIcons.DarkMode, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    GFilterChip(
-                        selected = settings.darkModePreference == "light",
-                        onClick = { viewModel.updateSettings(settings.copy(darkModePreference = "light")) },
-                        label = { GText(stringResource(R.string.settings_theme_white)) },
-                        leadingIcon = { GIcon(GIcons.LightMode, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    GFilterChip(
-                        selected = settings.darkModePreference == "system",
-                        onClick = { viewModel.updateSettings(settings.copy(darkModePreference = "system")) },
-                        label = { GText(stringResource(R.string.settings_theme_dark_system)) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                GText(stringResource(R.string.settings_theme_palette), style = GlassTheme.type.bodyMedium)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                val themes = listOf(
-                    Triple("offcon", "Offcon Blue", Color(0xFF4F63F0)),
-                    Triple("artistic", "Artistic Purple", Color(0xFFD0BCFF)),
-                    Triple("liquid", "Liquid Glass", Color(0xFF7DD3FC)),
-                    Triple("chatgpt", "Emerald Green", Color(0xFF10A37F)),
-                    Triple("cyber", "Cyber Neon", Color(0xFF00FF9D)),
-                    Triple("obsidian", "Obsidian Violet", Color(0xFFA855F7)),
-                    Triple("amber", "Sunset Amber", Color(0xFFF59E0B)),
-                    Triple("frost", "Arctic Frost", Color(0xFF38BDF8))
+                SamplingSettingsSection(
+                    settings = settings,
+                    onUpdateSettings = viewModel::updateSettings
                 )
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    themes.forEach { (key, name, color) ->
-                        val isSelected = settings.themeColorName == key
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.clickable {
-                                viewModel.updateSettings(settings.copy(themeColorName = key))
-                            }
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(color)
-                                    .border(
-                                        width = if (isSelected) 3.dp else 1.dp,
-                                        color = if (isSelected) GlassTheme.colors.onSurface else Color.Transparent,
-                                        shape = CircleShape
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isSelected) {
-                                    GIcon(
-                                        imageVector = GIcons.Check,
-                                        contentDescription = null,
-                                        tint = Color.Black,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            GText(
-                                text = name.split(" ").first(),
-                                fontSize = 11.sp,
-                                color = GlassTheme.colors.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 6.5 Language Selection
-            SettingsCard(
-                title = stringResource(R.string.settings_language_title),
-                icon = GIcons.Language
-            ) {
-                GText(
-                    text = stringResource(R.string.settings_language_desc),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
+                McpSettingsSection(
+                    initialMcpUrl = settings.mcpServerUrl,
+                    mcpStatusText = mcpStatusText,
+                    mcpTools = mcpTools,
+                    tokenSaved = tokenSaved,
+                    onClearToken = viewModel::clearMcpToken,
+                    onConnect = viewModel::connectMcp
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val languages = listOf(
-                        "system" to stringResource(R.string.settings_language_system),
-                        "en" to stringResource(R.string.settings_language_en),
-                        "ko" to stringResource(R.string.settings_language_ko),
-                        "zh" to stringResource(R.string.settings_language_zh)
-                    )
-                    languages.forEach { (code, label) ->
-                        GFilterChip(
-                            selected = settings.languagePreference == code,
-                            onClick = { viewModel.setLanguagePreference(code) },
-                            label = { GText(label) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
 
-            // 6b. Document library (local RAG index)
-            SettingsCard(
-                title = stringResource(R.string.settings_documents_title),
-                icon = GIcons.Description
-            ) {
-                GText(
-                    text = stringResource(
-                        R.string.settings_documents_summary,
-                        documentStats.documents,
-                        documentStats.chunks
-                    ),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
+                ToolDialectSettingsSection(
+                    settings = settings,
+                    activeModel = activeModel,
+                    activeToolTemplate = activeToolTemplate,
+                    onSetTemplate = viewModel::setToolCallTemplate,
+                    onUpdateSettings = viewModel::updateSettings
                 )
-                if (documentStats.chunks > 0) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    GButton(onClick = { viewModel.clearDocumentIndex() }) {
-                        GText(stringResource(R.string.settings_documents_clear))
-                    }
-                }
-            }
 
-            // 7. API Dedicated Mode (Port 11434 Ollama / OpenAI Server)
-            SettingsCard(
-                title = stringResource(R.string.settings_api_mode_section),
-                icon = GIcons.Dns
-            ) {
-                GText(
-                    text = stringResource(R.string.settings_api_mode_desc),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
+                HuggingFaceSettingsSection(
+                    settings = settings,
+                    onUpdateHfToken = viewModel::updateHfToken,
+                    onSetHfSource = viewModel::setHfSource
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        GText(
-                            text = if (isApiModeEnabled) stringResource(R.string.settings_api_server_on) else stringResource(R.string.settings_api_server_off),
-                            style = GlassTheme.type.bodyMedium,
-                            color = if (isApiModeEnabled) GlassTheme.colors.primary else GlassTheme.colors.onSurface
-                        )
-                        GText(
-                            text = if (isApiModeEnabled) {
-                                if (settings.isApiExternalAccessEnabled) stringResource(R.string.settings_api_url_external, localIpAddress, apiPort)
-                                else stringResource(R.string.settings_api_url_local, apiPort)
-                            } else stringResource(R.string.settings_api_waiting),
-                            style = GlassTheme.type.labelSmall,
-                            color = GlassTheme.colors.onSurfaceVariant
-                        )
-                    }
 
-                    GSwitch(
-                        checked = isApiModeEnabled,
-                        onCheckedChange = { viewModel.setApiModeEnabled(it) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        GText(stringResource(R.string.api_external_access_title), style = GlassTheme.type.bodyMedium)
-                        GText(
-                            text = if (settings.isApiExternalAccessEnabled)
-                                stringResource(R.string.settings_api_bind_all)
-                            else
-                                stringResource(R.string.settings_api_bind_loopback),
-                            fontSize = 12.sp,
-                            color = GlassTheme.colors.onSurfaceVariant
-                        )
-                    }
-                    GSwitch(
-                        checked = settings.isApiExternalAccessEnabled,
-                        onCheckedChange = { viewModel.setApiServerExternalAccess(it) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-                GOutlineButton(
-                    onClick = { viewModel.navigateTo(AppScreen.API_MODE) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    GIcon(
-                        imageVector = GIcons.Dns,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    GText(stringResource(R.string.settings_api_open_detail))
-                }
-            }
-
-            // 8. Encrypted SQLite Storage Management
-            SettingsCard(
-                title = stringResource(R.string.settings_storage_title),
-                icon = GIcons.Lock
-            ) {
-                GText(
-                    text = stringResource(R.string.settings_storage_desc),
-                    style = GlassTheme.type.bodySmall,
-                    color = GlassTheme.colors.onSurfaceVariant
+                ThemeAndLanguageSections(
+                    settings = settings,
+                    onUpdateSettings = viewModel::updateSettings,
+                    onSetLanguage = viewModel::setLanguagePreference
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                GButton(
-                    onClick = { showClearDialog = true },
-                    danger = true
-                ) {
-                    GIcon(
-                        imageVector = GIcons.DeleteForever,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    GText(stringResource(R.string.settings_storage_delete_all))
-                }
-            }
 
-            Spacer(modifier = Modifier.height(24.dp))
+                DocumentsAndApiSections(
+                    settings = settings,
+                    documentStats = documentStats,
+                    isApiModeEnabled = isApiModeEnabled,
+                    apiPort = apiPort,
+                    localIpAddress = localIpAddress,
+                    onClearDocuments = viewModel::clearDocumentIndex,
+                    onSetApiEnabled = viewModel::setApiModeEnabled,
+                    onSetApiExternalAccess = viewModel::setApiServerExternalAccess,
+                    onOpenApiScreen = { viewModel.navigateTo(AppScreen.API_MODE) },
+                    onShowClearChatsDialog = { showClearDialog = true }
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
+    }
+
+    if (showMemoryLog) {
+        GDialog(
+            onDismissRequest = { showMemoryLog = false },
+            title = { GText(stringResource(R.string.settings_memory_log_title), style = GlassTheme.type.titleSmall) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .height(320.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    GText(text = memoryLogText, fontSize = 11.sp, color = GlassTheme.colors.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                GTextButton(onClick = { showMemoryLog = false }) {
+                    GText(stringResource(R.string.settings_memory_close), color = GlassTheme.colors.primary)
+                }
+            }
+        )
     }
 
     if (showClearDialog) {
@@ -1011,40 +210,5 @@ fun SettingsScreen(
                 }
             }
         )
-    }
-}
-
-@Composable
-private fun SettingsCard(
-    title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    content: @Composable () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(GlassTheme.colors.surface)
-            .border(1.dp, GlassTheme.colors.outline, RoundedCornerShape(14.dp))
-            .padding(16.dp)
-    ) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                GIcon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = GlassTheme.colors.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                GText(
-                    text = title,
-                    style = GlassTheme.type.titleMedium,
-                    color = GlassTheme.colors.onSurface
-                )
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            content()
-        }
     }
 }

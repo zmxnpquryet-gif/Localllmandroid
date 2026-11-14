@@ -100,7 +100,7 @@ The current native mode records one buffered turn after a tap and submits it on 
 
 | Android | Desktop |
 | --- | --- |
-| llama.cpp, LiteRT-LM, libmtmd | Java 17 application |
+| llama.cpp, LiteRT-LM, libmtmd | Native Rust + Slint application |
 | GGUF and LiteRT model formats | Independent llama.cpp, vLLM, and Strata adapters |
 | CPU fallback and capability detection | LLM Edition and All-in-One Edition |
 | JNI bridge with explicit status codes | Backend-specific configuration and resource monitoring |
@@ -146,7 +146,7 @@ The server exposes Ollama /api/* and OpenAI-compatible /v1/* endpoints. LAN bind
 
 ~~~text
 app/       Android UI, llama.cpp/LiteRT runtimes, voice, storage, API server
-desktop/   Java 17 desktop editions and independent backend adapters
+desktop/   Native Rust + Slint desktop workspace and independent backend adapters
 docs/      Architecture, model catalog, UI direction, GitHub Pages
 ~~~
 

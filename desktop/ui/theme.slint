@@ -1,0 +1,33 @@
+// OffconAI Desktop — Design tokens (Light paper & Graphite ink).
+// Strictly adheres to DESIGN.md: flat surfaces, 1px hairlines, one cobalt signal,
+// zero hue gradients, zero colored glows.
+
+export struct ChatTurn {
+    kind: int, // 0 = user, 1 = assistant, 2 = reasoning, 3 = tool, 4 = error
+    role: string,
+    body: string,
+}
+
+export global Ui {
+    in-out property <bool> dark-mode: false;
+
+    out property <color> canvas: root.dark-mode ? #0E1015 : #F6F8FA;
+    out property <color> surface: root.dark-mode ? #161922 : #FFFFFF;
+    out property <color> raised: root.dark-mode ? #1F2430 : #EDF1F5;
+    out property <color> hover-surface: root.dark-mode ? #1B202B : #F3F5F8;
+    out property <color> text: root.dark-mode ? #ECEFF4 : #101820;
+    out property <color> muted: root.dark-mode ? #8A93A6 : #6B7487;
+    out property <color> hairline: root.dark-mode ? #262C3A : #DEE5EA;
+
+    // Single cool cobalt signal per screen.
+    out property <color> accent: root.dark-mode ? #5B6EF5 : #4053D6;
+    out property <color> accent-hover: root.dark-mode ? #4B5EE6 : #3446C4;
+    out property <color> accent-disabled: root.dark-mode ? #2D3566 : #AEB8EE;
+
+    // Live status indicator (calm emerald when loaded, muted when idle, red on error).
+    out property <color> status-live: root.dark-mode ? #34D399 : #10B981;
+    out property <color> error: root.dark-mode ? #F87171 : #C8372B;
+
+    out property <string> font-sans: "Segoe UI";
+    out property <string> font-mono: "Consolas";
+}

@@ -1,0 +1,26 @@
+[package]
+name = "offcon-desktop"
+version = "2.0.0"
+edition = "2024"
+description = "OffconAI desktop workspace built with Rust and Slint"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "offcon-desktop"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+slint = "1.18"
+sysinfo = { version = "0.40", default-features = false, features = ["system"] }
+
+[build-dependencies]
+slint-build = "1.18"
+
+[profile.release]
+codegen-units = 1
+strip = true

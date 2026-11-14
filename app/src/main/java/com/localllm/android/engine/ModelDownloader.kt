@@ -1,38 +1,26 @@
 package com.localllm.android.engine
 
+import android.util.Log
 import com.localllm.android.R
 import com.localllm.android.i18n.AppStrings
-
-import android.util.Log
 import com.localllm.android.model.LlmModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.io.IOException
-import java.io.RandomAccessFile
-import java.util.Locale
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 
 enum class FdmComponentType(val label: String, val badge: String) {
@@ -52,7 +40,6 @@ data class FdmComponentStatus(
     val totalBytes: Long = 0L,
     val speedText: String = "",
     val isCompleted: Boolean = false,
-    /** True only when the finished file's SHA-256 matched a hash published by the host. */
     val isSha256Verified: Boolean = false
 )
 
@@ -76,22 +63,19 @@ data class DownloadStatus(
     val localVisionPath: String? = null,
     val localMtpPath: String? = null,
     val localTemplatePath: String? = null,
-    /** Overall integrity signal for the finished bundle. NONE while downloading. */
     val integrityNote: IntegrityNote = IntegrityNote.NONE
 )
 
 enum class IntegrityNote {
     NONE,
-    /** The main weights' SHA-256 matched the hash the host published. */
     VERIFIED,
-    /** The host published no hash: finished with a format check only. */
     NO_HASH_PUBLISHED
 }
 
 /**
- * High-performance Multi-thread Segmented Range Downloader (FDM engine).
- * Uses HTTP Range requests and parallel part files merged with kernel zero-copy transferTo.
- * Supports resume, cancellation, ETA, and per-segment progress monitoring.
+ * Multi-component model bundle downloader.
+ * Resolves URLs and Hugging Face LFS SHA-256 headers, delegates HTTP Range/single-stream
+ * I/O to [SegmentedTransferWorker], and validates container headers via [ModelFileValidator].
  */
 class ModelDownloader(client: OkHttpClient? = null) {
 
@@ -100,15 +84,10 @@ class ModelDownloader(client: OkHttpClient? = null) {
     companion object {
         private val USER_AGENT = "Mozilla/5.0 (Android; Mobile) OffconAI/${com.localllm.android.BuildConfig.VERSION_NAME} FDM"
         private const val DEFAULT_SEGMENTS = 4
-        private const val MIN_SEGMENT_SIZE = 5 * 1024 * 1024L // 5MB minimum for segmented
-        private const val BUFFER_SIZE = 256 * 1024 // 256KB buffer for max I/O throughput
+        private const val MIN_SEGMENT_SIZE = 5 * 1024 * 1024L
+        private const val BUFFER_SIZE = 256 * 1024
         private val SHA256_HEX = Regex("^[0-9a-f]{64}$")
 
-        /**
-         * Extracts a SHA-256 from Hugging Face's `X-Linked-ETag` header. For LFS files
-         * (every GGUF / LiteRT weight) that header is the file's SHA-256; for small
-         * git-stored files the ETag is a 40-char git SHA-1 and is deliberately ignored.
-         */
         internal fun parseLinkedSha256(etag: String?): String? {
             val cleaned = etag?.trim()?.removePrefix("W/")?.trim()?.trim('"')?.lowercase() ?: return null
             return cleaned.takeIf { SHA256_HEX.matches(it) }
@@ -134,14 +113,6 @@ class ModelDownloader(client: OkHttpClient? = null) {
             return if (f.isNaN() || f.isInfinite()) 0f else f.coerceIn(0f, 1f)
         }
 
-        /**
-         * Attaches the Hugging Face bearer token only when the *actual request host*
-         * is Hugging Face infrastructure over HTTPS. String-matching the URL is not
-         * sufficient: an attacker-controlled host could embed "huggingface.co" in its
-         * path/query (e.g. https://evil.example/?next=huggingface.co) and harvest the
-         * token. CDN pre-signed redirect targets carry their own auth, so the token
-         * is withheld there as well.
-         */
         fun withHfAuth(builder: Request.Builder, requestUrl: String, token: String?): Request.Builder {
             val trimmed = token?.trim()
             if (trimmed.isNullOrBlank()) return builder
@@ -159,14 +130,10 @@ class ModelDownloader(client: OkHttpClient? = null) {
             if (!httpUrl.isHttps) return false
             val host = httpUrl.host.lowercase()
             val isHfInfra = host == "huggingface.co" ||
-                    host.endsWith(".huggingface.co") ||
-                    host == "hf.co" ||
-                    host.endsWith(".hf.co")
-            // The hf-mirror.com mirror is operated by a third party: never send the
-            // user's Hugging Face token there. Mirror downloads work unauthenticated.
+                host.endsWith(".huggingface.co") ||
+                host == "hf.co" ||
+                host.endsWith(".hf.co")
             if (!isHfInfra) return false
-            // Redirect targets / CDN endpoints embed their own pre-signed auth.
-            // Never forward the user's token there.
             if (host.startsWith("cdn-") || ".cdn." in host) return false
             if (host.endsWith(".cloudfront.net") || host.endsWith(".amazonaws.com")) return false
             return true
@@ -189,6 +156,33 @@ class ModelDownloader(client: OkHttpClient? = null) {
         .retryOnConnectionFailure(true)
         .build()
 
+    private val transferWorker = SegmentedTransferWorker(
+        httpClient = httpClient,
+        userAgent = USER_AGENT,
+        bufferSize = BUFFER_SIZE,
+        defaultSegments = DEFAULT_SEGMENTS,
+        minSegmentSize = MIN_SEGMENT_SIZE
+    )
+
+    private data class DownloadTask(
+        val type: FdmComponentType,
+        val title: String,
+        val targetFile: File,
+        val url: String,
+        val fallbackEstimatedSize: Long
+    )
+
+    private data class ProbeResult(
+        val finalUrl: String,
+        val totalBytes: Long,
+        val supportsRange: Boolean,
+        val authError: Boolean = false,
+        val errorMsg: String? = null,
+        val expectedSha256: String? = null
+    )
+
+    private enum class ExistingVerdict { VERIFIED, UNVERIFIABLE, MISMATCH }
+
     fun downloadUnifiedBundle(
         model: LlmModel,
         modelsDir: File,
@@ -209,63 +203,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
             File(modelsDir, model.templateFileName ?: "${model.fileName.substringBeforeLast('.')}-template.$defaultExt")
         } else null
 
-        data class DownloadTask(
-            val type: FdmComponentType,
-            val title: String,
-            val targetFile: File,
-            val url: String,
-            val fallbackEstimatedSize: Long
-        )
-
-        val tasks = mutableListOf<DownloadTask>()
-        tasks.add(
-            DownloadTask(
-                type = FdmComponentType.MAIN_MODEL,
-                title = AppStrings.get(R.string.dl_title_main),
-                targetFile = mainFile,
-                url = model.mainModelUrl.ifBlank {
-                    if (model.repoId.isNotBlank()) "https://huggingface.co/${model.repoId}/resolve/main/${model.fileName}" else ""
-                },
-                fallbackEstimatedSize = if (model.sizeBytes > 0) model.sizeBytes else 800_000_000L
-            )
-        )
-
-        if (visionFile != null && model.visionTowerUrl.isNotBlank()) {
-            tasks.add(
-                DownloadTask(
-                    type = FdmComponentType.VISION_TOWER,
-                    title = AppStrings.get(R.string.dl_title_vision),
-                    targetFile = visionFile,
-                    url = model.visionTowerUrl,
-                    fallbackEstimatedSize = 350_000_000L
-                )
-            )
-        }
-
-        if (mtpFile != null && model.mtpDrafterUrl.isNotBlank()) {
-            tasks.add(
-                DownloadTask(
-                    type = FdmComponentType.MTP_DRAFTER,
-                    title = AppStrings.get(R.string.dl_title_mtp),
-                    targetFile = mtpFile,
-                    url = model.mtpDrafterUrl,
-                    fallbackEstimatedSize = 400_000_000L
-                )
-            )
-        }
-
-        if (templateFile != null && model.templateFileUrl.isNotBlank()) {
-            tasks.add(
-                DownloadTask(
-                    type = FdmComponentType.TEMPLATE,
-                    title = AppStrings.get(R.string.dl_title_template),
-                    targetFile = templateFile,
-                    url = model.templateFileUrl,
-                    fallbackEstimatedSize = 50_000L
-                )
-            )
-        }
-
+        val tasks = buildTasks(model, mainFile, visionFile, mtpFile, templateFile)
         val componentStatusMap = tasks.associate { task ->
             task.type to FdmComponentStatus(
                 type = task.type,
@@ -276,32 +214,22 @@ class ModelDownloader(client: OkHttpClient? = null) {
             )
         }.toMutableMap()
 
-        var totalBundleBytes = tasks.sumOf { it.fallbackEstimatedSize }
+        val totalBundleBytes = tasks.sumOf { it.fallbackEstimatedSize }
         var bundleDownloadedBytes = 0L
 
         for (task in tasks) {
             val componentType = task.type
             val targetFile = task.targetFile
             val url = task.url
-
             if (url.isBlank()) continue
 
-            // If already fully downloaded and valid, still check the published hash:
-            // files from older builds (or an interrupted verification) were never
-            // hash-checked, and accepting them blindly would grandfather tampering in.
             if (targetFile.exists() && targetFile.length() > 0 && targetFile.length() >= task.fallbackEstimatedSize * 0.95) {
-                val isGguf = targetFile.name.endsWith(".gguf", ignoreCase = true)
-                val isLiteRt = GgufMetadataDetector.isLiteRtModel(targetFile.name)
-                val isValid = if (isGguf) isGgufFile(targetFile)
-                else if (isLiteRt) isLitertModelFile(targetFile)
-                else true
-
-                if (isValid) {
+                if (isContainerValid(targetFile)) {
                     when (verifyExistingFile(task.title, url, targetFile, task.fallbackEstimatedSize, effectiveToken)) {
                         ExistingVerdict.VERIFIED -> {
                             val existingSize = targetFile.length()
                             bundleDownloadedBytes += existingSize
-                            componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
+                            componentStatusMap[componentType] = componentStatusMap.getValue(componentType).copy(
                                 progress = 1.0f,
                                 downloadedBytes = existingSize,
                                 totalBytes = existingSize,
@@ -312,11 +240,9 @@ class ModelDownloader(client: OkHttpClient? = null) {
                             continue
                         }
                         ExistingVerdict.UNVERIFIABLE -> {
-                            // The host published no hash (or we are offline): keep the
-                            // file on the format check alone, but never claim verification.
                             val existingSize = targetFile.length()
                             bundleDownloadedBytes += existingSize
-                            componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
+                            componentStatusMap[componentType] = componentStatusMap.getValue(componentType).copy(
                                 progress = 1.0f,
                                 downloadedBytes = existingSize,
                                 totalBytes = existingSize,
@@ -328,7 +254,6 @@ class ModelDownloader(client: OkHttpClient? = null) {
                         }
                         ExistingVerdict.MISMATCH -> {
                             Log.w(tag, "[$componentType] Existing file failed SHA-256, re-downloading: ${targetFile.name}")
-                            // Fall through to a fresh download below.
                         }
                     }
                 } else {
@@ -337,7 +262,6 @@ class ModelDownloader(client: OkHttpClient? = null) {
                 }
             }
 
-            // Download component
             var sha256Verified = false
             val success = downloadComponent(
                 taskTitle = task.title,
@@ -353,7 +277,7 @@ class ModelDownloader(client: OkHttpClient? = null) {
                     val overallProgress = safeFraction(overallDownloaded, overallTotal)
                     val taskProgress = safeFraction(taskDownloaded, taskTotal)
 
-                    componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
+                    componentStatusMap[componentType] = componentStatusMap.getValue(componentType).copy(
                         progress = taskProgress,
                         downloadedBytes = taskDownloaded,
                         totalBytes = taskTotal,
@@ -396,74 +320,32 @@ class ModelDownloader(client: OkHttpClient? = null) {
                 }
             )
 
-            if (!success) {
-                return@channelFlow
-            }
+            if (!success) return@channelFlow
 
-            // Verify format if target is GGUF or LiteRT
             val isGguf = targetFile.name.endsWith(".gguf", ignoreCase = true)
             val isLiteRt = GgufMetadataDetector.isLiteRtModel(targetFile.name)
-
-            if (isGguf) {
-                if (!isGgufFile(targetFile)) {
-                    val preview = readTextPreview(targetFile)
-                    val errorReason = when {
-                        preview.contains("Unauthorized", ignoreCase = true) || preview.contains("401", ignoreCase = true) ->
-                            AppStrings.get(R.string.dl_fail_401)
-                        preview.startsWith("<!DOCTYPE", ignoreCase = true) || preview.startsWith("<html", ignoreCase = true) ->
-                            AppStrings.get(R.string.dl_fail_html)
-                        else ->
-                            AppStrings.get(R.string.dl_verify_gguf)
-                    }
-                    Log.e(tag, "[$componentType] Validation failed for ${targetFile.name}: $errorReason")
-                    targetFile.delete()
-                    send(
-                        DownloadStatus(
-                            modelId = model.id,
-                            progress = 0f,
-                            downloadedBytes = bundleDownloadedBytes,
-                            totalBytes = totalBundleBytes,
-                            speedText = AppStrings.get(R.string.dl_error),
-                            errorMessage = errorReason,
-                            isCompleted = false
-                        )
+            if ((isGguf || isLiteRt) && !isContainerValid(targetFile)) {
+                val errorReason = ModelFileValidator.diagnoseInvalidDownload(targetFile, isGguf)
+                Log.e(tag, "[$componentType] Validation failed for ${targetFile.name}: $errorReason")
+                if (isGguf) targetFile.delete() else deleteOrQuarantine(targetFile)
+                send(
+                    DownloadStatus(
+                        modelId = model.id,
+                        progress = 0f,
+                        downloadedBytes = bundleDownloadedBytes,
+                        totalBytes = totalBundleBytes,
+                        speedText = AppStrings.get(R.string.dl_error),
+                        errorMessage = errorReason,
+                        components = if (isLiteRt) componentStatusMap.values.toList() else emptyList(),
+                        isCompleted = false
                     )
-                    return@channelFlow
-                }
-            } else if (isLiteRt) {
-                if (!isLitertModelFile(targetFile)) {
-                    val preview = readTextPreview(targetFile)
-                    val errorReason = when {
-                        preview.contains("Unauthorized", ignoreCase = true) || preview.contains("401", ignoreCase = true) ->
-                            AppStrings.get(R.string.dl_fail_401)
-                        preview.startsWith("<!DOCTYPE", ignoreCase = true) || preview.startsWith("<html", ignoreCase = true) ->
-                            AppStrings.get(R.string.dl_fail_html)
-                        targetFile.length() < 1024 * 1024L ->
-                            AppStrings.get(R.string.dl_fail_small, targetFile.length())
-                        else ->
-                            AppStrings.get(R.string.dl_verify_litert)
-                    }
-                    Log.e(tag, "[$componentType] LiteRT validation failed for ${targetFile.name}: $errorReason")
-                    deleteOrQuarantine(targetFile)
-                    send(
-                        DownloadStatus(
-                            modelId = model.id,
-                            progress = 0f,
-                            downloadedBytes = bundleDownloadedBytes,
-                            totalBytes = totalBundleBytes,
-                            speedText = AppStrings.get(R.string.dl_error),
-                            errorMessage = errorReason,
-                            components = componentStatusMap.values.toList(),
-                            isCompleted = false
-                        )
-                    )
-                    return@channelFlow
-                }
+                )
+                return@channelFlow
             }
 
             val finalTaskSize = targetFile.length()
             bundleDownloadedBytes += finalTaskSize
-            componentStatusMap[componentType] = componentStatusMap[componentType]!!.copy(
+            componentStatusMap[componentType] = componentStatusMap.getValue(componentType).copy(
                 progress = 1.0f,
                 downloadedBytes = finalTaskSize,
                 totalBytes = finalTaskSize,
@@ -473,9 +355,6 @@ class ModelDownloader(client: OkHttpClient? = null) {
             )
         }
 
-        // All components completed. The headline signal covers the main weights:
-        // a bundle whose weights verified is VERIFIED even if a tiny sidecar file
-        // (template) had no published hash; anything else is reported honestly.
         val mainVerified = componentStatusMap[FdmComponentType.MAIN_MODEL]?.isSha256Verified == true
         send(
             DownloadStatus(
@@ -502,32 +381,41 @@ class ModelDownloader(client: OkHttpClient? = null) {
         )
     }.flowOn(Dispatchers.IO)
 
-    private data class ProbeResult(
-        val finalUrl: String,
-        val totalBytes: Long,
-        val supportsRange: Boolean,
-        val authError: Boolean = false,
-        val errorMsg: String? = null,
-        val expectedSha256: String? = null
-    )
-
-    private data class ContentRange(val start: Long, val end: Long, val total: Long)
-
-    private fun parseContentRange(value: String?): ContentRange? {
-        val match = Regex("bytes ([0-9]+)-([0-9]+)/([0-9]+)", RegexOption.IGNORE_CASE)
-            .matchEntire(value?.trim() ?: return null) ?: return null
-        val start = match.groupValues[1].toLongOrNull() ?: return null
-        val end = match.groupValues[2].toLongOrNull() ?: return null
-        val total = match.groupValues[3].toLongOrNull() ?: return null
-        return if (start <= end && end < total) ContentRange(start, end, total) else null
+    private fun buildTasks(
+        model: LlmModel,
+        mainFile: File,
+        visionFile: File?,
+        mtpFile: File?,
+        templateFile: File?
+    ): List<DownloadTask> = buildList {
+        add(
+            DownloadTask(
+                type = FdmComponentType.MAIN_MODEL,
+                title = AppStrings.get(R.string.dl_title_main),
+                targetFile = mainFile,
+                url = model.mainModelUrl.ifBlank {
+                    if (model.repoId.isNotBlank()) "https://huggingface.co/${model.repoId}/resolve/main/${model.fileName}" else ""
+                },
+                fallbackEstimatedSize = if (model.sizeBytes > 0) model.sizeBytes else 800_000_000L
+            )
+        )
+        if (visionFile != null && model.visionTowerUrl.isNotBlank()) {
+            add(DownloadTask(FdmComponentType.VISION_TOWER, AppStrings.get(R.string.dl_title_vision), visionFile, model.visionTowerUrl, 350_000_000L))
+        }
+        if (mtpFile != null && model.mtpDrafterUrl.isNotBlank()) {
+            add(DownloadTask(FdmComponentType.MTP_DRAFTER, AppStrings.get(R.string.dl_title_mtp), mtpFile, model.mtpDrafterUrl, 400_000_000L))
+        }
+        if (templateFile != null && model.templateFileUrl.isNotBlank()) {
+            add(DownloadTask(FdmComponentType.TEMPLATE, AppStrings.get(R.string.dl_title_template), templateFile, model.templateFileUrl, 50_000L))
+        }
     }
 
-    /**
-     * The hash header sits on the first (huggingface.co) hop, not on the CDN response
-     * OkHttp ends with — hence the walk over the redirect chain. Internal for tests:
-     * the fakes cannot reproduce OkHttp's redirect chaining, so the chain walk is
-     * pinned by a dedicated unit test instead.
-     */
+    private fun isContainerValid(file: File): Boolean = when {
+        file.name.endsWith(".gguf", ignoreCase = true) -> ModelFileValidator.isGgufFile(file)
+        GgufMetadataDetector.isLiteRtModel(file.name) -> ModelFileValidator.isLiteRtModelFile(file)
+        else -> true
+    }
+
     internal fun linkedSha256(resp: okhttp3.Response): String? {
         var current: okhttp3.Response? = resp
         while (current != null) {
@@ -545,7 +433,6 @@ class ModelDownloader(client: OkHttpClient? = null) {
         var isAuthError = false
         var errorReason: String? = null
 
-        // 1. Probe with Range: bytes=0-0 to resolve redirects and test Range in 1 request
         try {
             val rangeReq = withHfAuth(
                 Request.Builder()
@@ -558,34 +445,37 @@ class ModelDownloader(client: OkHttpClient? = null) {
 
             httpClient.newCall(rangeReq).execute().use { resp ->
                 resolvedUrl = resp.request.url.toString()
-                // Only successful responses speak for the file: an error page's
-                // headers must never become the expected hash.
                 if (resp.code == 206 || resp.isSuccessful) expectedSha256 = linkedSha256(resp)
-                if (resp.code == 401 || resp.code == 403) {
-                    isAuthError = true
-                    errorReason = AppStrings.get(R.string.dl_probe_401, resp.code)
-                } else if (resp.code == 404) {
-                    errorReason = AppStrings.get(R.string.dl_probe_404)
-                } else if (resp.code == 206) {
-                    val range = parseContentRange(resp.header("Content-Range"))
-                    if (range != null && range.start == 0L && range.end == 0L) {
-                        supportsRange = true
-                        totalBytes = range.total
-                    } else {
-                        errorReason = "Invalid Content-Range on probe"
+                when {
+                    resp.code == 401 || resp.code == 403 -> {
+                        isAuthError = true
+                        errorReason = AppStrings.get(R.string.dl_probe_401, resp.code)
                     }
-                } else if (resp.isSuccessful) {
-                    val cl = resp.header("Content-Length")?.toLongOrNull()
-                    if (cl != null && cl > 1000L) totalBytes = cl
-                    val ar = resp.header("Accept-Ranges")
-                    if (ar?.contains("bytes", ignoreCase = true) == true) supportsRange = true
+                    resp.code == 404 -> {
+                        errorReason = AppStrings.get(R.string.dl_probe_404)
+                    }
+                    resp.code == 206 -> {
+                        val range = ContentRange.parse(resp.header("Content-Range"))
+                        if (range != null && range.start == 0L && range.end == 0L) {
+                            supportsRange = true
+                            totalBytes = range.total
+                        } else {
+                            errorReason = "Invalid Content-Range on probe"
+                        }
+                    }
+                    resp.isSuccessful -> {
+                        val cl = resp.header("Content-Length")?.toLongOrNull()
+                        if (cl != null && cl > 1000L) totalBytes = cl
+                        if (resp.header("Accept-Ranges")?.contains("bytes", ignoreCase = true) == true) {
+                            supportsRange = true
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
             Log.w(tag, "Range probe check failed: ${e.message}")
         }
 
-        // 2. Fallback HEAD probe if Range didn't confirm and no auth error
         if (!supportsRange && !isAuthError && errorReason == null) {
             try {
                 val headReq = withHfAuth(
@@ -606,8 +496,9 @@ class ModelDownloader(client: OkHttpClient? = null) {
                     } else if (resp.isSuccessful) {
                         val cl = resp.header("Content-Length")?.toLongOrNull()
                         if (cl != null && cl > 1000L) totalBytes = cl
-                        val ar = resp.header("Accept-Ranges")
-                        if (ar?.contains("bytes", ignoreCase = true) == true) supportsRange = true
+                        if (resp.header("Accept-Ranges")?.contains("bytes", ignoreCase = true) == true) {
+                            supportsRange = true
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -637,21 +528,27 @@ class ModelDownloader(client: OkHttpClient? = null) {
             return false
         }
 
-        val downloaded = fetchComponent(taskTitle, probe, targetFile, modelsDir, token, onProgress, onError)
+        val downloaded = transferWorker.fetch(
+            taskTitle = taskTitle,
+            finalUrl = probe.finalUrl,
+            totalSize = probe.totalBytes,
+            supportsRange = probe.supportsRange,
+            targetFile = targetFile,
+            modelsDir = modelsDir,
+            token = token,
+            onProgress = onProgress,
+            onError = onError
+        )
         if (!downloaded) return false
 
         val expected = probe.expectedSha256
         if (expected == null) {
-            // The host published no hash (non-LFS file or a non-HF mirror): say so
-            // instead of implying a verification happened.
             Log.w(tag, "[$taskTitle] No SHA-256 published by host; integrity not verified (format check only)")
             onVerified(false)
             return true
         }
 
         onProgress(targetFile.length(), targetFile.length(), "SHA-256 검증 중", 0, List(8) { 1f })
-        // A cancelled or failed verification leaves the file alone on purpose: the
-        // existing-file path re-verifies it on the next run instead of trusting it.
         val actual = try {
             val job = currentCoroutineContext()[Job]
             withContext(Dispatchers.IO) { sha256Hex(targetFile) { job?.ensureActive() } }
@@ -673,13 +570,6 @@ class ModelDownloader(client: OkHttpClient? = null) {
         return true
     }
 
-    private enum class ExistingVerdict { VERIFIED, UNVERIFIABLE, MISMATCH }
-
-    /**
-     * Re-checks a file that is already on disk against the hash the host publishes
-     * today. MISMATCH deletes nothing here — the caller falls through to a fresh
-     * download, which replaces the file.
-     */
     private suspend fun verifyExistingFile(
         taskTitle: String,
         url: String,
@@ -699,19 +589,12 @@ class ModelDownloader(client: OkHttpClient? = null) {
             return ExistingVerdict.UNVERIFIABLE
         }
         return if (actual.equals(expected, ignoreCase = true)) {
-            Log.i(tag, "[$taskTitle] Existing file SHA-256 verified: $actual")
             ExistingVerdict.VERIFIED
         } else {
-            Log.e(tag, "[$taskTitle] Existing file SHA-256 mismatch: expected=$expected actual=$actual")
             ExistingVerdict.MISMATCH
         }
     }
 
-    /**
-     * Deletes a rejected file. When deletion itself fails (locks, storage errors),
-     * the file is quarantined out of the way so the existing-file path can never
-     * accept it on the next run.
-     */
     private fun deleteOrQuarantine(file: File) {
         if (file.delete()) return
         val quarantine = File(file.parentFile, "${file.name}.corrupt-${System.currentTimeMillis()}")
@@ -720,423 +603,5 @@ class ModelDownloader(client: OkHttpClient? = null) {
         } else {
             Log.w(tag, "Quarantined undeletable file as ${quarantine.name}")
         }
-    }
-
-    private suspend fun fetchComponent(
-        taskTitle: String,
-        probe: ProbeResult,
-        targetFile: File,
-        modelsDir: File,
-        token: String?,
-        onProgress: suspend (Long, Long, String, Int, List<Float>) -> Unit,
-        onError: suspend (String) -> Unit
-    ): Boolean {
-        val finalUrl = probe.finalUrl
-        val totalSize = probe.totalBytes
-        val supportsRange = probe.supportsRange
-
-        Log.i(tag, "[$taskTitle] Target size: $totalSize bytes (Range: $supportsRange, URL: $finalUrl)")
-
-        return if (supportsRange && totalSize >= MIN_SEGMENT_SIZE) {
-            val ok = downloadSegmented(
-                taskTitle = taskTitle,
-                url = finalUrl,
-                targetFile = targetFile,
-                modelsDir = modelsDir,
-                totalSize = totalSize,
-                segmentCount = DEFAULT_SEGMENTS,
-                token = token,
-                onProgress = onProgress,
-                onError = { err ->
-                    Log.w(tag, "Segmented download failed: $err, falling back to single stream")
-                    false
-                }
-            )
-            if (!ok) {
-                downloadSingleStream(taskTitle, finalUrl, targetFile, modelsDir, totalSize, token, onProgress, onError)
-            } else true
-        } else {
-            downloadSingleStream(taskTitle, finalUrl, targetFile, modelsDir, totalSize, token, onProgress, onError)
-        }
-    }
-
-    private suspend fun downloadSegmented(
-        taskTitle: String,
-        url: String,
-        targetFile: File,
-        modelsDir: File,
-        totalSize: Long,
-        segmentCount: Int,
-        token: String? = null,
-        onProgress: suspend (Long, Long, String, Int, List<Float>) -> Unit,
-        onError: suspend (String) -> Boolean
-    ): Boolean {
-        val partFiles = (0 until segmentCount).map { i -> File(modelsDir, "${targetFile.name}.part_$i") }
-        // Resume sidecar: part files are only valid for the exact total they were
-        // started with. Without it, a changed remote revision on a hash-less host
-        // would silently merge stale parts with fresh bytes.
-        val metaFile = File(modelsDir, "${targetFile.name}.partsmeta")
-        val metaTotal = try {
-            if (metaFile.isFile) metaFile.readText().trim().toLongOrNull() else null
-        } catch (_: Exception) {
-            null
-        }
-        when {
-            metaTotal == null -> {
-                // No sidecar means no proof the parts belong to this remote
-                // revision: fail closed instead of merging stale bytes.
-                if (partFiles.any { it.exists() }) {
-                    Log.w(tag, "[$taskTitle] Parts sidecar missing/unreadable; discarding stale parts")
-                    partFiles.forEach { it.delete() }
-                }
-            }
-            metaTotal != totalSize -> {
-                Log.w(tag, "[$taskTitle] Remote size changed ($metaTotal -> $totalSize); discarding stale parts")
-                partFiles.forEach { it.delete() }
-            }
-        }
-        try {
-            metaFile.writeText(totalSize.toString())
-        } catch (e: Exception) {
-            Log.w(tag, "[$taskTitle] Could not write parts sidecar: ${e.message}")
-            partFiles.forEach { it.delete() }
-        }
-        val segmentStarts = LongArray(segmentCount)
-        val segmentEnds = LongArray(segmentCount)
-        val segmentTotals = LongArray(segmentCount)
-        val segmentDownloaded = Array(segmentCount) { AtomicLong(0L) }
-
-        val chunkSize = totalSize / segmentCount
-        for (i in 0 until segmentCount) {
-            segmentStarts[i] = i * chunkSize
-            segmentEnds[i] = if (i == segmentCount - 1) totalSize - 1L else (i + 1) * chunkSize - 1L
-            segmentTotals[i] = segmentEnds[i] - segmentStarts[i] + 1L
-            val existing = if (partFiles[i].exists()) partFiles[i].length().coerceAtMost(segmentTotals[i]) else 0L
-            segmentDownloaded[i].set(existing)
-        }
-
-        var downloadFailed = false
-        var failureReason = ""
-
-        try {
-            coroutineScope {
-                var lastProgressTime = System.currentTimeMillis()
-                var lastProgressBytes = segmentDownloaded.sumOf { it.get() }
-
-                val monitorJob = async(Dispatchers.Default) {
-                    while (isActive) {
-                        delay(200)
-                        val now = System.currentTimeMillis()
-                        val currentDownloaded = segmentDownloaded.sumOf { it.get() }
-                        val timeDeltaSec = max((now - lastProgressTime) / 1000.0, 0.001)
-                        val bytesDelta = (currentDownloaded - lastProgressBytes).coerceAtLeast(0L)
-
-                        val speedMbps = (bytesDelta.toDouble() / timeDeltaSec) / (1024.0 * 1024.0)
-                        val speedText = String.format(Locale.US, "%.2f MB/s", speedMbps)
-                        val remainingBytes = (totalSize - currentDownloaded).coerceAtLeast(0L)
-                        val bytesPerSec = (speedMbps * 1024.0 * 1024.0).toLong()
-                        val etaSec = if (bytesPerSec > 0) (remainingBytes / bytesPerSec).toInt() else 0
-
-                        lastProgressTime = now
-                        lastProgressBytes = currentDownloaded
-
-                        val segmentBars = List(8) { slot ->
-                            val segIndex = (slot * segmentCount / 8).coerceIn(0, segmentCount - 1)
-                            safeFraction(segmentDownloaded[segIndex].get(), segmentTotals[segIndex])
-                        }
-
-                        onProgress(currentDownloaded, totalSize, speedText, etaSec, segmentBars)
-
-                        if (currentDownloaded >= totalSize) break
-                    }
-                }
-
-                val workers = (0 until segmentCount).map { i ->
-                    async(Dispatchers.IO) {
-                        val partFile = partFiles[i]
-                        val segTotal = segmentTotals[i]
-                        var attempt = 0
-                        val maxAttempts = 3
-
-                        while (isActive && attempt < maxAttempts) {
-                            attempt++
-                            val currentPartLen = if (partFile.exists()) partFile.length() else 0L
-                            if (currentPartLen > segTotal) {
-                                throw IOException("Oversized part on segment $i")
-                            }
-                            if (currentPartLen == segTotal) {
-                                segmentDownloaded[i].set(segTotal)
-                                return@async
-                            }
-
-                            val reqStart = segmentStarts[i] + currentPartLen
-                            val reqEnd = segmentEnds[i]
-
-                            try {
-                                val req = withHfAuth(
-                                    Request.Builder()
-                                        .url(HfSource.rewrite(url))
-                                        .header("User-Agent", USER_AGENT)
-                                        .header("Range", "bytes=$reqStart-$reqEnd"),
-                                    url,
-                                    token
-                                ).build()
-
-                                httpClient.newCall(req).execute().use { resp ->
-                                    if (resp.code != 206) {
-                                        throw IOException("Expected HTTP 206 on segment $i, got ${resp.code}")
-                                    }
-                                    val range = parseContentRange(resp.header("Content-Range"))
-                                    if (range != ContentRange(reqStart, reqEnd, totalSize)) {
-                                        throw IOException("Invalid Content-Range on segment $i")
-                                    }
-                                    val body = resp.body ?: throw IOException("Empty body on segment $i")
-                                    val expectedLength = reqEnd - reqStart + 1L
-                                    if (body.contentLength() != -1L && body.contentLength() != expectedLength) {
-                                        throw IOException("Invalid Content-Length on segment $i")
-                                    }
-                                    try {
-                                        body.byteStream().use { input ->
-                                            BufferedOutputStream(FileOutputStream(partFile, currentPartLen > 0), BUFFER_SIZE).use { output ->
-                                                val buf = ByteArray(BUFFER_SIZE)
-                                                var remaining = expectedLength
-                                                while (remaining > 0L) {
-                                                    ensureActive()
-                                                    val readLen = input.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
-                                                    if (readLen == -1) throw IOException("Short body on segment $i")
-                                                    output.write(buf, 0, readLen)
-                                                    remaining -= readLen
-                                                    segmentDownloaded[i].addAndGet(readLen.toLong())
-                                                }
-                                                ensureActive()
-                                                if (input.read() != -1) throw IOException("Oversized body on segment $i")
-                                            }
-                                        }
-                                        if (partFile.length() != segTotal) {
-                                            throw IOException("Invalid part length on segment $i")
-                                        }
-                                    } catch (e: Exception) {
-                                        RandomAccessFile(partFile, "rw").use { it.setLength(currentPartLen) }
-                                        segmentDownloaded[i].set(currentPartLen)
-                                        throw e
-                                    }
-                                }
-                                segmentDownloaded[i].set(segTotal)
-                                return@async
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                Log.w(tag, "Segment $i attempt $attempt failed: ${e.message}")
-                                if (attempt >= maxAttempts) throw e
-                                delay(500)
-                            }
-                        }
-                    }
-                }
-
-                try {
-                    workers.awaitAll()
-                } finally {
-                    monitorJob.cancel()
-                }
-            }
-
-            // Verify all parts are complete
-            val allComplete = (0 until segmentCount).all { i ->
-                partFiles[i].exists() && partFiles[i].length() == segmentTotals[i]
-            }
-
-            if (allComplete) {
-                mergeParts(partFiles, targetFile, modelsDir)
-                File(modelsDir, "${targetFile.name}.partsmeta").delete()
-                Log.i(tag, "[$taskTitle] Segmented download & zero-copy merge completed: ${targetFile.name} (${targetFile.length()} bytes)")
-                return true
-            } else {
-                downloadFailed = true
-                failureReason = AppStrings.get(R.string.dl_chunk_incomplete)
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            downloadFailed = true
-            failureReason = e.localizedMessage ?: AppStrings.get(R.string.dl_net_fail)
-            Log.w(tag, "[$taskTitle] Segmented download error: $failureReason", e)
-        }
-
-        if (downloadFailed) {
-            return onError(failureReason)
-        }
-
-        return true
-    }
-
-    private fun mergeParts(partFiles: List<File>, targetFile: File, modelsDir: File) {
-        val tempMerged = File(modelsDir, "${targetFile.name}.merging")
-        if (tempMerged.exists()) tempMerged.delete()
-
-        FileOutputStream(tempMerged).use { fos ->
-            val outChannel = fos.channel
-            for (part in partFiles) {
-                FileInputStream(part).use { fis ->
-                    val inChannel = fis.channel
-                    var transferred = 0L
-                    val size = inChannel.size()
-                    while (transferred < size) {
-                        val count = inChannel.transferTo(transferred, size - transferred, outChannel)
-                        if (count <= 0) throw IOException("Incomplete merge of ${part.name}")
-                        transferred += count
-                    }
-                }
-            }
-            outChannel.force(true)
-        }
-
-        if (targetFile.exists() && !targetFile.delete()) {
-            tempMerged.delete()
-            throw IOException("Could not replace previous file ${targetFile.name}")
-        }
-        if (!tempMerged.renameTo(targetFile)) {
-            tempMerged.delete()
-            throw IOException("Failed to publish merged download")
-        }
-        partFiles.forEach { it.delete() }
-    }
-
-    private suspend fun downloadSingleStream(
-        taskTitle: String,
-        url: String,
-        targetFile: File,
-        modelsDir: File,
-        totalSize: Long,
-        token: String? = null,
-        onProgress: suspend (Long, Long, String, Int, List<Float>) -> Unit,
-        onError: suspend (String) -> Unit
-    ): Boolean {
-        val tempFile = File(modelsDir, "${targetFile.name}.downloading")
-        var published = false
-        try {
-            val req = withHfAuth(
-                Request.Builder()
-                    .url(HfSource.rewrite(url))
-                    .header("User-Agent", USER_AGENT),
-                url,
-                token
-            ).build()
-
-            return httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    onError(AppStrings.get(R.string.dl_http_err, resp.code, resp.message))
-                    return false
-                }
-
-                val body = resp.body ?: run {
-                    onError(AppStrings.get(R.string.dl_empty_body))
-                    return false
-                }
-
-                val actualLength = body.contentLength().takeIf { it > 0 } ?: totalSize
-                var downloaded = 0L
-                var lastTime = System.currentTimeMillis()
-                var lastBytes = 0L
-
-                body.byteStream().use { input ->
-                    BufferedOutputStream(FileOutputStream(tempFile, false), BUFFER_SIZE).use { output ->
-                        val buf = ByteArray(BUFFER_SIZE)
-                        var readLen = 0
-                        while (input.read(buf).also { readLen = it } != -1) {
-                            // A blocking socket read does not observe coroutine
-                            // cancellation; check between chunks so Stop is prompt.
-                            currentCoroutineContext().ensureActive()
-                            output.write(buf, 0, readLen)
-                            downloaded += readLen
-
-                            val now = System.currentTimeMillis()
-                            if (now - lastTime >= 200L) {
-                                val timeDelta = max((now - lastTime) / 1000.0, 0.001)
-                                val speedMbps = ((downloaded - lastBytes).toDouble() / timeDelta) / (1024.0 * 1024.0)
-                                val speedText = String.format(Locale.US, "%.2f MB/s", speedMbps)
-                                val bytesPerSec = (speedMbps * 1024.0 * 1024.0).toLong()
-                                val remaining = (actualLength - downloaded).coerceAtLeast(0L)
-                                val etaSec = if (bytesPerSec > 0) (remaining / bytesPerSec).toInt() else 0
-
-                                val frac = safeFraction(downloaded, actualLength)
-                                val segmentBars = List(8) { frac }
-
-                                onProgress(downloaded, actualLength, speedText, etaSec, segmentBars)
-                                lastTime = now
-                                lastBytes = downloaded
-                            }
-                        }
-                        output.flush()
-                    }
-                }
-
-                // A cleanly-ended chunked body can truncate silently; never
-                // publish a short file as a completed download.
-                if (actualLength > 0 && downloaded != actualLength) {
-                    tempFile.delete()
-                    onError("다운로드가 중단되었습니다: ${downloaded}/${actualLength} bytes")
-                    return false
-                }
-
-                if (targetFile.exists()) targetFile.delete()
-                if (!tempFile.renameTo(targetFile)) {
-                    tempFile.delete()
-                    onError("다운로드 파일 이동에 실패했습니다.")
-                    return false
-                }
-                published = true
-                Log.i(tag, "[$taskTitle] Single stream download completed: ${targetFile.name} (${targetFile.length()} bytes)")
-                true
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            val err = AppStrings.get(R.string.dl_fail_generic, e.localizedMessage ?: e.message)
-            Log.e(tag, "[$taskTitle] Single stream download failed", e)
-            onError(err)
-            return false
-        } finally {
-            if (!published) tempFile.delete()
-        }
-    }
-
-    private fun isGgufFile(file: File): Boolean {
-        if (!file.exists() || file.length() < 4) return false
-        return try {
-            FileInputStream(file).use { fis ->
-                val h = ByteArray(4)
-                fis.read(h) == 4 &&
-                    h[0] == 'G'.code.toByte() &&
-                    h[1] == 'G'.code.toByte() &&
-                    h[2] == 'U'.code.toByte() &&
-                    h[3] == 'F'.code.toByte()
-            }
-        } catch (_: Exception) { false }
-    }
-
-    private fun isLitertModelFile(file: File): Boolean {
-        if (!file.exists() || file.length() < 1024 * 1024L) return false
-        val preview = readTextPreview(file)
-        if (preview.contains("Unauthorized", ignoreCase = true) ||
-            preview.contains("401", ignoreCase = true) ||
-            preview.startsWith("<!DOCTYPE", ignoreCase = true) ||
-            preview.startsWith("<html", ignoreCase = true) ||
-            preview.contains("{\"error\"", ignoreCase = true)
-        ) {
-            return false
-        }
-        return true
-    }
-
-    private fun readTextPreview(file: File): String {
-        if (!file.exists() || file.length() == 0L) return ""
-        return try {
-            FileInputStream(file).use { fis ->
-                val buf = ByteArray(256)
-                val len = fis.read(buf)
-                if (len > 0) String(buf, 0, len, Charsets.UTF_8).trim() else ""
-            }
-        } catch (_: Exception) { "" }
     }
 }

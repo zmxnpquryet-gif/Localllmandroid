@@ -1,0 +1,267 @@
+// OffconAI Desktop — Reusable flat instrument primitives.
+
+import { Ui } from "theme.slint";
+
+export component Glyph inherits Rectangle {
+    in property <length> glyph-size: 26px;
+    width: glyph-size;
+    height: glyph-size;
+    background: transparent;
+
+    Path {
+        width: parent.width;
+        height: parent.height;
+        commands: "M 18.7 6.5 L 11.2 6.5 C 7.8 6.5 5.5 9 5.5 12.7 L 5.5 13.3 C 5.5 17 7.8 19.5 11.2 19.5 L 18.5 19.5 C 20.9 19.5 23 17.4 23 15 L 23 13.8";
+        stroke: Ui.accent;
+        stroke-width: 2.6px;
+        fill: transparent;
+    }
+    Rectangle {
+        x: 13px;
+        y: parent.height / 2 - 0.75px;
+        width: 8px;
+        height: 1.5px;
+        background: Ui.accent;
+        border-radius: 1px;
+    }
+    Rectangle {
+        x: 20.2px;
+        y: parent.height / 2 - 1.3px;
+        width: 2.6px;
+        height: 2.6px;
+        background: Ui.accent;
+        border-radius: 2px;
+    }
+}
+
+// Signature small square status dot next to monospace runtime readouts.
+export component StatusDot inherits Rectangle {
+    in property <bool> active: false;
+    in property <bool> has-error: false;
+    width: 6px;
+    height: 6px;
+    border-radius: 1px;
+    background: root.has-error ? Ui.error : root.active ? Ui.status-live : Ui.muted;
+}
+
+export component SectionLabel inherits Text {
+    font-size: 11px;
+    font-weight: 400;
+    color: Ui.muted;
+}
+
+export component Card inherits Rectangle {
+    background: Ui.surface;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Ui.hairline;
+}
+
+export component FieldLabel inherits Text {
+    height: 14px;
+    font-size: 11px;
+    color: Ui.muted;
+    vertical-alignment: center;
+}
+
+export component Field inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <bool> field-enabled: true;
+    in property <bool> monospace: false;
+
+    height: 34px;
+    border-radius: 8px;
+    background: root.field-enabled ? Ui.surface : Ui.raised;
+    border-width: 1px;
+    border-color: input.has-focus ? Ui.accent : Ui.hairline;
+
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.text == "" ? root.placeholder : "";
+        color: Ui.muted;
+        font-size: 12px;
+        font-family: root.monospace ? Ui.font-mono : Ui.font-sans;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    input := TextInput {
+        x: 10px;
+        y: 1px;
+        width: parent.width - 20px;
+        height: parent.height - 2px;
+        vertical-alignment: center;
+        single-line: true;
+        enabled: root.field-enabled;
+        text <=> root.text;
+        color: Ui.text;
+        selection-background-color: Ui.accent;
+        selection-foreground-color: #FFFFFF;
+        font-size: 12px;
+        font-family: root.monospace ? Ui.font-mono : Ui.font-sans;
+    }
+}
+
+export component FlatButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> primary: false;
+    in property <bool> button-enabled: true;
+    callback clicked();
+
+    height: 36px;
+    min-width: label-text.preferred-width + 26px;
+    border-radius: 10px;
+    background: !root.button-enabled ? (root.primary ? Ui.accent-disabled : Ui.raised)
+        : root.primary ? (touch.pressed || touch.has-hover ? Ui.accent-hover : Ui.accent)
+        : (touch.pressed ? Ui.raised : touch.has-hover ? Ui.hover-surface : Ui.surface);
+    border-width: root.primary ? 0px : 1px;
+    border-color: Ui.hairline;
+
+    label-text := Text {
+        width: 100%;
+        height: 100%;
+        text: root.label;
+        color: root.button-enabled ? (root.primary ? #FFFFFF : Ui.text) : Ui.muted;
+        font-size: 12px;
+        font-weight: root.primary ? 500 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        enabled: root.button-enabled;
+        mouse-cursor: root.button-enabled ? pointer : default;
+        clicked => {
+            if (root.button-enabled) {
+                root.clicked();
+            }
+        }
+    }
+}
+
+export component SelectChip inherits Rectangle {
+    in property <string> value;
+    in property <length> chip-width: 118px;
+    callback activated();
+
+    height: 32px;
+    width: chip-width;
+    border-radius: 8px;
+    background: touch.has-hover ? Ui.hover-surface : Ui.surface;
+    border-width: 1px;
+    border-color: Ui.hairline;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        alignment: space-between;
+
+        Text {
+            text: root.value;
+            font-size: 12px;
+            color: Ui.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            text: "\u{25BE}";
+            font-size: 10px;
+            color: Ui.muted;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.activated();
+        }
+    }
+}
+
+export component CheckRow inherits Rectangle {
+    in-out property <bool> checked: true;
+    in property <string> label;
+    in property <bool> row-enabled: true;
+    height: 24px;
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+
+        Rectangle {
+            width: 15px;
+            height: 15px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: root.checked ? Ui.accent : Ui.hairline;
+            background: root.checked ? Ui.accent : Ui.surface;
+
+            Text {
+                width: 100%;
+                height: 100%;
+                text: root.checked ? "\u{2713}" : "";
+                color: #FFFFFF;
+                font-size: 10px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: root.label;
+            font-size: 12px;
+            color: root.row-enabled ? Ui.text : Ui.muted;
+            vertical-alignment: center;
+        }
+    }
+
+    TouchArea {
+        enabled: root.row-enabled;
+        mouse-cursor: root.row-enabled ? pointer : default;
+        clicked => {
+            if (root.row-enabled) {
+                root.checked = !root.checked;
+            }
+        }
+    }
+}
+
+export component QuietTab inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected: false;
+    callback clicked();
+
+    height: 32px;
+    width: tab-text.preferred-width + 4px;
+    background: transparent;
+
+    tab-text := Text {
+        width: 100%;
+        height: 100%;
+        text: root.label;
+        font-size: 13px;
+        font-weight: root.selected ? 500 : 400;
+        color: root.selected ? Ui.text : Ui.muted;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        y: parent.height - 2px;
+        width: 100%;
+        height: 2px;
+        background: root.selected ? Ui.accent : transparent;
+        border-radius: 1px;
+    }
+
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}

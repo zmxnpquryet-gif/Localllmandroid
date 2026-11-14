@@ -1,0 +1,313 @@
+// OffconAI Desktop — Main Slint window.
+// Uses a deterministic root VerticalLayout (Header -> Hairline -> Main -> Hairline -> Footer).
+
+import { ChatTurn, Ui } from "theme.slint";
+import { FlatButton, Glyph, QuietTab, SelectChip, StatusDot } from "widgets.slint";
+import { RuntimeSidebar } from "sidebar.slint";
+import { ChatWorkspace } from "chat.slint";
+import { ImageWorkspace } from "image.slint";
+
+export { ChatTurn, Ui }
+
+export component MainWindow inherits Window {
+    title: "OffconAI Desktop";
+    preferred-width: 1180px;
+    preferred-height: 800px;
+    min-width: 980px;
+    min-height: 700px;
+    background: Ui.canvas;
+    default-font-family: Ui.font-sans;
+    default-font-size: 13px;
+
+    in-out property <int> edition-index: 0; // 0 = LLM, 1 = All-in-One
+    in-out property <int> backend-index: 0; // 0 = llama.cpp, 1 = vLLM, 2 = Strata
+    in-out property <int> tab-index: 0;
+
+    in-out property <bool> busy: false;
+    in-out property <bool> model-loaded: false;
+    in-out property <string> status: "Select a backend and load or connect a model.";
+    in-out property <bool> status-error: false;
+    in-out property <string> model-indicator: "No model";
+    in-out property <string> resources: "No runtime resources";
+    in-out property <string> empty-engine: "llama.cpp · local runtime";
+
+    in-out property <[ChatTurn]> turns: [];
+    in-out property <string> input-text: "";
+    in-out property <int> scroll-tick: 0;
+
+    // Runtime + backend + sampling configuration (owned by Rust controller).
+    in-out property <string> model-label: "local-model";
+    in-out property <string> llama-executable: "llama-server";
+    in-out property <string> llama-model-path: "";
+    in-out property <string> llama-port: "8080";
+    in-out property <string> llama-context-size: "4096";
+    in-out property <string> llama-gpu-layers: "0";
+
+    in-out property <string> vllm-endpoint: "http://127.0.0.1:8000";
+    in-out property <string> vllm-model-path: "";
+    in-out property <string> vllm-port: "8000";
+    in-out property <bool> vllm-managed: true;
+
+    in-out property <string> strata-endpoint: "";
+    in-out property <string> strata-launch: "";
+
+    in-out property <string> temperature-text: "0.7";
+    in-out property <string> max-tokens-text: "1024";
+
+    in-out property <string> image-endpoint: "http://127.0.0.1:8000";
+    in-out property <string> image-model: "";
+    in-out property <string> image-size: "1024x1024";
+    in-out property <string> image-prompt: "";
+    in-out property <string> image-output: "build/desktop/generated.png";
+    in-out property <image> image-preview;
+    in-out property <bool> image-ready: false;
+
+    callback load-requested();
+    callback unload-requested();
+    callback new-chat-requested();
+    callback send-requested();
+    callback stop-requested();
+    callback generate-image-requested();
+    callback backend-changed();
+
+    property <bool> image-edition: edition-index == 1;
+    property <bool> chat-tab: tab-index == 0;
+    property <string> edition-name: edition-index == 1 ? "All-in-One" : "LLM";
+    property <string> backend-name: backend-index == 0 ? "llama.cpp" : backend-index == 1 ? "vLLM" : "Strata";
+    property <string> endpoint-name: backend-index == 0 ? "local process" : "OpenAI-compatible endpoint";
+
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        spacing: 0px;
+
+        // -------------------------------------------------------------- header
+        Rectangle {
+            height: 56px;
+            background: Ui.surface;
+
+            HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                spacing: 12px;
+                alignment: stretch;
+
+                Rectangle {
+                    width: 26px;
+                    background: transparent;
+                    Glyph {
+                        y: (parent.height - self.height) / 2;
+                        glyph-size: 26px;
+                    }
+                }
+                Text {
+                    text: "OffconAI";
+                    font-size: 16px;
+                    font-weight: 500;
+                    color: Ui.text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "desktop \u{00B7} local";
+                    font-size: 11px;
+                    font-family: Ui.font-mono;
+                    color: Ui.muted;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+
+                Text {
+                    text: "Edition";
+                    font-size: 11px;
+                    color: Ui.muted;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    width: 112px;
+                    background: transparent;
+                    SelectChip {
+                        y: (parent.height - self.height) / 2;
+                        chip-width: 112px;
+                        value: root.edition-name;
+                        activated => {
+                            root.edition-index = root.edition-index == 0 ? 1 : 0;
+                            if (root.edition-index == 0 && root.tab-index == 1) {
+                                root.tab-index = 0;
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: "Backend";
+                    font-size: 11px;
+                    color: Ui.muted;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    width: 116px;
+                    background: transparent;
+                    SelectChip {
+                        y: (parent.height - self.height) / 2;
+                        chip-width: 116px;
+                        value: root.backend-name;
+                        activated => {
+                            root.backend-index = root.backend-index == 2 ? 0 : root.backend-index + 1;
+                            root.backend-changed();
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 68px;
+                    background: transparent;
+                    FlatButton {
+                        y: (parent.height - self.height) / 2;
+                        width: 68px;
+                        height: 32px;
+                        label: Ui.dark-mode ? "Light" : "Dark";
+                        clicked => {
+                            Ui.dark-mode = !Ui.dark-mode;
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Ui.hairline;
+        }
+
+        // -------------------------------------------------------------- body
+        HorizontalLayout {
+            vertical-stretch: 1;
+            padding-left: 24px;
+            padding-right: 24px;
+            padding-top: 16px;
+            padding-bottom: 12px;
+            spacing: 20px;
+
+            RuntimeSidebar {
+                backend-index: root.backend-index;
+                busy: root.busy;
+                model-loaded: root.model-loaded;
+
+                model-label <=> root.model-label;
+                llama-executable <=> root.llama-executable;
+                llama-model-path <=> root.llama-model-path;
+                llama-port <=> root.llama-port;
+                llama-context-size <=> root.llama-context-size;
+                llama-gpu-layers <=> root.llama-gpu-layers;
+
+                vllm-endpoint <=> root.vllm-endpoint;
+                vllm-model-path <=> root.vllm-model-path;
+                vllm-port <=> root.vllm-port;
+                vllm-managed <=> root.vllm-managed;
+
+                strata-endpoint <=> root.strata-endpoint;
+                strata-launch <=> root.strata-launch;
+
+                temperature-text <=> root.temperature-text;
+                max-tokens-text <=> root.max-tokens-text;
+
+                load-requested => { root.load-requested(); }
+                unload-requested => { root.unload-requested(); }
+                new-chat-requested => { root.new-chat-requested(); }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                spacing: 10px;
+
+                HorizontalLayout {
+                    height: 32px;
+                    spacing: 18px;
+                    alignment: start;
+
+                    QuietTab {
+                        label: "Chat";
+                        selected: root.tab-index == 0;
+                        clicked => { root.tab-index = 0; }
+                    }
+                    if root.image-edition : QuietTab {
+                        label: "Image";
+                        selected: root.tab-index == 1;
+                        clicked => { root.tab-index = 1; }
+                    }
+                }
+
+                if root.chat-tab : ChatWorkspace {
+                    turns: root.turns;
+                    scroll-tick: root.scroll-tick;
+                    model-indicator: root.model-indicator;
+                    endpoint-name: root.endpoint-name;
+                    empty-engine: root.empty-engine;
+                    model-loaded: root.model-loaded;
+                    busy: root.busy;
+                    input-text <=> root.input-text;
+
+                    send-requested => { root.send-requested(); }
+                    stop-requested => { root.stop-requested(); }
+                }
+
+                if !root.chat-tab : ImageWorkspace {
+                    busy: root.busy;
+                    image-endpoint <=> root.image-endpoint;
+                    image-model <=> root.image-model;
+                    image-size <=> root.image-size;
+                    image-prompt <=> root.image-prompt;
+                    image-output <=> root.image-output;
+                    image-preview: root.image-preview;
+                    image-ready: root.image-ready;
+
+                    generate-image-requested => { root.generate-image-requested(); }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Ui.hairline;
+        }
+
+        // -------------------------------------------------------------- footer
+        Rectangle {
+            height: 38px;
+            background: Ui.surface;
+
+            HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                spacing: 8px;
+
+                Rectangle {
+                    width: 6px;
+                    background: transparent;
+                    StatusDot {
+                        y: (parent.height - self.height) / 2;
+                        active: root.model-loaded;
+                        has-error: root.status-error;
+                    }
+                }
+                Text {
+                    text: root.status;
+                    font-size: 12px;
+                    color: root.status-error ? Ui.error : Ui.muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: root.resources;
+                    font-size: 11px;
+                    font-family: Ui.font-mono;
+                    color: Ui.muted;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

@@ -33,6 +33,21 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Install Linux Slint build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev libxcb1-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust desktop target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 

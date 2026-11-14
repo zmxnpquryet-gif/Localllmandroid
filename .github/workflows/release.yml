@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g. v1.5.5)'
+        description: 'Tag to release (e.g. v2.0.0)'
         required: false
         default: ''
 
@@ -20,8 +20,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  desktop-windows:
+    name: Build Windows Desktop (Rust + Slint)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust desktop target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Test & Build Windows Desktop Release
+        working-directory: desktop
+        run: |
+          cargo test
+          cargo build --release
+
+      - name: Package Windows Desktop Archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist-win/OffconAI-desktop | Out-Null
+          Copy-Item desktop/target/release/offcon-desktop.exe dist-win/OffconAI-desktop/
+          Compress-Archive -Path dist-win/OffconAI-desktop/* -DestinationPath OffconAI-desktop-windows-x86_64.zip -Force
+          Get-FileHash OffconAI-desktop-windows-x86_64.zip -Algorithm SHA256 | Format-List
+
+      - name: Upload Windows Desktop Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-windows-x86_64
+          path: OffconAI-desktop-windows-x86_64.zip
+
   release:
-    name: Build & Release
+    name: Build Android APK & Linux Desktop & Publish
+    needs: desktop-windows
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,10 +67,25 @@ jobs:
           submodules: recursive
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Install Linux Slint build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev libxcb1-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust desktop target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -81,14 +132,21 @@ jobs:
           echo "=== APK Signature ==="
           $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs "$APK_FILE" || true
 
-      - name: Build desktop distribution
+      - name: Build Linux desktop distribution
         run: |
           ./gradlew :desktop:installDist --stacktrace
           cd desktop/build/install
-          zip -r "$GITHUB_WORKSPACE/OffconAI-desktop.zip" desktop
-          sha256sum "$GITHUB_WORKSPACE/OffconAI-desktop.zip"
+          zip -r "$GITHUB_WORKSPACE/OffconAI-desktop-linux-x86_64.zip" desktop
+          cp "$GITHUB_WORKSPACE/OffconAI-desktop-linux-x86_64.zip" "$GITHUB_WORKSPACE/OffconAI-desktop.zip"
+          sha256sum "$GITHUB_WORKSPACE/OffconAI-desktop-linux-x86_64.zip"
 
-      - name: Publish or Attach APK to Release
+      - name: Download Windows Desktop Artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: desktop-windows-x86_64
+          path: ${{ github.workspace }}
+
+      - name: Publish or Attach Assets to Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -99,11 +157,20 @@ jobs:
           echo "Target tag: $TAG"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists. Uploading APK asset..."
-            gh release upload "$TAG" app/build/outputs/apk/release/*.apk OffconAI-desktop.zip --clobber
+            echo "Release $TAG already exists. Uploading release assets..."
+            gh release upload "$TAG" \
+              app/build/outputs/apk/release/*.apk \
+              OffconAI-desktop-windows-x86_64.zip \
+              OffconAI-desktop-linux-x86_64.zip \
+              OffconAI-desktop.zip \
+              --clobber
           else
-            echo "Release $TAG does not exist. Creating new release with APK..."
-            gh release create "$TAG" app/build/outputs/apk/release/*.apk OffconAI-desktop.zip \
+            echo "Release $TAG does not exist. Creating new release with assets..."
+            gh release create "$TAG" \
+              app/build/outputs/apk/release/*.apk \
+              OffconAI-desktop-windows-x86_64.zip \
+              OffconAI-desktop-linux-x86_64.zip \
+              OffconAI-desktop.zip \
               --title "$TAG" \
               --generate-notes
           fi

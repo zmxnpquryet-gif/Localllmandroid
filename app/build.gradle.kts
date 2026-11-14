@@ -39,13 +39,27 @@ val hasReleaseSigning = releaseKeystoreFile.isFile &&
   !releaseStorePassword.isNullOrBlank() && !releaseKeyPassword.isNullOrBlank()
 
 val validateReleaseCredentials = tasks.register("validateReleaseCredentials") {
-  // Reads credentials at execution time: not configuration-cache safe by design
-  // (a cached pass/fail would be a lie when the credentials change).
+  // Capture only a serializable File instead of script-level functions so Gradle 9
+  // configuration cache never attempts to serialize the Build_gradle script instance.
+  val repoRootDir = rootProject.projectDir
   notCompatibleWithConfigurationCache("validates release signing credentials at execution time")
   doLast {
-    val ksFile = resolveKeystoreFile(signingCredential("KEYSTORE_PATH", "storeFile"))
-    val storePw = signingCredential("STORE_PASSWORD", "storePassword")
-    val keyPw = signingCredential("KEY_PASSWORD", "keyPassword")
+    val props = Properties().apply {
+      val propsFile = File(repoRootDir, "keystore.properties")
+      if (propsFile.isFile) propsFile.inputStream().use { load(it) }
+    }
+    fun cred(envKey: String, propKey: String): String? =
+      System.getenv(envKey)?.takeIf { it.isNotBlank() }
+        ?: props.getProperty(propKey)?.takeIf { it.isNotBlank() }
+
+    val rawPath = cred("KEYSTORE_PATH", "storeFile")
+    val ksFile = when {
+      rawPath.isNullOrBlank() -> File(repoRootDir, "my-upload-key.jks")
+      File(rawPath).isAbsolute -> File(rawPath)
+      else -> File(repoRootDir, rawPath)
+    }
+    val storePw = cred("STORE_PASSWORD", "storePassword")
+    val keyPw = cred("KEY_PASSWORD", "keyPassword")
     check(ksFile.isFile && !storePw.isNullOrBlank() && !keyPw.isNullOrBlank()) {
       "Release signing requires a keystore (KEYSTORE_PATH / keystore.properties storeFile, or my-upload-key.jks), " +
         "storePassword and keyPassword (env STORE_PASSWORD/KEY_PASSWORD or keystore.properties). " +

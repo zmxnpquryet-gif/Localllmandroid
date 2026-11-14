@@ -97,7 +97,7 @@ LFM3 Omni 2B는 앱의 네이티브 오디오 경로에 연결되어 있습니�
 
 | Android | 데스크톱 |
 | --- | --- |
-| llama.cpp, LiteRT-LM, libmtmd | Java 17 애플리케이션 |
+| llama.cpp, LiteRT-LM, libmtmd | 네이티브 Rust + Slint 애플리케이션 |
 | GGUF 및 LiteRT 모델 형식 | 독립적인 llama.cpp, vLLM 및 Strata 어댑터 |
 | CPU 폴백과 기능 감지 | LLM Edition 및 All-in-One Edition |
 | 명시적인 상태 코드를 쓰는 JNI 브리지 | 백엔드별 설정과 리소스 모니터링 |
@@ -143,7 +143,7 @@ curl http://<phone-ip>:11434/v1/models \
 
 ~~~text
 app/       Android UI, llama.cpp/LiteRT 런타임, 음성, 저장소, API 서버
-desktop/   Java 17 데스크톱 에디션과 독립 백엔드 어댑터
+desktop/   네이티브 Rust + Slint 데스크톱 워크스페이스와 독립 백엔드 어댑터
 docs/      아키텍처, 모델 카탈로그, UI 방향, GitHub Pages
 ~~~
 

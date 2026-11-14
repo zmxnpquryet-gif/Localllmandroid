@@ -5,11 +5,7 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,27 +24,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import com.localllm.android.ui.glass.GButton
-import com.localllm.android.ui.glass.GIcon
-import com.localllm.android.ui.glass.GIconButton
-import com.localllm.android.ui.glass.GIcons
-import com.localllm.android.ui.glass.GSlider
-import com.localllm.android.ui.glass.GText
-import com.localllm.android.ui.glass.GTextButton
-import com.localllm.android.ui.glass.GlassTheme
-import com.localllm.android.voice.LocalSttEngine
-import com.localllm.android.voice.LocalTtsEngine
-import com.localllm.android.voice.SttEngine
-import com.localllm.android.voice.TtsEngineMode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,18 +37,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.localllm.android.R
 import com.localllm.android.ui.AppScreen
 import com.localllm.android.ui.MainViewModel
+import com.localllm.android.ui.glass.GButton
+import com.localllm.android.ui.glass.GIcon
+import com.localllm.android.ui.glass.GIconButton
+import com.localllm.android.ui.glass.GIcons
+import com.localllm.android.ui.glass.GText
+import com.localllm.android.ui.glass.GlassTheme
 import com.localllm.android.voice.InteractiveVoiceState
-import java.util.Locale
+import com.localllm.android.voice.LocalTtsEngine
+import com.localllm.android.voice.TtsEngineMode
+import com.localllm.android.voice.VoiceAudioReason
 
 @Composable
 fun VoiceModeScreen(
@@ -93,8 +81,6 @@ fun VoiceModeScreen(
     var isMicMuted by remember { mutableStateOf(false) }
     var nativePermissionPending by remember { mutableStateOf(false) }
 
-    // Leaving this screen (back gesture included) must break the hands-free loop:
-    // otherwise the TTS completion callback would restart listening after exit.
     DisposableEffect(Unit) {
         onDispose {
             viewModel.stopNativeOmniSession()
@@ -103,7 +89,6 @@ fun VoiceModeScreen(
         }
     }
 
-    // Audio recording permission launcher
     val micPermissionRequiredMsg = stringResource(R.string.voice_interactive_permission_required)
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -120,56 +105,54 @@ fun VoiceModeScreen(
         }
     }
 
-    fun nativeVoiceAction() {
-        if (nativeOmniActive) {
-            viewModel.stopNativeOmniTurn()
-            return
-        }
-        val hasMic = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-        if (hasMic) {
-            viewModel.startNativeOmniTurn()
+    fun triggerVoiceAction() {
+        if (isNativeOmni) {
+            if (nativeOmniActive) {
+                viewModel.stopNativeOmniTurn()
+                return
+            }
+            val hasMic = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+            if (hasMic) {
+                viewModel.startNativeOmniTurn()
+            } else {
+                nativePermissionPending = true
+                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        } else if (voiceState == InteractiveVoiceState.IDLE) {
+            val hasMic = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+            if (hasMic) {
+                viewModel.startInteractiveVoiceSession()
+            } else {
+                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
         } else {
-            nativePermissionPending = true
-            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            viewModel.voiceManager.stopListening()
+            viewModel.voiceManager.stopSpeaking()
         }
     }
 
-    // Pulsing animation for ChatGPT-like Voice Orb
-    val infiniteTransition = rememberInfiniteTransition(label = "orbPulse")
-    val idlePulse by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.05f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "idleScale"
+    val targetScale = when (voiceState) {
+        InteractiveVoiceState.LISTENING -> (1.0f + amplitude * 0.25f).coerceIn(1.0f, 1.25f)
+        InteractiveVoiceState.PROCESSING -> 1.04f
+        InteractiveVoiceState.SPEAKING -> 1.08f
+        InteractiveVoiceState.IDLE -> 1.0f
+    }
+    val currentScale by animateFloatAsState(
+        targetValue = targetScale,
+        animationSpec = tween(durationMillis = 160),
+        label = "voiceDialScale"
     )
 
-    val currentScale = when (voiceState) {
-        InteractiveVoiceState.LISTENING -> (1.0f + amplitude * 0.4f).coerceIn(1.0f, 1.4f)
-        InteractiveVoiceState.PROCESSING -> idlePulse * 1.08f
-        InteractiveVoiceState.SPEAKING -> idlePulse * 1.15f
-        InteractiveVoiceState.IDLE -> idlePulse
-    }
-
-    val orbGradient = when (voiceState) {
-        InteractiveVoiceState.LISTENING -> Brush.radialGradient(
-            listOf(GlassTheme.colors.primary, GlassTheme.colors.primary.copy(alpha = 0.62f), GlassTheme.colors.background)
-        )
-        InteractiveVoiceState.PROCESSING -> Brush.radialGradient(
-            listOf(GlassTheme.colors.tertiary, GlassTheme.colors.primary, GlassTheme.colors.background)
-        )
-        InteractiveVoiceState.SPEAKING -> Brush.radialGradient(
-            listOf(GlassTheme.colors.primary, GlassTheme.colors.tertiary, GlassTheme.colors.background)
-        )
-        InteractiveVoiceState.IDLE -> Brush.radialGradient(
-            listOf(GlassTheme.colors.surfaceVariant, GlassTheme.colors.surface, GlassTheme.colors.background)
-        )
-    }
+    val isActiveVoice = voiceState != InteractiveVoiceState.IDLE
+    val dialBackground = if (isActiveVoice) GlassTheme.colors.primary else GlassTheme.colors.surface
+    val dialBorder = if (isActiveVoice) GlassTheme.colors.primary else GlassTheme.colors.outline
+    val dialIconTint = if (isActiveVoice) GlassTheme.colors.onPrimary else GlassTheme.colors.onSurface
 
     val statusText = when (voiceState) {
         InteractiveVoiceState.LISTENING -> stringResource(R.string.voice_state_listening)
@@ -185,458 +168,244 @@ fun VoiceModeScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        // Aurora depth washes (theme-tinted, dark immersive base preserved)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            GlassTheme.colors.primary.copy(alpha = 0.14f),
-                            Color.Transparent
-                        ),
-                        radius = 800f
-                    )
-                )
-        )
-        // Content column: the orb area flexes and the controls below stay reachable on
-        // short screens (large system nav bars / small phones).
         Column(modifier = Modifier.fillMaxSize()) {
-        // Top Bar: Exit button & Mode indicator
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            GIconButton(
-                onClick = {
-                    viewModel.voiceManager.stopListening()
-                    viewModel.voiceManager.stopSpeaking()
-                    viewModel.navigateTo(AppScreen.CHAT)
-                }
-            ) {
-                GIcon(
-                    imageVector = GIcons.Close,
-                    contentDescription = stringResource(R.string.close),
-                    tint = GlassTheme.colors.onPrimary
-                )
-            }
-
-            GText(
-                text = stringResource(R.string.voice_mode_title),
-                style = GlassTheme.type.titleSmall,
-                color = GlassTheme.colors.onBackground
-            )
-
-            Spacer(modifier = Modifier.width(36.dp))
-        }
-
-        GText(
-            text = if (isNativeOmni) {
-                (activeModel?.name ?: "LFM3 Omni") + " · native audio in → audio out · one tap per turn"
-            } else {
-                stringResource(R.string.voice_native_audio_unavailable)
-            },
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
-            fontSize = 11.sp,
-            color = if (isNativeOmni) GlassTheme.colors.primary else GlassTheme.colors.onBackground.copy(alpha = 0.55f)
-        )
-
-        audioDecision?.let { decision ->
-            GText(
-                text = stringResource(
-                    when (decision.reason) {
-                        com.localllm.android.voice.VoiceAudioReason.MODEL_ACCEPTS_AUDIO -> R.string.voice_route_direct
-                        com.localllm.android.voice.VoiceAudioReason.MODEL_NEEDS_STT -> R.string.voice_route_stt
-                        com.localllm.android.voice.VoiceAudioReason.RUNTIME_CANNOT_DECODE_AUDIO -> R.string.voice_route_runtime_stt
-                    }
-                ),
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
-                fontSize = 11.sp,
-                color = GlassTheme.colors.onBackground.copy(alpha = 0.55f)
-            )
-        }
-
-        // Center: Interactive Voice Orb (flexible area: it gives room to the controls)
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(150.dp)
-                    .scale(currentScale)
-                    .clip(CircleShape)
-                    .background(orbGradient)
-                    .border(2.dp, GlassTheme.colors.onPrimary.copy(alpha = 0.35f), CircleShape)
-                    .clickable {
-                        if (isNativeOmni) {
-                            nativeVoiceAction()
-                        } else if (voiceState == InteractiveVoiceState.IDLE) {
-                            val hasMic = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (hasMic) {
-                                viewModel.startInteractiveVoiceSession()
-                            } else {
-                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        } else {
-                            viewModel.voiceManager.stopListening()
-                            viewModel.voiceManager.stopSpeaking()
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                GIcon(
-                    imageVector = if (voiceState == InteractiveVoiceState.SPEAKING) GIcons.VolumeUp else GIcons.Mic,
-                    contentDescription = null,
-                    tint = GlassTheme.colors.onPrimary,
-                    modifier = Modifier.size(46.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            GText(
-                text = statusText,
-                style = GlassTheme.type.titleMedium,
-                color = GlassTheme.colors.onBackground.copy(alpha = 0.9f)
-            )
-
-            val liveTranscript = if (isNativeOmni) nativeOmniTranscript else recognizedText
-            if (liveTranscript.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                GText(
-                    text = "\"$liveTranscript\"",
-                    style = GlassTheme.type.bodyMedium,
-                    color = GlassTheme.colors.primary,
-                    modifier = Modifier.padding(horizontal = 24.dp)
-                )
-            }
-        }
-        }
-
-        // Bottom: engine selection and voice controls. Height-capped and scrollable so a
-        // short screen (or a 3-button system nav bar) can never push a control out of reach.
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 330.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = 12.dp)
-        ) {
-            if (isNativeOmni) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 6.dp)
-                ) {
-                    GText(
-                        text = "Native Omni session",
-                        style = GlassTheme.type.labelSmall,
-                        color = GlassTheme.colors.primary
-                    )
-                    GText(
-                        text = "16 kHz PCM is fed directly to the model; text and 24 kHz speech arrive together.",
-                        fontSize = 11.sp,
-                        color = GlassTheme.colors.onBackground.copy(alpha = 0.65f)
-                    )
-                    if (nativeOmniTranscript.isNotBlank()) {
-                        GText(
-                            text = nativeOmniTranscript.takeLast(240),
-                            fontSize = 12.sp,
-                            color = GlassTheme.colors.onBackground.copy(alpha = 0.9f),
-                            maxLines = 3
-                        )
-                    }
-                }
-            } else {
-                GText(
-                    text = stringResource(R.string.voice_tts_section),
-                    style = GlassTheme.type.labelSmall,
-                    color = GlassTheme.colors.onBackground.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TtsEngineCard(
-                        modifier = Modifier.weight(1f),
-                        title = stringResource(R.string.voice_tts_system_title),
-                        subtitle = stringResource(R.string.voice_tts_system_desc),
-                        selected = ttsMode == TtsEngineMode.SYSTEM,
-                        installed = true,
-                        onClick = { viewModel.selectTtsMode(TtsEngineMode.SYSTEM) }
-                    )
-                    TtsEngineCard(
-                        modifier = Modifier.weight(1f),
-                        title = stringResource(R.string.voice_tts_local_title),
-                        subtitle = when (val state = localTtsState) {
-                            is LocalTtsEngine.ModelState.Missing -> stringResource(R.string.voice_tts_local_missing)
-                            is LocalTtsEngine.ModelState.Downloading ->
-                                stringResource(R.string.voice_stt_downloading, (state.progress * 100).toInt())
-                            is LocalTtsEngine.ModelState.Ready -> stringResource(R.string.voice_tts_local_ready)
-                            is LocalTtsEngine.ModelState.Failed -> stringResource(R.string.voice_stt_failed, state.message)
-                        },
-                        selected = ttsMode == TtsEngineMode.LOCAL_NEURAL,
-                        installed = localTtsState is LocalTtsEngine.ModelState.Ready,
-                        onClick = {
-                            when (localTtsState) {
-                                is LocalTtsEngine.ModelState.Ready -> viewModel.selectTtsMode(TtsEngineMode.LOCAL_NEURAL)
-                                is LocalTtsEngine.ModelState.Downloading -> Unit
-                                else -> viewModel.downloadLocalTts()
-                            }
-                        }
-                    )
-                }
-
-                if (ttsMode == TtsEngineMode.LOCAL_NEURAL && localTtsState is LocalTtsEngine.ModelState.Ready) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TtsVoiceControls(
-                        speakerId = ttsSpeaker,
-                        speed = ttsSpeed,
-                        onSpeakerChange = { viewModel.setTtsSpeaker(it) },
-                        onSpeedChange = { viewModel.setTtsSpeed(it) },
-                        onPreview = { viewModel.previewTts() },
-                        onDelete = { viewModel.deleteLocalTts() }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // On-device STT status (Whisper tiny multilingual, ~75MB one-time)
-                SttStatusRow(viewModel = viewModel)
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Bottom action buttons: Mic Mute, Orb Trigger
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 40.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 GIconButton(
                     onClick = {
-                        isMicMuted = !isMicMuted
-                        if (isMicMuted) {
-                            if (isNativeOmni) viewModel.stopNativeOmniSession()
-                            else viewModel.voiceManager.stopListening()
-                        }
-                    },
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(CircleShape)
-                        .background(GlassTheme.colors.surface)
+                        viewModel.voiceManager.stopListening()
+                        viewModel.voiceManager.stopSpeaking()
+                        viewModel.navigateTo(AppScreen.CHAT)
+                    }
                 ) {
                     GIcon(
-                        imageVector = if (isMicMuted) GIcons.MicOff else GIcons.Mic,
-                        contentDescription = stringResource(R.string.voice_mic_desc),
-                        tint = if (isMicMuted) GlassTheme.colors.error else GlassTheme.colors.onPrimary
+                        imageVector = GIcons.Close,
+                        contentDescription = stringResource(R.string.close),
+                        tint = GlassTheme.colors.onBackground
                     )
                 }
 
-                GButton(
-                    onClick = {
-                        if (isNativeOmni) {
-                            nativeVoiceAction()
-                        } else if (voiceState != InteractiveVoiceState.IDLE) {
-                            viewModel.voiceManager.stopListening()
-                            viewModel.voiceManager.stopSpeaking()
-                        } else {
-                            val hasMic = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (hasMic) {
-                                viewModel.startInteractiveVoiceSession()
-                            } else {
-                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        }
-                    },
-                    modifier = Modifier.height(48.dp)
-                ) {
-                    GIcon(imageVector = GIcons.RecordVoiceOver, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    GText(text = if (voiceState == InteractiveVoiceState.IDLE) stringResource(R.string.voice_dialogue_start) else stringResource(R.string.voice_stop_dialogue))
-                }
-            }
-        }
-        }
-    }
-}
+                GText(
+                    text = stringResource(R.string.voice_mode_title),
+                    style = GlassTheme.type.titleSmall,
+                    color = GlassTheme.colors.onBackground
+                )
 
-@Composable
-private fun SttStatusRow(viewModel: MainViewModel) {
-    val sttState by viewModel.voiceManager.localStt.modelState.collectAsStateWithLifecycle()
-    val lastEngine by viewModel.voiceManager.lastSttEngine.collectAsStateWithLifecycle()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            GText(
-                text = stringResource(R.string.voice_stt_ondevice),
-                style = GlassTheme.type.labelSmall,
-                color = GlassTheme.colors.onBackground.copy(alpha = 0.9f)
-            )
-            val engineNote = when (lastEngine) {
-                SttEngine.LOCAL_WHISPER -> stringResource(R.string.voice_stt_last_local)
-                SttEngine.SYSTEM -> stringResource(R.string.voice_stt_last_system)
-                null -> null
+                Spacer(modifier = Modifier.width(36.dp))
             }
+
             GText(
-                text = when (val s = sttState) {
-                    is LocalSttEngine.ModelState.Missing -> stringResource(R.string.voice_stt_using_system) + (engineNote?.let { " • $it" } ?: "")
-                    is LocalSttEngine.ModelState.Downloading -> stringResource(R.string.voice_stt_downloading, (s.progress * 100).toInt())
-                    is LocalSttEngine.ModelState.Ready -> stringResource(R.string.voice_stt_ready) + (engineNote?.let { " • $it" } ?: "")
-                    is LocalSttEngine.ModelState.Failed -> stringResource(R.string.voice_stt_failed, s.message)
+                text = if (isNativeOmni) {
+                    (activeModel?.name ?: "LFM3 Omni") + " · native audio in → audio out · one tap per turn"
+                } else {
+                    stringResource(R.string.voice_native_audio_unavailable)
                 },
-                style = GlassTheme.type.labelSmall,
-                color = GlassTheme.colors.onBackground.copy(alpha = 0.6f)
-            )
-        }
-        when (sttState) {
-            is LocalSttEngine.ModelState.Missing, is LocalSttEngine.ModelState.Failed -> {
-                GTextButton(onClick = { viewModel.downloadLocalStt() }) {
-                    GText(
-                        text = if (sttState is LocalSttEngine.ModelState.Failed) stringResource(R.string.voice_stt_retry) else stringResource(R.string.voice_stt_get),
-                        color = GlassTheme.colors.onBackground
-                    )
-                }
-            }
-            is LocalSttEngine.ModelState.Downloading, is LocalSttEngine.ModelState.Ready -> {}
-        }
-    }
-}
-
-@Composable
-private fun TtsEngineCard(
-    title: String,
-    subtitle: String,
-    selected: Boolean,
-    installed: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(GlassTheme.colors.surface)
-            .border(
-                width = 1.dp,
-                color = if (selected) GlassTheme.colors.primary else GlassTheme.colors.outline,
-                shape = RoundedCornerShape(10.dp)
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            GText(text = title, fontSize = 12.sp, color = GlassTheme.colors.onBackground, maxLines = 1)
-            Spacer(modifier = Modifier.width(4.dp))
-            when {
-                selected -> GIcon(
-                    imageVector = GIcons.Done,
-                    contentDescription = null,
-                    tint = GlassTheme.colors.primary,
-                    modifier = Modifier.size(14.dp)
-                )
-                !installed -> GIcon(
-                    imageVector = GIcons.CloudDownload,
-                    contentDescription = null,
-                    tint = GlassTheme.colors.onBackground.copy(alpha = 0.6f),
-                    modifier = Modifier.size(14.dp)
-                )
-            }
-        }
-        GText(
-            text = subtitle,
-            fontSize = 10.sp,
-            color = GlassTheme.colors.onBackground.copy(alpha = 0.6f),
-            maxLines = 2
-        )
-    }
-}
-
-@Composable
-private fun TtsVoiceControls(
-    speakerId: Int,
-    speed: Float,
-    onSpeakerChange: (Int) -> Unit,
-    onSpeedChange: (Float) -> Unit,
-    onPreview: () -> Unit,
-    onDelete: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            GText(
-                text = stringResource(R.string.voice_tts_speaker),
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
                 fontSize = 11.sp,
-                color = GlassTheme.colors.onBackground.copy(alpha = 0.8f)
+                fontFamily = FontFamily.Monospace,
+                color = if (isNativeOmni) GlassTheme.colors.primary else GlassTheme.colors.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.width(6.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(LocalTtsEngine.SPEAKER_COUNT) { index ->
+
+            audioDecision?.let { decision ->
+                GText(
+                    text = stringResource(
+                        when (decision.reason) {
+                            VoiceAudioReason.MODEL_ACCEPTS_AUDIO -> R.string.voice_route_direct
+                            VoiceAudioReason.MODEL_NEEDS_STT -> R.string.voice_route_stt
+                            VoiceAudioReason.RUNTIME_CANNOT_DECODE_AUDIO -> R.string.voice_route_runtime_stt
+                        }
+                    ),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                    fontSize = 11.sp,
+                    color = GlassTheme.colors.onSurfaceVariant
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(144.dp)
+                            .scale(currentScale)
                             .clip(CircleShape)
-                            .background(
-                                if (index == speakerId) GlassTheme.colors.primary else GlassTheme.colors.surfaceVariant
-                            )
-                            .clickable { onSpeakerChange(index) },
+                            .background(dialBackground)
+                            .border(1.dp, dialBorder, CircleShape)
+                            .clickable(onClick = ::triggerVoiceAction),
                         contentAlignment = Alignment.Center
                     ) {
-                        GText(text = "${index + 1}", fontSize = 10.sp, color = GlassTheme.colors.onBackground)
+                        GIcon(
+                            imageVector = if (voiceState == InteractiveVoiceState.SPEAKING) GIcons.VolumeUp else GIcons.Mic,
+                            contentDescription = null,
+                            tint = dialIconTint,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    GText(
+                        text = statusText,
+                        style = GlassTheme.type.titleMedium,
+                        color = GlassTheme.colors.onBackground
+                    )
+
+                    val liveTranscript = if (isNativeOmni) nativeOmniTranscript else recognizedText
+                    if (liveTranscript.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        GText(
+                            text = "\"$liveTranscript\"",
+                            style = GlassTheme.type.bodyMedium,
+                            color = GlassTheme.colors.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
                     }
                 }
             }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            GText(
-                text = stringResource(R.string.voice_tts_speed, String.format(Locale.US, "%.1f", speed)),
-                fontSize = 11.sp,
-                color = GlassTheme.colors.onBackground.copy(alpha = 0.8f)
-            )
-            Box(modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 8.dp)
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 330.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 12.dp)
             ) {
-                GSlider(
-                    value = speed,
-                    onValueChange = onSpeedChange,
-                    valueRange = 0.5f..2.0f,
-                    steps = 14
-                )
-            }
-            GTextButton(onClick = onPreview) {
-                GText(text = stringResource(R.string.voice_tts_preview), color = GlassTheme.colors.onBackground, fontSize = 12.sp)
-            }
-            GTextButton(onClick = onDelete) {
-                GText(text = stringResource(R.string.voice_stt_delete), color = GlassTheme.colors.onBackground, fontSize = 12.sp)
+                if (isNativeOmni) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 6.dp)
+                    ) {
+                        GText(
+                            text = "Native Omni session",
+                            style = GlassTheme.type.labelSmall,
+                            color = GlassTheme.colors.primary
+                        )
+                        GText(
+                            text = "16 kHz PCM is fed directly to the model; text and 24 kHz speech arrive together.",
+                            fontSize = 11.sp,
+                            color = GlassTheme.colors.onSurfaceVariant
+                        )
+                        if (nativeOmniTranscript.isNotBlank()) {
+                            GText(
+                                text = nativeOmniTranscript.takeLast(240),
+                                fontSize = 12.sp,
+                                color = GlassTheme.colors.onBackground,
+                                maxLines = 3
+                            )
+                        }
+                    }
+                } else {
+                    GText(
+                        text = stringResource(R.string.voice_tts_section),
+                        style = GlassTheme.type.labelSmall,
+                        color = GlassTheme.colors.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        TtsEngineCard(
+                            modifier = Modifier.weight(1f),
+                            title = stringResource(R.string.voice_tts_system_title),
+                            subtitle = stringResource(R.string.voice_tts_system_desc),
+                            selected = ttsMode == TtsEngineMode.SYSTEM,
+                            installed = true,
+                            onClick = { viewModel.selectTtsMode(TtsEngineMode.SYSTEM) }
+                        )
+                        TtsEngineCard(
+                            modifier = Modifier.weight(1f),
+                            title = stringResource(R.string.voice_tts_local_title),
+                            subtitle = when (val state = localTtsState) {
+                                is LocalTtsEngine.ModelState.Missing -> stringResource(R.string.voice_tts_local_missing)
+                                is LocalTtsEngine.ModelState.Downloading ->
+                                    stringResource(R.string.voice_stt_downloading, (state.progress * 100).toInt())
+                                is LocalTtsEngine.ModelState.Ready -> stringResource(R.string.voice_tts_local_ready)
+                                is LocalTtsEngine.ModelState.Failed -> stringResource(R.string.voice_stt_failed, state.message)
+                            },
+                            selected = ttsMode == TtsEngineMode.LOCAL_NEURAL,
+                            installed = localTtsState is LocalTtsEngine.ModelState.Ready,
+                            onClick = {
+                                when (localTtsState) {
+                                    is LocalTtsEngine.ModelState.Ready -> viewModel.selectTtsMode(TtsEngineMode.LOCAL_NEURAL)
+                                    is LocalTtsEngine.ModelState.Downloading -> Unit
+                                    else -> viewModel.downloadLocalTts()
+                                }
+                            }
+                        )
+                    }
+
+                    if (ttsMode == TtsEngineMode.LOCAL_NEURAL && localTtsState is LocalTtsEngine.ModelState.Ready) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TtsVoiceControls(
+                            speakerId = ttsSpeaker,
+                            speed = ttsSpeed,
+                            onSpeakerChange = viewModel::setTtsSpeaker,
+                            onSpeedChange = viewModel::setTtsSpeed,
+                            onPreview = viewModel::previewTts,
+                            onDelete = viewModel::deleteLocalTts
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    SttStatusRow(viewModel = viewModel)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 40.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GIconButton(
+                        onClick = {
+                            isMicMuted = !isMicMuted
+                            if (isMicMuted) {
+                                if (isNativeOmni) viewModel.stopNativeOmniSession()
+                                else viewModel.voiceManager.stopListening()
+                            }
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(GlassTheme.colors.surface)
+                            .border(1.dp, GlassTheme.colors.outline, CircleShape)
+                    ) {
+                        GIcon(
+                            imageVector = if (isMicMuted) GIcons.MicOff else GIcons.Mic,
+                            contentDescription = stringResource(R.string.voice_mic_desc),
+                            tint = if (isMicMuted) GlassTheme.colors.error else GlassTheme.colors.onSurface
+                        )
+                    }
+
+                    GButton(
+                        onClick = ::triggerVoiceAction,
+                        modifier = Modifier.height(44.dp)
+                    ) {
+                        GIcon(imageVector = GIcons.RecordVoiceOver, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        GText(
+                            text = if (voiceState == InteractiveVoiceState.IDLE) stringResource(R.string.voice_dialogue_start)
+                            else stringResource(R.string.voice_stop_dialogue)
+                        )
+                    }
+                }
             }
         }
     }

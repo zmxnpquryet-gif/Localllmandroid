@@ -1,0 +1,161 @@
+// OffconAI Desktop — All-in-One still-image generation workspace.
+
+import { Ui } from "theme.slint";
+import { Card, Field, FieldLabel, FlatButton } from "widgets.slint";
+
+export component ImageWorkspace inherits VerticalLayout {
+    in property <bool> busy;
+    in-out property <string> image-endpoint;
+    in-out property <string> image-model;
+    in-out property <string> image-size;
+    in-out property <string> image-prompt;
+    in-out property <string> image-output;
+    in property <image> image-preview;
+    in property <bool> image-ready;
+
+    callback generate-image-requested();
+
+    spacing: 12px;
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+
+    VerticalLayout {
+        spacing: 4px;
+        Text {
+            text: "Image generation";
+            font-size: 16px;
+            font-weight: 500;
+            color: Ui.text;
+        }
+        Text {
+            text: "Generate a still image through an OpenAI-compatible /v1/images/generations endpoint.";
+            font-size: 12px;
+            color: Ui.muted;
+            wrap: TextWrap.word-wrap;
+        }
+    }
+
+    Card {
+        horizontal-stretch: 1;
+        vertical-stretch: 1;
+
+        HorizontalLayout {
+            padding: 14px;
+            spacing: 14px;
+
+            VerticalLayout {
+                spacing: 8px;
+                width: 46%;
+
+                VerticalLayout {
+                    spacing: 4px;
+                    FieldLabel { text: "Endpoint"; }
+                    Field {
+                        text <=> root.image-endpoint;
+                        placeholder: "http://127.0.0.1:8000";
+                        field-enabled: !root.busy;
+                        monospace: true;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    FieldLabel { text: "Image model"; }
+                    Field {
+                        text <=> root.image-model;
+                        placeholder: "flux-schnell";
+                        field-enabled: !root.busy;
+                        monospace: true;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        spacing: 4px;
+                        horizontal-stretch: 1;
+                        FieldLabel { text: "Size"; }
+                        Field {
+                            text <=> root.image-size;
+                            placeholder: "1024x1024";
+                            field-enabled: !root.busy;
+                            monospace: true;
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: 4px;
+                        horizontal-stretch: 1;
+                        FieldLabel { text: "Output path"; }
+                        Field {
+                            text <=> root.image-output;
+                            placeholder: "build/desktop/generated.png";
+                            field-enabled: !root.busy;
+                            monospace: true;
+                        }
+                    }
+                }
+                FieldLabel { text: "Prompt"; }
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: 8px;
+                    background: Ui.surface;
+                    border-width: 1px;
+                    border-color: image-prompt-input.has-focus ? Ui.accent : Ui.hairline;
+
+                    image-prompt-input := TextInput {
+                        x: 10px;
+                        y: 8px;
+                        width: parent.width - 20px;
+                        height: parent.height - 16px;
+                        text <=> root.image-prompt;
+                        single-line: false;
+                        wrap: TextWrap.word-wrap;
+                        font-size: 13px;
+                        color: Ui.text;
+                        enabled: !root.busy;
+                        selection-background-color: Ui.accent;
+                        selection-foreground-color: #FFFFFF;
+                    }
+                    Text {
+                        x: 11px;
+                        y: 8px;
+                        width: parent.width - 22px;
+                        height: 20px;
+                        text: root.image-prompt == "" ? "Describe the still image..." : "";
+                        font-size: 13px;
+                        color: Ui.muted;
+                        vertical-alignment: center;
+                    }
+                }
+                FlatButton {
+                    label: "Generate image";
+                    primary: true;
+                    button-enabled: !root.busy;
+                    clicked => { root.generate-image-requested(); }
+                }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                background: Ui.raised;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Ui.hairline;
+
+                if root.image-ready : Image {
+                    source: root.image-preview;
+                    image-fit: contain;
+                    width: 100%;
+                    height: 100%;
+                }
+                if !root.image-ready : Text {
+                    width: 100%;
+                    height: 100%;
+                    text: "Generated image preview appears here.";
+                    font-size: 12px;
+                    color: Ui.muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

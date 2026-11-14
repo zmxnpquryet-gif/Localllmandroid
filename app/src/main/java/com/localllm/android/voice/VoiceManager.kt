@@ -135,7 +135,9 @@ class VoiceManager(private val context: Context) {
                             }
 
                             override fun onDone(utteranceId: String?) = finishSpeech(utteranceId, true)
+                            @Deprecated("Deprecated in UtteranceProgressListener")
                             override fun onError(utteranceId: String?) = onSystemSpeechFailed(utteranceId)
+                            override fun onError(utteranceId: String?, errorCode: Int) = onSystemSpeechFailed(utteranceId)
                             override fun onStop(utteranceId: String?, interrupted: Boolean) = finishSpeech(utteranceId, false)
                         })
                     }

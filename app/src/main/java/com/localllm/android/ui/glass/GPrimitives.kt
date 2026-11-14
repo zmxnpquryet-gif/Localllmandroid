@@ -63,7 +63,7 @@ fun GText(
             fontWeight = fontWeight ?: style.fontWeight,
             fontFamily = fontFamily ?: style.fontFamily,
             lineHeight = if (lineHeight != TextUnit.Unspecified) lineHeight else style.lineHeight,
-            textAlign = textAlign ?: style.textAlign ?: TextAlign.Start
+            textAlign = textAlign ?: style.textAlign
         ),
         maxLines = maxLines,
         overflow = overflow

@@ -442,4 +442,124 @@
 - 검증: `:app:assembleDebug`, `:app:testDebugUnitTest` **243/243 통과**, `:app:lintDebug` 성공.
 - 변경 파일: `DESIGN.md`, `GlassTheme.kt`, `GPrimitives.kt`, `GButtons.kt`, `OffconMark.kt`, `ChatTopBar.kt`, `ChatMessageItem.kt`, `ChatScreen.kt`, `ChatInputBar.kt`, `PerformanceMetricsChip.kt`, `ReasoningCard.kt`, `ChatDrawer.kt`, `SettingsScreen.kt`, `ReasoningStreamParser.kt`, strings 3종, parser 테스트.
 
+## 2026-11-13 — 데스크톱 Swing UI 재설계
+
+- 사용자 요청("그리고 데탑앱도 제대로 깎아.")에 따라 기존 `:desktop`의 기본 Swing UI를 같은 unslop 방향으로 다시 작성했다. Android 화면은 건드리지 않았다.
+- 기존 문제:
+  - Windows 시스템 LAF 그대로라 탭/콤보의 파란 포커스 크롬, 회색 선택 배경이 남았다.
+  - 런타임 설정이 채팅 상단에 가로 `FlowLayout`으로 붙어 있어 필드가 잘리고, 버튼이 카드 높이만큼 세로로 늘어났다.
+  - 채팅이 단일 monospace `JTextArea`라 사용자/어시스턴트 역할 구분, 추론/도구 호출 스타일, 빈 상태가 없었다.
+- 새 구조:
+  - 1180×800 기본, 980×700 최소. 24px 외곽 여백, 300px 런타임 사이드바, 유동 채팅 워크스페이스.
+  - 헤더: 플랫 Offcon 글리프 + 워드마크, Edition/Backend 셀렉터. 하단 1px hairline.
+  - 사이드바: Runtime 카드(모델 라벨, Load/Unload)와 Backend 카드(llama.cpp/vLLM/Strata 설정). GridBag으로 필드를 카드 폭에 맞추고 버튼 높이를 36px로 고정.
+  - 워크스페이스: 밑줄형 quiet tab(Chat/Image), 카드형 transcript, 72px composer. Enter 전송·Shift+Enter 줄바꿈.
+  - 빈 상태: 중앙정렬 대신 좌측정렬. 플랫 글리프, "No conversation", 한 줄 안내, "Engine" 카드. 실제 백엔드/모델 상태를 반영.
+  - 대화: 사용자 우측정렬, 어시스턴트 좌측정렬. 11px 역할 라벨, 14px 본문, 12px 추론, 11px mono 도구 호출. 말풍선/그림자 없음.
+  - 푸터: 상태 한 줄 + mono 런타임 계기판. 외부 엔드포인트는 pid 대신 `external · req · up`로 표시.
+- 커스텀 Swing 컴포넌트:
+  - `FlatButton`(hover/pressed/focus 직접 렌더), `RoundedPanel`(flat fill + hairline), `OffconGlyph`(Path2D 플랫 마크), `PlaceholderTextArea`.
+  - `FlatComboBoxUI`: `paintCurrentValue`를 직접 그려 Windows LAF의 파란 선택 배경을 제거.
+  - `QuietTabbedPaneUI`: 탭 테두리/콘텐츠 보더를 없애고 선택 탭에만 2px cobalt 밑줄.
+- 상태/안전성:
+  - 로드/언로드/전송/이미지 생성 중 관련 버튼과 입력을 모두 비활성화해 중복 요청을 막았다.
+  - `modelIndicator`, `endpointIndicator`, `emptyEngine`이 실제 backend에 맞게 갱신된다. 예: llama.cpp는 `local process`, vLLM/Strata는 `OpenAI-compatible endpoint`.
+  - 추론/도구/에러 스트림을 각각 muted/mono/error 스타일로 transcript에 삽입.
+- 검증:
+  - `:desktop:compileJava`, `:desktop:test` 성공.
+  - Windows에서 실제 창을 띄워 캡처: 기본/빈 상태, All-in-One 이미지 탭, vLLM 카드, Strata 카드, 980×700 리사이즈.
+  - `127.0.0.1:9099`에 임시 OpenAI 호환 SSE 서버를 띄워 Strata로 연결·로드·전송. 사용자 우측정렬, 어시스턴트 좌측정렬, 한국어 스트리밍, "Ready", `external · req 0 · up ...` 표시를 확인했다. 테스트 후 서버와 앱 프로세스는 종료.
+- 변경 파일: `desktop/src/main/java/ai/offcon/desktop/OffconAIDesktop.java`, `DESIGN.md`(Desktop 섹션), `agentswork.md`.
+- 커밋은 사용자가 요청하지 않아 하지 않았다.
+
+## 2026-11-14 — 전체 아키텍처 리팩토링 (Android 모듈화 + Desktop Rust + Slint 완전 마이그레이션)
+
+- **배경 및 목적**: 사용자 요청("전체 리팩토링 ㄱㄱ — 안드로이드 앱, 데스크탑 앱 모두. 데스크탑 앱은 Rust + Slint로 마이그레이션까지")에 따라 Android의 거대 단일 클래스(God-class)·컴포즈 화면들을 단일 책임 모듈로 분해하고, 데스크탑 앱의 기존 Java 17 Swing 구현을 완전히 제거하여 모듈식 네이티브 **Rust + Slint** 애플리케이션으로 마이그레이션 및 리팩토링했다.
+
+### 1. Desktop (`desktop/`) — Java Swing 제거 및 Rust + Slint 모듈화 마이그레이션
+- **레거시 제거 및 빌드 전환**:
+  - 기존 Java 17 Swing 소스·테스트(`desktop/src/main/java/ai/offcon/desktop/*.java`, `desktop/src/test/java/ai/offcon/desktop/DesktopTransportTest.java`) 및 디버그 임시 파일(`desktop/screenshot-*.png`, `desktop/build-*.log`)을 삭제했다. (기존 Java Swing 작업물을 제거하고 `desktop/build.gradle.kts`를 수정한 이유: 사용자가 데스크탑 앱의 Rust + Slint 마이그레이션을 명시적으로 지시했기 때문이며, Java `application` 플러그인을 제거하고 `base` 플러그인 + `cargoTest`/`cargoBuildRelease`/`installDist`/`run` Gradle `Exec`/`Copy` 태스크로 교체하여 Cargo 직접 실행과 `./gradlew :desktop:*` 워크플로를 모두 유지하는 방식으로 변경했다.)
+  - `desktop/Cargo.toml`의 `[profile.release]` 설정 조정. (기존 초안의 `lto = "thin"`을 `codegen-units = 1`로 변경한 이유: 설치된 Windows `rustc 1.97.1` 표준 라이브러리 rlib이 메타데이터 스텁으로 배포되어 cross-crate thin-LTO 시 `core` `.rmeta` 누락 컴파일 오류가 발생했기 때문이며, `Cargo.toml`의 release 프로파일을 수정해 해결했다.)
+  - `.gitignore` 인코딩 및 규칙 정비. (기존 `.gitignore`를 수정한 이유: UTF-16LE 인코딩과 깨진 끝줄이 섞여 도구에서 바이너리로 오인되고 `/desktop/target/` 규칙이 없었기 때문이며, UTF-8로 정규화하고 `/desktop/target/`을 추가했다.)
+- **Rust 코어 아키텍처 리팩토링 (`desktop/src/`)**:
+  - 새로 생성한 파일:
+    - `desktop/src/process.rs`: 자식 프로세스 수명주기(`ProcessSlot`), PATH 실행 파일 탐색, 따옴표 인자 파서, 로그 tail 리더, 폴링 `wait_for`, 리소스 포매터 분리. (기존 초안 `backends.rs`의 프로세스 관리 코드를 분리·수정한 이유: `System::new()` 실패 시 연쇄 `expect` 패닉 가능성이 있었고 종료 전 `try_wait` 확인이 없었기 때문이며, `Mutex<Option<System>>`으로 안전하게 감싸 별도 모듈로 분리했다.)
+    - `desktop/src/backends/mod.rs`, `llama_cpp.rs`, `vllm.rs`, `strata.rs`: 단일 `backends.rs`를 백엔드별 독립 모듈로 분리. (기존 초안 `backends.rs`를 대체·수정한 이유: `Strata::load`에서 `launch_command` 실행 직후 대기 없이 즉시 `/v1/models`를 호출해 기동 중인 게이트웨이를 실패 처리하던 버그가 있었고, 요청 시 로드된 `served_model_id`를 기본 모델 필드로 주입하지 않았기 때문이며, 30초 준비 폴링과 `with_default_model` 전파를 추가해 해결했다.)
+    - `desktop/src/session.rs`: UI 비의존적 `ConversationSession` 상태 머신 신설(사용자/추론/어시스턴트/도구/오류 턴 누적 및 대화 초기화 단위 테스트 포함).
+    - `desktop/src/controller.rs`: 기존 `runtime.rs`를 대체하는 Slint 이벤트 루프 브리지(새 대화 초기화, 샘플링 파라미터 `temperature`/`max_tokens` 연동, 모델 로드 상태 점 반영).
+  - 수정한 기존 초안 파일:
+    - `desktop/src/contracts.rs`, `desktop/src/transport.rs`, `desktop/src/lib.rs`, `desktop/src/main.rs`: `ChatRequest`에 `model: Option<String>`과 구조화된 `ToolCallRecord` 추가, SSE 스트리밍 `delta.tool_calls` 인덱스별 조각 조립기(`ToolCallAssembler`) 구현, Windows 릴리스 콘솔 창 숨김(`windows_subsystem = "windows"`) 적용. (기존 초안 `transport.rs`를 수정한 이유: `/v1/chat/completions` 요청 본문에 `"model"` 필드가 누락되어 vLLM/Strata 게이트웨이에서 HTTP 400이 발생할 수 있었고, `payload.contains("\"tool_calls\"")` 문자열 검사로 인해 스트리밍 청크마다 원시 SSE JSON이 중복 출력되거나 `"finish_reason":"tool_calls"`에서 오탐이 발생했기 때문이며, JSON AST 기반 `ToolCallAssembler`와 `"model"` 직렬화로 교체해 해결했다.)
+- **Slint UI 모듈화 및 디자인 정리 (`desktop/ui/`)**:
+  - 단일 1,036줄 `desktop/ui/app.slint`를 6개 선언형 모듈로 분해 생성:
+    - `desktop/ui/theme.slint`: Paper Light / Graphite Ink Dark 양방향 테마 팔레트(`Ui.dark-mode`).
+    - `desktop/ui/widgets.slint`: `Glyph`, `StatusDot`(사각 상태 점), `SectionLabel`, `Card`, `Field`, `FlatButton`, `SelectChip`, `CheckRow`, `QuietTab`.
+    - `desktop/ui/sidebar.slint`: 300px 런타임·백엔드(llama.cpp 컨텍스트 크기 포함, vLLM, Strata)·샘플링(`Temperature`, `Max tokens`)·새 대화 사이드바.
+    - `desktop/ui/chat.slint`: 대화 트랜스크립트, 좌측 정렬 빈 화면 + 엔진 계기판 카드, Enter/Shift+Enter 컴포저.
+    - `desktop/ui/image.slint`: All-in-One 에디션 전용 이미지 생성 워크스페이스.
+    - `desktop/ui/app.slint`: 결정론적 루트 `VerticalLayout`(Header → Hairline → Body → Hairline → Footer) 적용. (기존 초안 `app.slint`를 수정한 이유: 헤더에 레이아웃 디버깅용 분홍색 배경 `#FFE8E8`이 남아 있었고 `Window` 직속 복수 `Rectangle` 배치로 인해 렌더러에 따라 헤더 수직 정렬 깨짐이 발생했기 때문이며, 단일 루트 `VerticalLayout`과 `Ui.surface` 중립 토큰으로 재작성해 해결했다.)
+
+### 2. Android (`:app`) — God-Class 분해, 중복 제거 및 Compose 화면 모듈화
+- **ViewModel 및 설정 저장소 리팩토링 (`2,400줄 → 493줄`)**:
+  - 새로 생성한 파일:
+    - `app/src/main/java/com/localllm/android/data/preferences/AppSettingsStore.kt`: `GenerationSettings`, `SecretPrefs` 암호화 자격 증명, 모델별 도구 템플릿 오버라이드의 단일 저장소.
+    - `app/src/main/java/com/localllm/android/i18n/LocalizedStringProvider.kt`: 로케일별 `Configuration` 컨텍스트 캐시 제공자.
+    - `app/src/main/java/com/localllm/android/audio/NativeOmniPromptBuilder.kt`: Gemma 4 / Qwen 3.5 / ChatML / LFM3 네이티브 Omni 프롬프트 엔벨로프 빌더 및 패밀리 감지기 분리.
+    - `app/src/main/java/com/localllm/android/ui/controllers/ConversationController.kt`: 대화 목록, 인메모리 초안, 첨부파일, 대화별 문서 RAG 인덱싱/선택 관리.
+    - `app/src/main/java/com/localllm/android/ui/controllers/ModelPortfolioController.kt`: 모델 카탈로그, 다운로드 진행률 통합 반영(기존 서비스/인프로세스 중복 매핑 제거), 커스텀 번들 추가, SAF 로컬 모델 임포트, 모델 로드 상태 관리.
+    - `app/src/main/java/com/localllm/android/ui/controllers/McpSessionController.kt`: MCP 연결, 호스트 변경 시 토큰 유출 방지 정책, 도구 호출 승인 게이트 관리.
+    - `app/src/main/java/com/localllm/android/ui/controllers/VoiceSessionController.kt`: 파이프라인 음성 대화 루프(STT→LLM→TTS) 및 네이티브 Omni 오디오 세션 수명주기 관리.
+    - `app/src/main/java/com/localllm/android/ui/controllers/ApiServerController.kt`: 포그라운드 API 서버 바인딩, API 키 회전, 로컬 IP 탐색 관리.
+    - `app/src/main/java/com/localllm/android/ui/controllers/ChatTurnRunner.kt`: 멀티라운드 채팅 스트리밍, 45ms UI 스로틀링, MCP 배치 도구 검증·승인·실행 루프 분리.
+  - 수정한 파일:
+    - `MainViewModel.kt`, `ApiServerService.kt`: 기존 공개 `StateFlow`/메서드 시그니처와 테스트 계약을 그대로 보존하면서 위 컨트롤러들과 `AppSettingsStore`로 위임하도록 재구성했다. (기존 `MainViewModel.kt`와 `ApiServerService.kt`를 수정한 이유: 2,400줄 단일 클래스에 8가지 도메인 책임과 중복 `SharedPreferences` 키 파싱이 결합되어 유지보수성이 떨어졌기 때문이며, 도메인별 컨트롤러와 `AppSettingsStore`를 추출해 위임하는 방식으로 리팩토링했다.)
+- **추론 엔진·다운로더·템플릿·도구 프로토콜·API 서버 모듈화**:
+  - 새로 생성한 파일:
+    - `engine/ModelFileValidator.kt`: GGUF 매직 헤더·LiteRT 컨테이너 검증, HTML/401/404 오류 페이지 진단, `content://` 비전 이미지 캐시 스테이징 통합.
+    - `engine/LiteRtSessionRunner.kt`, `engine/LlamaSessionRunner.kt`: LiteRT-LM 및 네이티브 `llama.cpp` 런타임 로드/추론 실행기 분리.
+    - `engine/SegmentedTransferWorker.kt`: 멀티 세그먼트 HTTP Range 다운로드, `.partsmeta` 검증, zero-copy 병합 및 단일 스트림 폴백 워커 분리.
+    - `engine/JinjaTemplateEvaluator.kt`: `PromptFormatter.kt` 내부에 함께 있던 Jinja 평가기를 독립 파일로 분리.
+    - `engine/McpToolTypes.kt`, `engine/ToolTextSpans.kt`: 도구 호출 데이터 모델/인터페이스 및 코드 펜스 인지 문자열 스팬 유틸리티 분리.
+    - `server/HttpWireWriter.kt`, `server/ApiPayloadMapper.kt`: HTTP/1.1 응답·청크 스트림·CORS 라이터와 Ollama/OpenAI JSON 매퍼 분리.
+  - 수정한 파일:
+    - `engine/LlmEngine.kt`(`1,136줄 → 252줄`), `engine/ModelDownloader.kt`(`1,142줄 → 607줄`), `engine/PromptFormatter.kt`(`841줄 → 520줄`), `engine/McpToolProtocol.kt`(`885줄 → 732줄`), `server/OllamaApiServer.kt`(`1,146줄 → 591줄`): 중복 컨테이너 검증과 `/api/generate`·`/api/chat` 중복 스트리밍 보일러플레이트를 통합하고 추출된 협력 객체로 위임했다. (수정한 이유: 파일 간 매직 바이트/오류 페이지 검사 코드와 스트리밍 응답 루프가 중복되어 있었기 때문이며, 기존 단위 테스트용 companion/internal 시그니처는 모두 유지한 채 내부 구현만 분리했다.)
+    - `data/ModelStorageManager.kt`, `ui/glass/GPrimitives.kt`, `voice/VoiceManager.kt`: 컴파일러 nullability/deprecated 경고 정리. (수정한 이유: `JSONObject.optString(key, null)`의 런타임 null 안전성 경고와 불필요한 safe-call/deprecated 오버라이드 경고를 제거하기 위해 안전 기본값 및 어노테이션을 보강했다.)
+- **Compose UI 화면 분해 및 `DESIGN.md` 일관성 정리**:
+  - 새로 생성한 파일:
+    - `ui/models/ModelBundleCard.kt`, `ui/models/FdmDownloadCards.kt`, `ui/models/FdmAddBundleDialog.kt`
+    - `ui/settings/SettingsEngineSections.kt`, `ui/settings/SettingsIntegrationSections.kt`
+    - `ui/chat/ChatBannersAndDialogs.kt`, `ui/chat/ChatEmptyState.kt`
+    - `ui/voice/VoiceControlsSheet.kt`
+    - `ui/api/ApiServerCards.kt`
+  - 수정한 파일:
+    - `ui/models/ModelManagerScreen.kt`(`1,442줄 → 285줄`), `ui/settings/SettingsScreen.kt`(`1,050줄 → 208줄`), `ui/chat/ChatScreen.kt`(`884줄 → 389줄`), `ui/voice/VoiceModeScreen.kt`(`643줄 → 412줄`), `ui/api/ApiServerScreen.kt`(`571줄 → 352줄`). (기존 화면 파일들을 수정한 이유: 거대 단일 파일에 다이얼로그·카드·상태 수집이 혼재되어 있었고, 일부 화면에 `DESIGN.md`가 금지한 방사형 오로라 워시·그라디언트 오브·반투명 표면 알파가 남아 있었기 때문이며, 하위 컴포저블 파일로 분리하고 플랫 `surface` + `1.dp` `outline` hairline + monospace 런타임 표기로 통일했다.)
+- **단위 테스트 추가 및 CI/문서 갱신**:
+  - 새로 생성한 테스트: `app/src/test/java/com/localllm/android/engine/ModelFileValidatorTest.kt`, `app/src/test/java/com/localllm/android/audio/NativeOmniPromptBuilderTest.kt`.
+  - CI 및 문서 갱신: `.github/workflows/android.yml`, `.github/workflows/release.yml`, `DESIGN.md`, `docs/desktop.md`, `docs/ARCHITECTURE.md`, `README.md`, `README.ko.md`, `README.zh-CN.md`. (수정한 이유: 데스크탑 앱이 Java 17 Swing에서 네이티브 Rust + Slint로 이전됨에 따라 Ubuntu CI에 Slint 시스템 라이브러리·Rust 툴체인·캐시를 추가하고 문서의 아키텍처 설명을 실제 구현과 일치시키기 위함이다.)
+
+### 3. 검증 결과
+- 통합 Gradle + Cargo 검증 실행:
+  - `.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest :app:lintDebug :desktop:test :desktop:installDist` → **BUILD SUCCESSFUL**
+- 테스트 통과 수치:
+  - Android 단위 테스트: **246개 통과, 0 실패, 0 에러**
+  - Desktop Rust 단위/전송/세션 테스트(`cargo test`, `-D warnings` 포함): **12개 통과, 0 실패, 경고 0개**
+- Windows 네이티브 데스크탑 실행 검증:
+  - `desktop/build/install/desktop/bin/offcon-desktop.exe` (15.41 MB release 바이너리) 기동 확인(`alive=True`) 및 정상 종료 확인.
+
+## 2026-11-14 — R8 릴리스 검증, 커밋/동기화 및 v2.0.0 정식 릴리스 배포
+
+- **배경 및 목적**: 사용자 요청("커밋하고 풀 ㄱㄱ 그리고 릴리즈")에 따라 변경 사항을 로컬 R8 릴리스 빌드로 최종 검증한 뒤 `main` 브랜치 커밋·원격 동기화(pull/push) 및 GitHub Release `v2.0.0` 게시를 수행했다.
+- **릴리스 사전 검증 중 발견 및 수정한 항목**:
+  - `app/proguard-rules.pro`: `-dontwarn com.gemalto.jp2.**` 추가. (기존 `proguard-rules.pro`를 수정한 이유: 문서 RAG의 `pdfbox-android:2.0.27.0`이 선택적 JPEG2000 디코더 `com.gemalto.jp2.JP2Decoder`를 참조하여 R8 `minifyReleaseWithR8` 단계에서 Missing class 오류가 발생했기 때문이며, 선택 의존성 경고 억제 규칙을 추가해 해결했다.)
+  - `app/build.gradle.kts`: `validateReleaseCredentials` 태스크 클로저 분리. (기존 `app/build.gradle.kts`를 수정한 이유: `doLast` 블록이 스크립트 수준 함수를 참조해 Gradle 9.3 구성 캐시 직렬화 시 스크립트 인스턴스 캡처 오류가 보고되었기 때문이며, 직렬화 가능한 `repoRootDir: File`만 캡처하도록 태스크 내부 로컬 함수로 재작성해 해결했다.)
+  - `.github/workflows/release.yml`: Windows(`windows-latest`) 데스크탑 빌드 잡(`desktop-windows`)을 추가하여 `OffconAI-desktop-windows-x86_64.zip`, `OffconAI-desktop-linux-x86_64.zip`, `app-release.apk`를 모두 릴리스 자산으로 첨부하도록 확장했다. (기존 `release.yml`을 수정한 이유: `ubuntu-latest` 단일 잡만 존재해 Linux 데스크탑 바이너리만 패키징되었고 `actions/setup-java@v4` 구버전을 사용 중이었기 때문이며, Windows 네이티브 빌드 잡 추가 및 `setup-java@v6` 업그레이드로 개선했다.)
+- **R8 Release APK 검증**:
+  - `.\gradlew.bat :app:assembleRelease` 성공 (`lintVitalRelease`, `minifyReleaseWithR8`, 공식 업로드 키 서명 통과).
+  - `app-release.apk`: `166,253,656 bytes`, SHA-256 `3f168064db2ae91d11f8dcf9cac9e96afd241f35a39e0790d1ae6d4d49343388`.
+  - `OffconAI-desktop-windows-x86_64.zip`: `7,630,523 bytes`, SHA-256 `3441de39a4c86fef9e0505db3226cac01052bb4fe73742fa74c84bfe9b6a985a`.
+- **Git 커밋 · Pull/Push · GitHub Release `v2.0.0`**:
+  - 의도된 소스·테스트·워크플로·문서 파일만 스테이징하여 `main`에 커밋(로컬 스크린샷·로그 등 임시 미추적 파일 제외).
+  - `git pull --rebase origin main`으로 원격 최신 상태를 반영한 뒤 `origin/main` 및 태그 `v2.0.0` 푸시, `gh release create v2.0.0`로 정식 릴리스 및 바이너리 자산 게시 수행.
+
+
+
 
